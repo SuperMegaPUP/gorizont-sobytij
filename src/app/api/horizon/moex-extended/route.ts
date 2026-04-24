@@ -1,23 +1,67 @@
 // ─── /api/horizon/moex-extended ───────────────────────────────────────────
 // Расширенные данные MOEX ISS для Горизонта событий
 // Стакан 50 уровней, сделки с BUYSELL, RVI, OI фьючерсов
+// Fallback: ISS (бесплатный) → APIM (с MOEX_JWT)
 
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 
 const ISS_BASE = 'https://iss.moex.com';
+const APIM_BASE = 'https://apim.moex.com';
 
-/** Проверка content-type — ISS может вернуть HTML вместо JSON */
-async function issFetch(url: string) {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'robot-detector-terminal/3.1' },
+function getJWT(): string {
+  return (process.env.MOEX_JWT || '').trim();
+}
+
+/** Умный fetch — ISS (публичный) с fallback на APIM (авторизованный) */
+async function moexFetch(path: string): Promise<any> {
+  // 1. Пробуем публичный ISS
+  try {
+    const issUrl = `${ISS_BASE}${path}`;
+    const res = await fetch(issUrl, {
+      headers: {
+        'User-Agent': 'robot-detector-terminal/3.1',
+        'Accept': 'application/json',
+      },
+      cache: 'no-store' as RequestCache,
+      signal: AbortSignal.timeout(8000),
+    });
+    const ct = res.headers.get('content-type') || '';
+    if (res.ok && ct.includes('json')) {
+      return await res.json();
+    }
+    // ISS вернул HTML или ошибку — fallback на APIM
+  } catch {
+    // ISS timeout/error — fallback
+  }
+
+  // 2. APIM с авторизацией
+  const jwt = getJWT();
+  if (!jwt) {
+    throw new Error(`ISS returned HTML and no MOEX_JWT for fallback. Path: ${path}`);
+  }
+
+  const apimUrl = `${APIM_BASE}${path}`;
+  const res = await fetch(apimUrl, {
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+      'User-Agent': 'robot-detector-terminal/3.1',
+      'Accept': 'application/json',
+    },
     cache: 'no-store' as RequestCache,
+    signal: AbortSignal.timeout(10000),
   });
+
+  if (!res.ok) {
+    throw new Error(`APIM ${res.status} for ${path}`);
+  }
+
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('json')) {
-    throw new Error(`ISS returned non-JSON: ${ct} for ${url}`);
+    throw new Error(`APIM returned non-JSON: ${ct} for ${path}`);
   }
+
   return res.json();
 }
 
@@ -35,8 +79,8 @@ function parseIssGrid(raw: any): Record<string, any>[] {
 
 /** Стакан 50 уровней */
 async function getOrderbook(ticker: string, depth: number = 50) {
-  const url = `${ISS_BASE}/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/orderbook.json?depth=${depth}`;
-  const data = await issFetch(url);
+  const path = `/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/orderbook.json?depth=${depth}`;
+  const data = await moexFetch(path);
 
   const bids = (data.orderbook?.bids || []).map((b: any[]) => ({
     price: Number(b[0]),
@@ -53,8 +97,8 @@ async function getOrderbook(ticker: string, depth: number = 50) {
 
 /** Сделки с BUYSELL */
 async function getTrades(ticker: string, limit: number = 100) {
-  const url = `${ISS_BASE}/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?limit=${limit}`;
-  const data = await issFetch(url);
+  const path = `/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?limit=${limit}`;
+  const data = await moexFetch(path);
 
   const rows = parseIssGrid(data.trades);
   return rows.map((t) => ({
@@ -67,18 +111,17 @@ async function getTrades(ticker: string, limit: number = 100) {
 
 /** RVI — Russian Volatility Index */
 async function getRVI() {
-  const url = `${ISS_BASE}/iss/statistics/engines/stock/volatility/RVI.json`;
-  const data = await issFetch(url);
+  const path = '/iss/statistics/engines/stock/volatility/RVI.json';
+  const data = await moexFetch(path);
   const rows = parseIssGrid(data.rvi);
   return rows.length > 0 ? rows[rows.length - 1] : null;
 }
 
 /** OI фьючерсов */
 async function getFuturesOI() {
-  const url = `${ISS_BASE}/iss/engines/futures/markets/forts/securities.json`;
-  const data = await issFetch(url);
+  const path = '/iss/engines/futures/markets/forts/securities.json';
+  const data = await moexFetch(path);
   const rows = parseIssGrid(data.securities);
-  // Фильтруем только основные фьючерсы
   const targets = ['MX', 'Si', 'RI', 'BR'];
   return rows.filter((r) =>
     targets.some((t) => String(r.SECCODE || '').startsWith(t))
@@ -115,7 +158,6 @@ export async function GET(request: NextRequest) {
       }
 
       case 'all': {
-        // Параллельный запрос всех данных для тикера
         const [ob, trades, rvi, futuresOI] = await Promise.allSettled([
           getOrderbook(ticker, 50),
           getTrades(ticker, 100),
@@ -125,10 +167,10 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
           ticker,
-          orderbook: ob.status === 'fulfilled' ? ob.value : { error: ob.reason?.message },
-          trades: trades.status === 'fulfilled' ? trades.value : { error: trades.reason?.message },
-          rvi: rvi.status === 'fulfilled' ? rvi.value : { error: rvi.reason?.message },
-          futuresOI: futuresOI.status === 'fulfilled' ? futuresOI.value : { error: futuresOI.reason?.message },
+          orderbook: ob.status === 'fulfilled' ? ob.value : { error: String(ob.reason?.message || ob.reason) },
+          trades: trades.status === 'fulfilled' ? trades.value : { error: String(trades.reason?.message || trades.reason) },
+          rvi: rvi.status === 'fulfilled' ? rvi.value : { error: String(rvi.reason?.message || rvi.reason) },
+          futuresOI: futuresOI.status === 'fulfilled' ? futuresOI.value : { error: String(futuresOI.reason?.message || futuresOI.reason) },
           ts: Date.now(),
         });
       }
