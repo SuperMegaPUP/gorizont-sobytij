@@ -31,17 +31,18 @@ export function HorizonRadarFrame() {
   const radarData = useHorizonStore((s) => s.radarData);
   const fetchRadar = useHorizonStore((s) => s.fetchRadar);
   const selectTicker = useHorizonStore((s) => s.selectTicker);
+  const scannerMode = useHorizonStore((s) => s.scannerMode);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
   const [dims, setDims] = useState({ w: 400, h: 200 });
 
-  // Fetch on mount + interval
+  // Fetch on mount + interval + mode change
   useEffect(() => {
     fetchRadar();
     const interval = setInterval(fetchRadar, 30000);
     return () => clearInterval(interval);
-  }, [fetchRadar]);
+  }, [fetchRadar, scannerMode]);
 
   // Observe size
   useEffect(() => {
@@ -95,7 +96,7 @@ export function HorizonRadarFrame() {
           РАДАР: Карта аномалий
         </span>
         <span className="text-[6px] text-[var(--terminal-muted)] font-mono ml-auto">
-          {radarData.length} тикеров
+          {radarData.length} тикеров {scannerMode === 'top100' ? '(ТОП 100)' : '(все)'}
         </span>
       </div>
 

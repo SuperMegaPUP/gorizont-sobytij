@@ -257,18 +257,12 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
 
   fetchRadar: async () => {
     try {
-      let res = await fetch('/api/horizon/radar');
+      // Use current mode to determine data source
+      const mode = get().scannerMode;
+      const source = mode === 'top100' ? 'top100' : 'all';
+      const res = await fetch(`/api/horizon/radar?source=${source}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      let json = await res.json();
-
-      // If no radar data, trigger scan first then retry
-      if (!json.data || json.data.length === 0) {
-        console.log('[HorizonStore] No radar data, triggering scan...');
-        await fetch('/api/horizon/scan', { method: 'POST' });
-        res = await fetch('/api/horizon/radar');
-        if (res.ok) json = await res.json();
-      }
-
+      const json = await res.json();
       set({ radarData: json.data || [] });
     } catch (error: any) {
       console.warn('[HorizonStore] fetchRadar error:', error.message);

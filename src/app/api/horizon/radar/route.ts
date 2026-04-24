@@ -1,6 +1,9 @@
 // ─── /api/horizon/radar — GET: Radar Dot Data ─────────────────────────────
-// Reads horizon:scanner:latest from Redis and calculates radar dot data
+// Reads from BOTH horizon:scanner:latest (core 9) AND horizon:scanner:top100
+// Combines, deduplicates by ticker, and calculates radar dot data
 // Each ticker → dot with position (cumDelta, vpin), size (bsci * sqrt(turnover)), color (alertLevel)
+//
+// v2: Combined data source (core + top100), no auto-trigger scan on radar GET
 
 export const dynamic = 'force-dynamic';
 
@@ -18,60 +21,80 @@ export interface RadarDot {
   vpin: number;
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    let raw = await redis.get('horizon:scanner:latest');
+    // Read query param: source=all|core|top100
+    const source = request.nextUrl.searchParams.get('source') || 'all';
 
-    if (!raw) {
-      // Auto-trigger scan if no cached data
-      console.log('[/api/horizon/radar] No cached data, auto-triggering scan...');
+    let combinedData: any[] = [];
+
+    // 1. Read core scanner data (9 tickers)
+    if (source === 'all' || source === 'core') {
       try {
-        const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
-        await fetch(`${baseUrl}/api/horizon/scan`, { method: 'POST' });
-        // Re-read from Redis after scan
-        const freshRaw = await redis.get('horizon:scanner:latest');
-        if (freshRaw) raw = freshRaw;
-      } catch (scanErr: any) {
-        console.warn('[/api/horizon/radar] Auto-scan failed:', scanErr.message);
+        const coreRaw = await redis.get('horizon:scanner:latest');
+        if (coreRaw) {
+          const coreData = JSON.parse(coreRaw);
+          if (Array.isArray(coreData)) combinedData.push(...coreData);
+        }
+      } catch (e: any) {
+        console.warn('[/api/horizon/radar] Failed to read core data:', e.message);
       }
     }
 
-    if (!raw) {
+    // 2. Read TOP-100 scanner data
+    if (source === 'all' || source === 'top100') {
+      try {
+        const top100Raw = await redis.get('horizon:scanner:top100');
+        if (top100Raw) {
+          const top100Data = JSON.parse(top100Raw);
+          if (Array.isArray(top100Data)) combinedData.push(...top100Data);
+        }
+      } catch (e: any) {
+        console.warn('[/api/horizon/radar] Failed to read top100 data:', e.message);
+      }
+    }
+
+    // 3. Deduplicate by ticker (top100 data takes priority for same ticker)
+    const seen = new Map<string, any>();
+    for (const d of combinedData) {
+      if (!d.ticker) continue;
+      const existing = seen.get(d.ticker);
+      // Keep the one with higher BSCI (more informative)
+      if (!existing || (d.bsci || 0) > (existing.bsci || 0)) {
+        seen.set(d.ticker, d);
+      }
+    }
+    const deduped = Array.from(seen.values());
+
+    if (deduped.length === 0) {
       return NextResponse.json({
         success: true,
         count: 0,
         data: [],
         ts: Date.now(),
+        hint: 'No scanner data in Redis. Run POST /api/horizon/scan first.',
       });
     }
 
-    const scannerData = JSON.parse(raw);
+    // 4. Filter out tickers with no real data (BSCI near 0 = only ENTANGLE)
+    const realData = deduped.filter((d: any) => {
+      const activeDetectors = Object.values(d.detectorScores || {}).filter((s: any) => Number(s) > 0.1).length;
+      return (d.bsci || 0) > 0.05 || activeDetectors >= 3;
+    });
 
-    if (!Array.isArray(scannerData) || scannerData.length === 0) {
-      return NextResponse.json({
-        success: true,
-        count: 0,
-        data: [],
-        ts: Date.now(),
-      });
-    }
-
-    // Find max turnover for normalization
+    // 5. Calculate radar dots
     const maxTurnover = Math.max(
-      ...scannerData.map((d: any) => d.turnover || 0),
-      1, // at least 1 to avoid division by zero
+      ...realData.map((d: any) => d.turnover || 0),
+      1,
     );
 
-    // Find ranges for cumDelta and vpin normalization
-    const cumDeltas = scannerData.map((d: any) => d.cumDelta || 0);
-    const vpins = scannerData.map((d: any) => d.vpin || 0);
+    const cumDeltas = realData.map((d: any) => d.cumDelta || 0);
+    const vpins = realData.map((d: any) => d.vpin || 0);
 
     const cumDeltaMax = Math.max(...cumDeltas.map(Math.abs), 1);
     const vpinMax = Math.max(...vpins, 1);
 
-    // Build radar dots
-    const radarData: RadarDot[] = scannerData.map((d: any) => {
-      // dotSize = bsci * Math.sqrt(turnover / maxTurnover)
+    const radarData: RadarDot[] = realData.map((d: any) => {
       const turnoverRatio = (d.turnover || 0) / maxTurnover;
       const dotSize = (d.bsci || 0) * Math.sqrt(turnoverRatio);
 
@@ -82,14 +105,18 @@ export async function GET(_request: NextRequest) {
         direction: d.direction || 'NEUTRAL',
         turnover: d.turnover || 0,
         dotSize: Math.round(dotSize * 1000) / 1000,
-        cumDelta: Math.round(((d.cumDelta || 0) / cumDeltaMax) * 1000) / 1000, // normalized -1..1
-        vpin: Math.round(((d.vpin || 0) / vpinMax) * 1000) / 1000, // normalized 0..1
+        cumDelta: Math.round(((d.cumDelta || 0) / cumDeltaMax) * 1000) / 1000,
+        vpin: Math.round(((d.vpin || 0) / vpinMax) * 1000) / 1000,
       };
     });
+
+    // Sort by BSCI descending for consistent rendering order
+    radarData.sort((a, b) => b.bsci - a.bsci);
 
     return NextResponse.json({
       success: true,
       count: radarData.length,
+      source,
       data: radarData,
       ts: Date.now(),
     });
