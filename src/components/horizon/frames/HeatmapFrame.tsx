@@ -4,8 +4,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Grid3x3, Clock } from 'lucide-react';
 import { useHorizonStore } from '@/lib/horizon-store';
 
-// 9 Futures tickers (fixed order for grid rows)
-const TICKER_ORDER = ['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN'];
+// Short codes for core 9 (shown first in grid)
+const CORE_TICKERS = ['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN'];
 
 // Trading hours (Moscow time) for columns
 const TRADING_HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
@@ -30,7 +30,7 @@ export function HorizonHeatmapFrame() {
   const selectTimeSlice = useHorizonStore((s) => s.selectTimeSlice);
   const selectTicker = useHorizonStore((s) => s.selectTicker);
 
-  const [hoursRange, setHoursRange] = useState(8);
+  const [hoursRange, setHoursRange] = useState(24);
 
   // Fetch on mount + interval
   useEffect(() => {
@@ -49,6 +49,21 @@ export function HorizonHeatmapFrame() {
     return map;
   }, [heatmapData]);
 
+  // Build sorted ticker list: core 9 first, then by max BSCI
+  const sortedTickers = useMemo(() => {
+    const tickers = new Set(heatmapData.map((c) => c.ticker));
+    const core = CORE_TICKERS.filter((t) => tickers.has(t));
+    const top100 = [...tickers]
+      .filter((t) => !CORE_TICKERS.includes(t))
+      .sort((a, b) => {
+        const maxA = Math.max(...heatmapData.filter((c) => c.ticker === a).map((c) => c.maxBsci), 0);
+        const maxB = Math.max(...heatmapData.filter((c) => c.ticker === b).map((c) => c.maxBsci), 0);
+        return maxB - maxA;
+      })
+      .slice(0, 20); // Top 20 anomalies beyond core 9
+    return [...core, ...top100];
+  }, [heatmapData]);
+
   // Range selector
   const ranges = [
     { label: '8ч', value: 8 },
@@ -58,7 +73,7 @@ export function HorizonHeatmapFrame() {
 
   // Get current Moscow hour for highlight
   const now = new Date();
-  const mskOffset = 3; // UTC+3
+  const mskOffset = 3;
   const currentMskHour = (now.getUTCHours() + mskOffset) % 24;
 
   return (
@@ -68,6 +83,9 @@ export function HorizonHeatmapFrame() {
         <Grid3x3 className="w-3 h-3 text-[var(--terminal-accent)]" />
         <span className="text-[9px] text-[var(--terminal-frame-header)] font-mono font-bold tracking-wide uppercase">
           ТЕПЛОВАЯ КАРТА BSCI
+        </span>
+        <span className="text-[6px] text-[var(--terminal-muted)] font-mono ml-1">
+          {sortedTickers.length} тикеров
         </span>
         <div className="ml-auto flex items-center gap-1">
           <Clock className="w-2 h-2 text-[var(--terminal-muted)]" />
@@ -97,7 +115,7 @@ export function HorizonHeatmapFrame() {
           <div className="min-w-[480px]">
             {/* Hour headers */}
             <div className="flex border-b border-[var(--terminal-border)]/30">
-              <div className="w-8 shrink-0" /> {/* ticker column spacer */}
+              <div className="w-10 shrink-0" /> {/* ticker column spacer */}
               {TRADING_HOURS.map((h) => (
                 <div
                   key={h}
@@ -113,15 +131,16 @@ export function HorizonHeatmapFrame() {
             </div>
 
             {/* Ticker rows */}
-            {TICKER_ORDER.map((ticker) => (
+            {sortedTickers.map((ticker) => (
               <div
                 key={ticker}
                 className="flex border-b border-[var(--terminal-border)]/10"
               >
                 {/* Ticker label */}
                 <div
-                  className="w-8 shrink-0 text-[6px] font-mono text-[var(--terminal-text)] font-bold py-0.5 px-1 cursor-pointer hover:text-[var(--terminal-accent)]"
+                  className="w-10 shrink-0 text-[5px] font-mono text-[var(--terminal-text)] font-bold py-0.5 px-1 cursor-pointer hover:text-[var(--terminal-accent)] truncate"
                   onClick={() => selectTicker(ticker)}
+                  title={ticker}
                 >
                   {ticker}
                 </div>
@@ -147,7 +166,7 @@ export function HorizonHeatmapFrame() {
                       onClick={() => selectTimeSlice({ ticker, hour })}
                       title={`${ticker} ${hour}:00 — BSCI ${cell.avgBsci.toFixed(2)} (max ${cell.maxBsci.toFixed(2)}) ×${cell.count}`}
                     >
-                      <div className={`text-center text-[5px] font-mono leading-tight ${bsciToTextColor(cell.avgBsci)}`}>
+                      <div className={`text-center text-[4px] font-mono leading-tight ${bsciToTextColor(cell.avgBsci)}`}>
                         {cell.avgBsci.toFixed(1)}
                       </div>
                     </div>

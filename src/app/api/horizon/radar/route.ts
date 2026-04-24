@@ -97,19 +97,38 @@ export async function GET(request: NextRequest) {
       return (d.bsci || 0) > 0.05 || activeDetectors >= 3;
     });
 
-    // 5. Calculate radar dots
+    // 4.5 Smart filtering for radar clarity
+    // Always include: YELLOW+ alerts (BSCI > 0.2), core 9, top-15 by BSCI
+    // This prevents the "80 dots mess" problem
+    const coreSet = new Set(['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN',
+      'MOEX', 'SBER', 'GAZP', 'GMKN', 'LKOH', 'ROSN']); // + MOEX equivalents
+    const alertData = realData.filter((d: any) => {
+      const norm = normalizeTicker(d.ticker);
+      return (d.bsci || 0) > 0.2 || coreSet.has(d.ticker) || coreSet.has(norm);
+    });
+    // Add top-15 by BSCI (in case they're not in alert/core sets)
+    const byBsci = [...realData].sort((a: any, b: any) => (b.bsci || 0) - (a.bsci || 0));
+    const top15 = byBsci.slice(0, 15);
+    const radarSource = new Map<string, any>();
+    for (const d of alertData) radarSource.set(d.ticker, d);
+    for (const d of top15) {
+      if (!radarSource.has(d.ticker)) radarSource.set(d.ticker, d);
+    }
+    const radarInput = Array.from(radarSource.values());
+
+    // 5. Calculate radar dots (from filtered radarInput)
     const maxTurnover = Math.max(
-      ...realData.map((d: any) => d.turnover || 0),
+      ...radarInput.map((d: any) => d.turnover || 0),
       1,
     );
 
-    const cumDeltas = realData.map((d: any) => d.cumDelta || 0);
-    const vpins = realData.map((d: any) => d.vpin || 0);
+    const cumDeltas = radarInput.map((d: any) => d.cumDelta || 0);
+    const vpins = radarInput.map((d: any) => d.vpin || 0);
 
     const cumDeltaMax = Math.max(...cumDeltas.map(Math.abs), 1);
     const vpinMax = Math.max(...vpins, 1);
 
-    const radarData: RadarDot[] = realData.map((d: any) => {
+    const radarData: RadarDot[] = radarInput.map((d: any) => {
       const turnoverRatio = (d.turnover || 0) / maxTurnover;
       const dotSize = (d.bsci || 0) * Math.sqrt(turnoverRatio);
 
