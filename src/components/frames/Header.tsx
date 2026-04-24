@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Bot, Brain, Clock, HelpCircle, LayoutGrid, RotateCcw, WifiOff } from 'lucide-react';
+import { Bot, Brain, Clock, HelpCircle, LayoutGrid, Orbit, Radio, RotateCcw, WifiOff } from 'lucide-react';
 import { useDashboardStore } from '@/lib/store';
-import { useLayoutStore } from '@/lib/layout-store';
+import { useLayoutStore, type DashboardTab } from '@/lib/layout-store';
 import { getMoscowTime } from '@/lib/helpers';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { AIHintModal } from '@/components/AIHintModal';
@@ -15,6 +15,8 @@ export function Header({ onHelpClick }: { onHelpClick: () => void }) {
   const isEditMode = useLayoutStore((s) => s.isEditMode);
   const toggleEditMode = useLayoutStore((s) => s.toggleEditMode);
   const resetLayout = useLayoutStore((s) => s.resetLayout);
+  const activeDashboard = useLayoutStore((s) => s.activeDashboard);
+  const setActiveDashboard = useLayoutStore((s) => s.setActiveDashboard);
   const [time, setTime] = React.useState(getMoscowTime());
   const [showAIHint, setShowAIHint] = useState(false);
 
@@ -48,6 +50,33 @@ export function Header({ onHelpClick }: { onHelpClick: () => void }) {
           </p>
         </div>
       </div>
+
+      {/* ─── Dashboard Tab Switcher ─── */}
+      <div className="flex items-center gap-1 bg-[var(--terminal-card)]/60 rounded-lg p-0.5 border border-[var(--terminal-border)]">
+        <button
+          onClick={() => setActiveDashboard('main')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold tracking-wide font-mono transition-all duration-200 cursor-pointer ${
+            activeDashboard === 'main'
+              ? 'bg-[var(--terminal-accent)] text-[var(--terminal-bg)] shadow-sm'
+              : 'text-[var(--terminal-muted)] hover:text-[var(--terminal-text)] hover:bg-[var(--terminal-card)]'
+          }`}
+        >
+          <Radio className="w-3 h-3" />
+          ДАШБОРД
+        </button>
+        <button
+          onClick={() => setActiveDashboard('horizon')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold tracking-wide font-mono transition-all duration-200 cursor-pointer ${
+            activeDashboard === 'horizon'
+              ? 'bg-[var(--terminal-warning)] text-[var(--terminal-bg)] shadow-sm'
+              : 'text-[var(--terminal-muted)] hover:text-[var(--terminal-text)] hover:bg-[var(--terminal-card)]'
+          }`}
+        >
+          <Orbit className="w-3 h-3" />
+          ГОРИЗОНТ СОБЫТИЙ
+        </button>
+      </div>
+
       <div className="flex items-center gap-3 sm:gap-4">
         <div className="flex items-center gap-1.5 text-[9px] text-[var(--terminal-muted)] font-mono">
           <button onClick={onHelpClick} className="px-1.5 py-0.5 rounded bg-[var(--terminal-accent)]/10 text-[var(--terminal-accent)] border border-[var(--terminal-accent)]/30 hover:bg-[var(--terminal-accent)]/25 cursor-pointer transition-colors flex items-center gap-1">

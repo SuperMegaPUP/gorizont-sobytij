@@ -1,15 +1,18 @@
 // ─── Layout Store Tests ──────────────────────────────────────────────────
-// LAYOUT_VERSION=18, 21 фреймов, DEFAULT_ZONE
+// LAYOUT_VERSION=19, 21 фреймов, DEFAULT_ZONE, DashboardTab
 
 import {
   LAYOUT_VERSION,
   ALL_FRAME_KEYS,
   DEFAULT_ZONE,
+  HORIZON_FRAME_KEYS,
+  MAIN_FRAME_KEYS,
+  getFrameKeysForTab,
 } from '@/lib/layout-store';
 
 describe('Layout Store', () => {
-  test('LAYOUT_VERSION = 18', () => {
-    expect(LAYOUT_VERSION).toBe(18);
+  test('LAYOUT_VERSION = 19', () => {
+    expect(LAYOUT_VERSION).toBe(19);
   });
 
   test('ALL_FRAME_KEYS содержит 21 фрейм', () => {
@@ -40,5 +43,23 @@ describe('Layout Store', () => {
 
   test('DEFAULT_ZONE: frameHeights пустой объект', () => {
     expect(DEFAULT_ZONE.frameHeights).toEqual({});
+  });
+
+  test('HORIZON_FRAME_KEYS содержит 4 horizon фрейма', () => {
+    expect(HORIZON_FRAME_KEYS).toHaveLength(4);
+    expect(HORIZON_FRAME_KEYS).toContain('horizonScanner');
+    expect(HORIZON_FRAME_KEYS).toContain('horizonRadar');
+    expect(HORIZON_FRAME_KEYS).toContain('horizonObserver');
+    expect(HORIZON_FRAME_KEYS).toContain('horizonHeatmap');
+  });
+
+  test('MAIN_FRAME_KEYS содержит 17 основных фреймов', () => {
+    expect(MAIN_FRAME_KEYS).toHaveLength(17);
+    expect(MAIN_FRAME_KEYS).not.toContain('horizonScanner');
+  });
+
+  test('getFrameKeysForTab возвращает правильные ключи', () => {
+    expect(getFrameKeysForTab('main')).toEqual(MAIN_FRAME_KEYS);
+    expect(getFrameKeysForTab('horizon')).toEqual(HORIZON_FRAME_KEYS);
   });
 });

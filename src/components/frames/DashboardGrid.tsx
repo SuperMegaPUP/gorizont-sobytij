@@ -3,8 +3,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ResponsiveGridLayout, useContainerWidth, verticalCompactor, noCompactor, type Layout, type LayoutItem } from 'react-grid-layout';
-import { useLayoutStore, ALL_FRAME_KEYS, DEFAULT_LAYOUT_ITEMS } from '@/lib/layout-store';
-import type { FrameKey } from '@/lib/layout-store';
+import { useLayoutStore, ALL_FRAME_KEYS, DEFAULT_LAYOUT_ITEMS, HORIZON_FRAME_KEYS, MAIN_FRAME_KEYS, getFrameKeysForTab } from '@/lib/layout-store';
+import type { FrameKey, DashboardTab } from '@/lib/layout-store';
 import { FRAME_REGISTRY, getFrameComponent } from '@/lib/frame-registry';
 import { FrameWrapper } from './FrameWrapper';
 import { useDashboardStore } from '@/lib/store';
@@ -35,6 +35,7 @@ export function DashboardGrid() {
   const loadFromApi = useLayoutStore((s) => s.loadFromApi);
   const leftZone = useLayoutStore((s) => s.leftZone);
   const rightZone = useLayoutStore((s) => s.rightZone);
+  const activeDashboard = useLayoutStore((s) => s.activeDashboard);
   const updateAlgoPack = useDashboardStore((s) => s.updateAlgoPack);
 
   // Auto-measure container width
@@ -124,30 +125,40 @@ export function DashboardGrid() {
     [leftZone.frameKeys, rightZone.frameKeys],
   );
 
-  // ─── Filter visible frames (not hidden, not in zones) ───
-  const visibleFrames = useMemo(
-    () => ALL_FRAME_KEYS.filter((k) => !hiddenFrames.includes(k) && !zoneFrameKeys.has(k)),
-    [hiddenFrames, zoneFrameKeys],
+  // ─── Frame keys for the active dashboard tab ───
+  const tabFrameKeys = useMemo(
+    () => getFrameKeysForTab(activeDashboard),
+    [activeDashboard],
   );
 
-  // ─── Filtered layouts (remove hidden frames and zone frames) ───
+  // ─── Filter visible frames (tab-filtered, not hidden, not in zones) ───
+  const visibleFrames = useMemo(
+    () => tabFrameKeys.filter((k) => !hiddenFrames.includes(k) && !zoneFrameKeys.has(k)),
+    [tabFrameKeys, hiddenFrames, zoneFrameKeys],
+  );
+
+  // ─── Filtered layouts (remove hidden frames, zone frames, and frames from other tabs) ───
   const filteredLayouts = useMemo(() => {
     const excluded = new Set([...hiddenFrames, ...zoneFrameKeys]);
+    const otherTabFrames = activeDashboard === 'horizon' ? MAIN_FRAME_KEYS : HORIZON_FRAME_KEYS;
+    otherTabFrames.forEach(k => excluded.add(k));
     const result: Record<string, LayoutItem[]> = {};
     for (const [bp, bpLayouts] of Object.entries(layouts)) {
       result[bp] = bpLayouts.filter((l) => !excluded.has(l.i as FrameKey));
     }
     return result;
-  }, [layouts, hiddenFrames, zoneFrameKeys]);
+  }, [layouts, hiddenFrames, zoneFrameKeys, activeDashboard]);
 
-  // ─── Handle layout change (merge hidden/zone frames back) ───
+  // ─── Handle layout change (merge hidden/zone/other-tab frames back) ───
   const handleLayoutChange = useCallback(
     (currentLayout: Layout, allLayouts: Partial<Record<string, Layout>>) => {
       // Skip saves triggered by width changes (side zone collapse/expand)
       if (widthChangeRef.current) return;
 
-      // Merge hidden frames and zone frames back into layouts so they aren't lost
+      // Merge hidden frames, zone frames, and other-tab frames back into layouts so they aren't lost
       const excluded = new Set([...hiddenFrames, ...zoneFrameKeys]);
+      const otherTabFrames = activeDashboard === 'horizon' ? MAIN_FRAME_KEYS : HORIZON_FRAME_KEYS;
+      otherTabFrames.forEach(k => excluded.add(k));
       const mergedLayouts: Record<string, LayoutItem[]> = {};
       for (const [bp, bpLayout] of Object.entries(allLayouts)) {
         if (!bpLayout) continue;
@@ -156,7 +167,7 @@ export function DashboardGrid() {
       }
       onLayoutChange([...currentLayout], mergedLayouts);
     },
-    [layouts, hiddenFrames, zoneFrameKeys, onLayoutChange],
+    [layouts, hiddenFrames, zoneFrameKeys, activeDashboard, onLayoutChange],
   );
 
   return (
