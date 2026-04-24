@@ -1,35 +1,65 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { ScanSearch } from 'lucide-react';
-import { useHorizonStore } from '@/lib/horizon-store';
+import React, { useEffect, useState, useCallback, useMemo, startTransition } from 'react';
+import { ScanSearch, List, Trophy } from 'lucide-react';
+import { useHorizonStore, type ScannerMode } from '@/lib/horizon-store';
 import { getBsciEmoji, getBsciColor } from '../shared/BSCIColor';
 import { DirectionArrow } from '../shared/DirectionArrow';
 import { DetectorDots } from '../scanner/DetectorDots';
 
 type FilterMode = 'all' | 'alert' | 'bear' | 'bull';
 
+const PAGE_SIZE = 20;
+
 export function HorizonScannerFrame() {
   const scannerData = useHorizonStore((s) => s.scannerData);
   const scannerSortBy = useHorizonStore((s) => s.scannerSortBy);
+  const scannerMode = useHorizonStore((s) => s.scannerMode);
+  const top100Data = useHorizonStore((s) => s.top100Data);
+  const top100Loading = useHorizonStore((s) => s.top100Loading);
+  const lastTop100Update = useHorizonStore((s) => s.lastTop100Update);
+
   const selectTicker = useHorizonStore((s) => s.selectTicker);
   const fetchScanner = useHorizonStore((s) => s.fetchScanner);
+  const fetchTop100 = useHorizonStore((s) => s.fetchTop100);
+  const setScannerMode = useHorizonStore((s) => s.setScannerMode);
+  const setScannerSortBy = useHorizonStore((s) => s.setScannerSortBy);
   const loading = useHorizonStore((s) => s.loading);
   const lastScannerUpdate = useHorizonStore((s) => s.lastScannerUpdate);
 
   const [filter, setFilter] = useState<FilterMode>('all');
   const [countdown, setCountdown] = useState(30);
   const [now, setNow] = useState(new Date());
+  const [page, setPage] = useState(0);
+
+  // Current data source based on mode
+  const currentData = scannerMode === 'top100' ? top100Data : scannerData;
+  const isLoading = scannerMode === 'top100' ? top100Loading : loading;
+  const lastUpdate = scannerMode === 'top100' ? lastTop100Update : lastScannerUpdate;
 
   // Fetch on mount + interval
   useEffect(() => {
-    fetchScanner();
-    const interval = setInterval(() => {
+    if (scannerMode === 'core') {
       fetchScanner();
-      setCountdown(30);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [fetchScanner]);
+      const interval = setInterval(() => {
+        fetchScanner();
+        setCountdown(30);
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [fetchScanner, scannerMode]);
+
+  // Fetch TOP-100 on mode switch (only if no data yet)
+  useEffect(() => {
+    if (scannerMode === 'top100' && top100Data.length === 0 && !top100Loading) {
+      fetchTop100();
+    }
+  }, [scannerMode, top100Data.length, top100Loading, fetchTop100]);
+
+  // Reset page on mode/filter change
+  useEffect(() => {
+    startTransition(() => { setPage(0); });
+  }, [scannerMode, filter]);
 
   // Countdown timer
   useEffect(() => {
@@ -47,7 +77,7 @@ export function HorizonScannerFrame() {
 
   // Filter + sort
   const filtered = useMemo(() => {
-    let data = [...scannerData];
+    let data = [...currentData];
     if (filter === 'alert') data = data.filter((t) => t.alertLevel === 'ORANGE' || t.alertLevel === 'RED');
     else if (filter === 'bear') data = data.filter((t) => t.direction === 'BEARISH');
     else if (filter === 'bull') data = data.filter((t) => t.direction === 'BULLISH');
@@ -63,28 +93,47 @@ export function HorizonScannerFrame() {
       }
     });
     return data;
-  }, [scannerData, filter, scannerSortBy]);
+  }, [currentData, filter, scannerSortBy]);
+
+  // Paginated data
+  const paginated = useMemo(() => {
+    if (scannerMode === 'top100') {
+      const start = page * PAGE_SIZE;
+      return filtered.slice(start, start + PAGE_SIZE);
+    }
+    return filtered; // Core: show all 9
+  }, [filtered, page, scannerMode]);
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
   // Summary
   const summary = useMemo(() => {
-    const green = scannerData.filter((t) => t.alertLevel === 'GREEN').length;
-    const yellow = scannerData.filter((t) => t.alertLevel === 'YELLOW').length;
-    const orange = scannerData.filter((t) => t.alertLevel === 'ORANGE').length;
-    const red = scannerData.filter((t) => t.alertLevel === 'RED').length;
-    const top3 = [...scannerData].sort((a, b) => b.bsci - a.bsci).slice(0, 3).map((t) => t.ticker).join(', ');
-    const bullCount = scannerData.filter((t) => t.direction === 'BULLISH').length;
-    const bearCount = scannerData.filter((t) => t.direction === 'BEARISH').length;
+    const green = currentData.filter((t) => t.alertLevel === 'GREEN').length;
+    const yellow = currentData.filter((t) => t.alertLevel === 'YELLOW').length;
+    const orange = currentData.filter((t) => t.alertLevel === 'ORANGE').length;
+    const red = currentData.filter((t) => t.alertLevel === 'RED').length;
+    const top3 = [...currentData].sort((a, b) => b.bsci - a.bsci).slice(0, 3).map((t) => t.ticker).join(', ');
+    const bullCount = currentData.filter((t) => t.direction === 'BULLISH').length;
+    const bearCount = currentData.filter((t) => t.direction === 'BEARISH').length;
     const sentiment = bullCount > bearCount ? 'бычий' : bearCount > bullCount ? 'медвежий' : 'нейтр';
-    return { green, yellow, orange, red, total: scannerData.length, top3, sentiment };
-  }, [scannerData]);
+    const avgBsci = currentData.length > 0 ? currentData.reduce((s, t) => s + t.bsci, 0) / currentData.length : 0;
+    return { green, yellow, orange, red, total: currentData.length, top3, sentiment, avgBsci };
+  }, [currentData]);
 
   const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   const filterChips: { mode: FilterMode; label: string }[] = [
     { mode: 'all', label: 'все' },
-    { mode: 'alert', label: '\uD83D\uDFE0\uD83D\uDD34 тревога' },
+    { mode: 'alert', label: 'тревога' },
     { mode: 'bear', label: '\u25BC медведи' },
     { mode: 'bull', label: '\u25B2 быки' },
+  ];
+
+  const sortOptions: { value: typeof scannerSortBy; label: string }[] = [
+    { value: 'bsci', label: 'BSCI' },
+    { value: 'vpin', label: 'VPIN' },
+    { value: 'delta', label: 'Delta' },
+    { value: 'turnover', label: 'Оборот' },
   ];
 
   return (
@@ -93,18 +142,46 @@ export function HorizonScannerFrame() {
       <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--terminal-border)] bg-[var(--terminal-surface)]/50 shrink-0">
         <ScanSearch className="w-3 h-3 text-[var(--terminal-accent)]" />
         <span className="text-[9px] text-[var(--terminal-frame-header)] font-mono font-bold tracking-wide uppercase">
-          СКАНЕР: Чёрные звёзды
+          СКАНЕР
         </span>
+
+        {/* Mode switcher */}
+        <div className="flex items-center ml-2 gap-0.5">
+          <button
+            onClick={() => setScannerMode('core')}
+            className={`text-[7px] font-mono px-1.5 py-0.5 rounded-sm transition-colors ${
+              scannerMode === 'core'
+                ? 'bg-[var(--terminal-accent)]/20 text-[var(--terminal-accent)] border border-[var(--terminal-accent)]/40'
+                : 'bg-transparent text-[var(--terminal-muted)] border border-transparent hover:border-[var(--terminal-border)]'
+            }`}
+          >
+            <List className="w-2 h-2 inline mr-0.5" />
+            9
+          </button>
+          <button
+            onClick={() => setScannerMode('top100')}
+            className={`text-[7px] font-mono px-1.5 py-0.5 rounded-sm transition-colors ${
+              scannerMode === 'top100'
+                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40'
+                : 'bg-transparent text-[var(--terminal-muted)] border border-transparent hover:border-[var(--terminal-border)]'
+            }`}
+          >
+            <Trophy className="w-2 h-2 inline mr-0.5" />
+            ТОП 100
+          </button>
+        </div>
+
         <span className="text-[7px] text-[var(--terminal-muted)] font-mono ml-auto">
-          {countdown}s
+          {isLoading ? '...' : `${countdown}s`}
         </span>
         <span className="text-[7px] text-[var(--terminal-muted)] font-mono">
           {timeStr}
         </span>
       </div>
 
-      {/* Filter bar */}
+      {/* Filter + Sort bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-[var(--terminal-border)] shrink-0">
+        {/* Filter chips */}
         {filterChips.map((chip) => (
           <button
             key={chip.mode}
@@ -118,22 +195,49 @@ export function HorizonScannerFrame() {
             {chip.label}
           </button>
         ))}
+
+        <span className="text-[var(--terminal-border)] mx-1">|</span>
+
+        {/* Sort options */}
+        {sortOptions.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => setScannerSortBy(opt.value)}
+            className={`text-[7px] font-mono px-1 py-0.5 rounded-sm transition-colors ${
+              scannerSortBy === opt.value
+                ? 'bg-[var(--terminal-accent)]/15 text-[var(--terminal-accent)]'
+                : 'text-[var(--terminal-muted)] hover:text-[var(--terminal-text-dim)]'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
       {/* Table */}
       <div className="flex-1 overflow-y-auto terminal-scroll">
-        {loading && scannerData.length === 0 ? (
+        {isLoading && currentData.length === 0 ? (
           <div className="text-[7px] text-[var(--terminal-muted)] font-mono text-center py-3">
-            Загрузка сканера...
+            {scannerMode === 'top100' ? 'Сканирование ТОП 100 (2-3 мин)...' : 'Загрузка сканера...'}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : paginated.length === 0 ? (
           <div className="text-[7px] text-[var(--terminal-muted)] font-mono text-center py-3">
-            Нет данных
+            {scannerMode === 'top100' && !top100Loading ? (
+              <button
+                onClick={() => fetchTop100()}
+                className="text-[var(--terminal-accent)] hover:underline"
+              >
+                Нет данных. Нажмите для сканирования ТОП 100
+              </button>
+            ) : (
+              'Нет данных'
+            )}
           </div>
         ) : (
           <table className="w-full text-[7px] font-mono">
             <thead>
               <tr className="text-[var(--terminal-muted)] border-b border-[var(--terminal-border)]">
+                <th className="text-left px-1.5 py-0.5 font-normal w-6">#</th>
                 <th className="text-left px-1.5 py-0.5 font-normal">Тикер</th>
                 <th className="text-left px-1.5 py-0.5 font-normal">BSCI</th>
                 <th className="text-left px-1.5 py-0.5 font-normal">Детекторы</th>
@@ -143,7 +247,8 @@ export function HorizonScannerFrame() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((ticker) => {
+              {paginated.map((ticker, idx) => {
+                const globalIdx = scannerMode === 'top100' ? page * PAGE_SIZE + idx + 1 : idx + 1;
                 const bsciColor = getBsciColor(ticker.bsci);
                 const bsciEmoji = getBsciEmoji(ticker.bsci);
                 const actionStyle = ticker.action === 'URGENT'
@@ -152,15 +257,29 @@ export function HorizonScannerFrame() {
                     ? 'text-orange-400'
                     : 'text-[var(--terminal-muted)]';
 
+                // Rank badge for TOP 100
+                const isTop3 = globalIdx <= 3 && scannerMode === 'top100';
+
                 return (
                   <tr
                     key={ticker.ticker}
                     onClick={() => selectTicker(ticker.ticker)}
-                    className="border-b border-[var(--terminal-border)]/30 hover:bg-[var(--terminal-surface-hover)]/50 cursor-pointer transition-colors"
+                    className={`border-b border-[var(--terminal-border)]/30 hover:bg-[var(--terminal-surface-hover)]/50 cursor-pointer transition-colors ${
+                      isTop3 ? 'bg-yellow-500/5' : ''
+                    }`}
                   >
+                    <td className="px-1.5 py-0.5 text-[var(--terminal-muted)]">
+                      {isTop3 ? (
+                        <span className={globalIdx === 1 ? 'text-yellow-400' : globalIdx === 2 ? 'text-gray-300' : 'text-orange-400'}>
+                          {globalIdx}
+                        </span>
+                      ) : (
+                        globalIdx
+                      )}
+                    </td>
                     <td className="px-1.5 py-0.5">
                       <span className="text-[var(--terminal-text)] font-bold">{ticker.ticker}</span>
-                      <span className="text-[var(--terminal-muted)] ml-1">{ticker.name}</span>
+                      <span className="text-[var(--terminal-muted)] ml-1 hidden xl:inline">{ticker.name}</span>
                     </td>
                     <td className="px-1.5 py-0.5">
                       <div className="flex items-center gap-1">
@@ -195,13 +314,39 @@ export function HorizonScannerFrame() {
         )}
       </div>
 
+      {/* Pagination (TOP-100 mode only) */}
+      {scannerMode === 'top100' && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-1 px-2 py-1 border-t border-[var(--terminal-border)] shrink-0">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="text-[7px] font-mono px-1.5 py-0.5 rounded-sm text-[var(--terminal-muted)] disabled:opacity-30 hover:text-[var(--terminal-accent)] border border-[var(--terminal-border)]"
+          >
+            ←
+          </button>
+          <span className="text-[7px] font-mono text-[var(--terminal-muted)]">
+            {page + 1}/{totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+            className="text-[7px] font-mono px-1.5 py-0.5 rounded-sm text-[var(--terminal-muted)] disabled:opacity-30 hover:text-[var(--terminal-accent)] border border-[var(--terminal-border)]"
+          >
+            →
+          </button>
+        </div>
+      )}
+
       {/* Footer summary */}
       <div className="flex items-center gap-2 px-2 py-1 border-t border-[var(--terminal-border)] bg-[var(--terminal-surface)]/30 shrink-0 text-[6px] font-mono text-[var(--terminal-muted)]">
-        <span>{'\uD83D\uDFE2'} {summary.green}</span>
-        <span>{'\uD83D\uDFE1'} {summary.yellow}</span>
-        <span>{'\uD83D\uDFE0'} {summary.orange}</span>
-        <span>{'\uD83D\uDD34'} {summary.red}</span>
+        <span>зел: {summary.green}</span>
+        <span>жёлт: {summary.yellow}</span>
+        <span>орж: {summary.orange}</span>
+        <span>красн: {summary.red}</span>
         <span className="text-[var(--terminal-text-dim)]">всего: {summary.total}</span>
+        {summary.avgBsci > 0 && (
+          <span>ср.BSCI: {summary.avgBsci.toFixed(2)}</span>
+        )}
         {summary.top3 && (
           <span className="ml-auto truncate">
             ТОП-3: <span className="text-[var(--terminal-text)]">{summary.top3}</span>

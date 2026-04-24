@@ -1,6 +1,6 @@
 // ─── Horizon Store — Zustand ──────────────────────────────────────────────
 // Состояние вкладки «Горизонт событий»
-// Expanded for Phase 5: Scanner, Radar, Heatmap, Selection
+// Expanded for Phase 5: Scanner, Radar, Heatmap, Selection, TOP 100
 
 import { create } from 'zustand';
 import type { OrderBookData } from './horizon/calculations/ofi';
@@ -23,7 +23,7 @@ export interface DetectorScore {
   timestamp: number;
 }
 
-// ─── New Phase 5 Types ─────────────────────────────────────────────────────
+// ─── Phase 5 Types ─────────────────────────────────────────────────────────
 
 export interface ScannerTicker {
   ticker: string;
@@ -60,6 +60,10 @@ export interface HeatmapCell {
   alertLevel: string;
   count: number;
 }
+
+// ─── TOP-100 Types ─────────────────────────────────────────────────────────
+
+export type ScannerMode = 'core' | 'top100';
 
 // ─── State Interface ───────────────────────────────────────────────────────
 
@@ -109,6 +113,13 @@ export interface HorizonState {
   lastObservationUpdate: number | null;
   lastHeatmapUpdate: number | null;
 
+  // ── TOP-100 ──
+  scannerMode: ScannerMode;
+  top100Data: ScannerTicker[];
+  top100Loading: boolean;
+  top100Error: string | null;
+  lastTop100Update: number | null;
+
   // ── Original Actions ──
   setActiveTicker: (ticker: string) => void;
   setOFI: (ofi: number, weighted: number) => void;
@@ -132,6 +143,10 @@ export interface HorizonState {
   setScannerSortBy: (sortBy: HorizonState['scannerSortBy']) => void;
   selectTicker: (ticker: string | null) => void;
   selectTimeSlice: (slice: { ticker: string; hour: number } | null) => void;
+
+  // ── TOP-100 Actions ──
+  setScannerMode: (mode: ScannerMode) => void;
+  fetchTop100: () => Promise<void>;
 }
 
 // ─── Empty Defaults ────────────────────────────────────────────────────────
@@ -178,6 +193,13 @@ const initialState = {
   lastScannerUpdate: null,
   lastObservationUpdate: null,
   lastHeatmapUpdate: null,
+
+  // TOP-100
+  scannerMode: 'core' as ScannerMode,
+  top100Data: [],
+  top100Loading: false,
+  top100Error: null,
+  lastTop100Update: null,
 };
 
 // ─── Store ─────────────────────────────────────────────────────────────────
@@ -276,9 +298,10 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
 
   fetchTickerDetail: async (ticker: string) => {
     try {
-      // Find in scanner data first
-      const { scannerData } = get();
-      const found = scannerData.find((d) => d.ticker === ticker);
+      // Find in scanner data or top100 data first
+      const { scannerData, top100Data } = get();
+      const found = scannerData.find((d) => d.ticker === ticker) ||
+        top100Data.find((d) => d.ticker === ticker);
       if (found) {
         set({ tickerDetail: found });
         return;
@@ -340,4 +363,37 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
   // ── Phase 5: Select Time Slice ────────────────────────────────────────
 
   selectTimeSlice: (slice) => set({ selectedTimeSlice: slice }),
+
+  // ── TOP-100 Actions ────────────────────────────────────────────────────
+
+  setScannerMode: (mode) => set({ scannerMode: mode }),
+
+  fetchTop100: async () => {
+    set({ top100Loading: true, top100Error: null });
+    try {
+      // 1. Try GET first (reads from Redis cache)
+      let res = await fetch('/api/horizon/top100');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let json = await res.json();
+
+      // 2. If no cached data, trigger a POST scan (takes ~2-3 min for 100 tickers)
+      if (!json.data || json.data.length === 0) {
+        console.log('[HorizonStore] No cached TOP-100 data, triggering POST scan...');
+        const scanRes = await fetch('/api/horizon/top100', { method: 'POST' });
+        if (scanRes.ok) {
+          json = await scanRes.json();
+        } else {
+          throw new Error('TOP-100 scan failed');
+        }
+      }
+
+      set({
+        top100Data: json.data || [],
+        lastTop100Update: Date.now(),
+        top100Loading: false,
+      });
+    } catch (error: any) {
+      set({ top100Error: error.message, top100Loading: false });
+    }
+  },
 }));

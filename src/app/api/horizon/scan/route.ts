@@ -1,9 +1,11 @@
 // ─── /api/horizon/scan — POST: Scanner Batch Run ──────────────────────────
-// Scans all 9 futures tickers in parallel:
+// Scans all 9 core futures tickers in parallel:
 // 1. collectMarketData() → runAllDetectors() → calcBSCI() → applyScannerRules()
 // 2. Saves results to Redis key `horizon:scanner:latest` (TTL 1 hour)
 // 3. Batch inserts into bsci_log table
 // 4. Returns scanner results
+//
+// v2: Поддержка параметра tickers для TOP-100 пакетного сканирования
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +16,9 @@ import { collectMarketData } from '@/lib/horizon/observer/collect-market-data';
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 
-// ─── 9 Futures tickers ────────────────────────────────────────────────────
+// ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
 
-const SCANNER_TICKERS = [
+export const SCANNER_TICKERS = [
   { ticker: 'MX', name: 'Московская биржа' },
   { ticker: 'Si', name: 'Доллар/рубль' },
   { ticker: 'RI', name: 'Индекс РТС' },
@@ -28,9 +30,119 @@ const SCANNER_TICKERS = [
   { ticker: 'RN', name: 'Роснефть' },
 ] as const;
 
+// ─── TOP 100 Tickers (actual MOEX share codes on TQBR) ─────────────────────
+
+export const TOP100_TICKERS: readonly { ticker: string; name: string }[] = [
+  // ТОП-20 (оригинальный список)
+  { ticker: 'SBER', name: 'Сбербанк' },
+  { ticker: 'GAZP', name: 'Газпром' },
+  { ticker: 'LKOH', name: 'ЛУКОЙЛ' },
+  { ticker: 'GMKN', name: 'Норникель' },
+  { ticker: 'YNDX', name: 'Яндекс' },
+  { ticker: 'VTBR', name: 'ВТБ' },
+  { ticker: 'ROSN', name: 'Роснефть' },
+  { ticker: 'PLZL', name: 'Полюс' },
+  { ticker: 'MGNT', name: 'Магнит' },
+  { ticker: 'NVTK', name: 'Новатэк' },
+  { ticker: 'SNGS', name: 'Сургутнефтегаз' },
+  { ticker: 'TATN', name: 'Татнефть' },
+  { ticker: 'ALRS', name: 'Алроса' },
+  { ticker: 'CHMF', name: 'Северсталь' },
+  { ticker: 'NLMK', name: 'НЛМК' },
+  { ticker: 'POLY', name: 'Polymetal' },
+  { ticker: 'RUAL', name: 'Rusal' },
+  { ticker: 'OZON', name: 'Ozon' },
+  { ticker: 'TCSG', name: 'ТКС Холдинг' },
+  { ticker: 'FIVE', name: 'X5 Retail' },
+  // 21–40
+  { ticker: 'SBERP', name: 'Сбербанк-п' },
+  { ticker: 'GAZPP', name: 'Газпром-п' },
+  { ticker: 'SNGSP', name: 'Сургутнефтегаз-п' },
+  { ticker: 'TATNP', name: 'Татнефть-п' },
+  { ticker: 'SIBN', name: 'Газпром нефть' },
+  { ticker: 'MOEX', name: 'Московская биржа' },
+  { ticker: 'AFKS', name: 'Система' },
+  { ticker: 'MTLR', name: 'Мечел' },
+  { ticker: 'IRAO', name: 'Интер РАО' },
+  { ticker: 'PHOR', name: 'ФосАгро' },
+  { ticker: 'FLOT', name: 'Совкомфлот' },
+  { ticker: 'LENT', name: 'Лента' },
+  { ticker: 'SGZH', name: 'Сегежа' },
+  { ticker: 'TRMK', name: 'ТМК' },
+  { ticker: 'PIKK', name: 'ПИК' },
+  { ticker: 'RTKM', name: 'Ростелеком' },
+  { ticker: 'HYDR', name: 'РусГидро' },
+  { ticker: 'FEES', name: 'ФСК ЕЭС' },
+  { ticker: 'MAGN', name: 'ММК' },
+  { ticker: 'VTBRP', name: 'ВТБ-п' },
+  // 41–60
+  { ticker: 'LSRG', name: 'ЛСР' },
+  { ticker: 'SELG', name: 'Селигдар' },
+  { ticker: 'FIXP', name: 'Fix Price' },
+  { ticker: 'VKCO', name: 'VK Company' },
+  { ticker: 'HEAD', name: 'HeadHunter' },
+  { ticker: 'TCSGP', name: 'ТКС-п' },
+  { ticker: 'RUALP', name: 'Rusal-п' },
+  { ticker: 'SMLT', name: 'СМЛТ' },
+  { ticker: 'AFLT', name: 'Аэрофлот' },
+  { ticker: 'CBOM', name: 'МКБ' },
+  { ticker: 'POSI', name: 'Parent' },
+  { ticker: 'KZOS', name: 'Казаньоргсинтез' },
+  { ticker: 'LSNG', name: 'Ленэнерго' },
+  { ticker: 'LSNGP', name: 'Ленэнерго-п' },
+  { ticker: 'DVEC', name: 'ДЭК' },
+  { ticker: 'MSNG', name: 'Мосэнерго' },
+  { ticker: 'MSRS', name: 'МРСК Сибири' },
+  { ticker: 'RNFT', name: 'Распадская' },
+  { ticker: 'GRNT', name: 'Грандлайн' },
+  { ticker: 'NKNC', name: 'Нижнекамскнефтехим' },
+  // 61–80
+  { ticker: 'BANE', name: 'Башнефть' },
+  { ticker: 'BANEP', name: 'Башнефть-п' },
+  { ticker: 'CLKN', name: 'Клиник' },
+  { ticker: 'AKRN', name: 'Акрон' },
+  { ticker: 'IRKT', name: 'ИРКУТ' },
+  { ticker: 'LNZL', name: 'Лензолото' },
+  { ticker: 'LNZLP', name: 'Лензолото-п' },
+  { ticker: 'MSTT', name: 'Мостотрест' },
+  { ticker: 'NMTP', name: 'НМТП' },
+  { ticker: 'APTK', name: 'Аптека' },
+  { ticker: 'GTLC', name: 'ГТЛК' },
+  { ticker: 'KMAZ', name: 'КАМАЗ' },
+  { ticker: 'USBN', name: 'Юнистрим' },
+  { ticker: 'SELGP', name: 'Селигдар-п' },
+  { ticker: 'VSMO', name: 'ВСМПО-АВИСМА' },
+  { ticker: 'MRKC', name: 'МРСК ЦП' },
+  { ticker: 'MRKP', name: 'МРСК ЦП-п' },
+  { ticker: 'MRKK', name: 'МРСК Юга' },
+  { ticker: 'MRKV', name: 'МРСК Волги' },
+  { ticker: 'MRKU', name: 'МРСК Урала' },
+  // 81–100
+  { ticker: 'MRKY', name: 'МРСК Сибири' },
+  { ticker: 'MRKS', name: 'МРСК СЗ' },
+  { ticker: 'KOGK', name: 'Косогорский' },
+  { ticker: 'KZOSP', name: 'Казаньоргс-п' },
+  { ticker: 'TGKA', name: 'ТГК-1' },
+  { ticker: 'TGKN', name: 'ТГК-2' },
+  { ticker: 'TGKM', name: 'ТГК-14' },
+  { ticker: 'UNAC', name: 'Объединённые' },
+  { ticker: 'MORI', name: 'Мори' },
+  { ticker: 'ZRAN', name: 'Зарубежнефть' },
+  { ticker: 'ZILL', name: 'ЗИЛ' },
+  { ticker: 'YAKG', name: 'Якутскэнерго' },
+  { ticker: 'MGKL', name: 'МГКЛ' },
+  { ticker: 'MTLRP', name: 'Мечел-п' },
+  { ticker: 'OGKB', name: 'ОГК-2' },
+  { ticker: 'PLZLP', name: 'Полюс-п' },
+  { ticker: 'KRKN', name: 'Крокус' },
+  { ticker: 'KAZT', name: 'КАЗТ' },
+  { ticker: 'KAZTP', name: 'КАЗТ-п' },
+  { ticker: 'MEGP', name: 'Мегаполис' },
+];
+
 // ─── Single Ticker Scan ───────────────────────────────────────────────────
 
-interface TickerScanResult {
+export interface TickerScanResult {
   ticker: string;
   name: string;
   bsci: number;
@@ -49,13 +161,13 @@ interface TickerScanResult {
   error?: string;
 }
 
-async function scanTicker(
+export async function scanTicker(
   tickerInfo: { ticker: string; name: string },
 ): Promise<TickerScanResult> {
   const { ticker, name } = tickerInfo;
 
   try {
-    // 1. Collect market data
+    // 1. Collect market data (with auto-resolution)
     const { detectorInput } = await collectMarketData(ticker);
 
     // 2. Load current BSCI weights
@@ -153,7 +265,7 @@ async function scanTicker(
       detectorScores: {},
       keySignal: 'NEUTRAL',
       action: 'WATCH',
-      quickStatus: `✅ Спокойно. BSCI 0.00 →. ОШИБКА: ${error.message?.slice(0, 40)}`,
+      quickStatus: `Спокойно. BSCI 0.00. ОШИБКА: ${error.message?.slice(0, 40)}`,
       vpin: 0,
       cumDelta: 0,
       ofi: 0,
@@ -163,56 +275,122 @@ async function scanTicker(
   }
 }
 
+// ─── Batch Scanner Helper ────────────────────────────────────────────────
+
+/**
+ * Сканирует список тикеров батчами
+ * @param tickers — список тикеров для сканирования
+ * @param batchSize — размер батча (параллельные запросы)
+ * @param delayMs — задержка между батчами (мс)
+ */
+export async function scanBatch(
+  tickers: readonly { ticker: string; name: string }[],
+  batchSize: number = 5,
+  delayMs: number = 2000,
+): Promise<TickerScanResult[]> {
+  const results: TickerScanResult[] = [];
+
+  for (let i = 0; i < tickers.length; i += batchSize) {
+    const batch = tickers.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map((t) => scanTicker(t)),
+    );
+
+    for (const r of batchResults) {
+      if (r.status === 'fulfilled') {
+        results.push(r.value);
+      }
+    }
+
+    // Задержка между батчами (кроме последнего)
+    if (i + batchSize < tickers.length && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return results;
+}
+
 // ─── POST: Run Scanner ────────────────────────────────────────────────────
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    console.log('[/api/horizon/scan] Starting scanner for 9 tickers');
+    // Check for TOP-100 mode via query param or body
+    let scanMode: 'core' | 'top100' = 'core';
+    let customTickers: { ticker: string; name: string }[] | null = null;
 
-    // Process tickers in parallel with resilience
-    const results = await Promise.allSettled(
-      SCANNER_TICKERS.map((t) => scanTicker(t)),
-    );
+    try {
+      const url = request.nextUrl;
+      const mode = url.searchParams.get('mode');
+      if (mode === 'top100') scanMode = 'top100';
 
-    // Extract successful results, use fallback for failed ones
-    const scannerData: TickerScanResult[] = results.map((r, i) => {
-      if (r.status === 'fulfilled') return r.value;
-      return {
-        ticker: SCANNER_TICKERS[i].ticker,
-        name: SCANNER_TICKERS[i].name,
-        bsci: 0,
-        prevBsci: 0,
-        alertLevel: 'GREEN' as const,
-        direction: 'NEUTRAL' as const,
-        confidence: 0,
-        detectorScores: {},
-        keySignal: 'NEUTRAL',
-        action: 'WATCH' as const,
-        quickStatus: '✅ Спокойно. BSCI 0.00 →. ОШИБКА',
-        vpin: 0,
-        cumDelta: 0,
-        ofi: 0,
-        turnover: 0,
-        error: r.reason?.message || 'Unknown error',
-      };
-    });
+      // Also check body
+      const body = await request.clone().json().catch(() => ({}));
+      if (body?.mode === 'top100') scanMode = 'top100';
+      if (body?.tickers && Array.isArray(body.tickers)) {
+        customTickers = body.tickers;
+      }
+    } catch { /* ignore parse errors */ }
 
-    // Save to Redis (TTL 1 hour)
+    const tickersToScan = customTickers ||
+      (scanMode === 'top100' ? [...TOP100_TICKERS] : [...SCANNER_TICKERS]);
+
+    console.log(`[/api/horizon/scan] Starting scanner for ${tickersToScan.length} tickers (mode=${scanMode})`);
+
+    // Core mode: full parallel, TOP-100: batched
+    let scannerData: TickerScanResult[];
+
+    if (scanMode === 'core') {
+      // Core 9: scan all in parallel (fast, only 9 tickers)
+      const results = await Promise.allSettled(
+        tickersToScan.map((t) => scanTicker(t)),
+      );
+      scannerData = results.map((r, i) => {
+        if (r.status === 'fulfilled') return r.value;
+        return {
+          ticker: tickersToScan[i].ticker,
+          name: tickersToScan[i].name,
+          bsci: 0,
+          prevBsci: 0,
+          alertLevel: 'GREEN' as const,
+          direction: 'NEUTRAL' as const,
+          confidence: 0,
+          detectorScores: {},
+          keySignal: 'NEUTRAL',
+          action: 'WATCH' as const,
+          quickStatus: 'Спокойно. BSCI 0.00. ОШИБКА',
+          vpin: 0,
+          cumDelta: 0,
+          ofi: 0,
+          turnover: 0,
+          error: r.reason?.message || 'Unknown error',
+        };
+      });
+    } else {
+      // TOP-100: batched scanning (5 at a time, 2s delay)
+      scannerData = await scanBatch(tickersToScan, 5, 2000);
+    }
+
+    // Save to Redis
+    const redisKey = scanMode === 'top100' ? 'horizon:scanner:top100' : 'horizon:scanner:latest';
+    const redisTTL = scanMode === 'top100' ? 1800 : 3600; // TOP-100: 30 min, Core: 1 hour
+
     try {
       await redis.setex(
-        'horizon:scanner:latest',
-        3600,
+        redisKey,
+        redisTTL,
         JSON.stringify(scannerData),
       );
     } catch (redisErr: any) {
-      console.warn('[/api/horizon/scan] Redis save failed:', redisErr.message);
+      console.warn(`[/api/horizon/scan] Redis save failed (${redisKey}):`, redisErr.message);
     }
 
     // Batch insert into bsci_log
     try {
       const logEntries = scannerData
+        .filter((d) => d.bsci > 0) // Only log tickers with actual data
         .map((d) => ({
           ticker: d.ticker,
           bsci: d.bsci,
@@ -232,10 +410,11 @@ export async function POST(_request: NextRequest) {
     }
 
     const elapsed = Date.now() - startTime;
-    console.log(`[/api/horizon/scan] Done in ${elapsed}ms: ${scannerData.length} tickers scanned`);
+    console.log(`[/api/horizon/scan] Done in ${elapsed}ms: ${scannerData.length} tickers scanned (mode=${scanMode})`);
 
     return NextResponse.json({
       success: true,
+      mode: scanMode,
       count: scannerData.length,
       data: scannerData,
       elapsed,
