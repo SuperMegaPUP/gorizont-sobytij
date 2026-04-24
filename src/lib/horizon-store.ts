@@ -257,10 +257,9 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
 
   fetchRadar: async () => {
     try {
-      // Use current mode to determine data source
-      const mode = get().scannerMode;
-      const source = mode === 'top100' ? 'top100' : 'all';
-      const res = await fetch(`/api/horizon/radar?source=${source}`);
+      // Always fetch ALL data (core + top100 combined) for radar
+      // Radar shows the full picture regardless of scanner mode
+      const res = await fetch('/api/horizon/radar?source=all');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       set({ radarData: json.data || [] });

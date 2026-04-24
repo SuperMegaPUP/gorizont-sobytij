@@ -4,8 +4,15 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Grid3x3, Clock } from 'lucide-react';
 import { useHorizonStore } from '@/lib/horizon-store';
 
-// Short codes for core 9 (shown first in grid)
+// Short codes for core 9 futures (shown first in grid)
 const CORE_TICKERS = ['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN'];
+
+// Map short futures codes → MOEX stock equivalents (for dedup when both appear)
+const SHORT_TO_MOEX: Record<string, string> = {
+  'SR': 'SBER', 'GZ': 'GAZP', 'GK': 'GMKN', 'LK': 'LKOH',
+  'RN': 'ROSN', 'MX': 'MOEX', 'Si': 'Si', 'RI': 'RI', 'BR': 'BR',
+};
+const MOEX_SET = new Set(Object.values(SHORT_TO_MOEX));
 
 // Trading hours (Moscow time) for columns
 const TRADING_HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
@@ -49,19 +56,26 @@ export function HorizonHeatmapFrame() {
     return map;
   }, [heatmapData]);
 
-  // Build sorted ticker list: core 9 first, then by max BSCI
+  // Build sorted ticker list: core 9 futures first, then all TOP 100 stocks by max BSCI
+  // All tickers shown together — futures + stocks combined
   const sortedTickers = useMemo(() => {
     const tickers = new Set(heatmapData.map((c) => c.ticker));
+
+    // Core 9 futures (use short codes)
     const core = CORE_TICKERS.filter((t) => tickers.has(t));
-    const top100 = [...tickers]
+
+    // Compute maxBsci per ticker for sorting (cache for perf)
+    const maxBsciMap: Record<string, number> = {};
+    for (const c of heatmapData) {
+      maxBsciMap[c.ticker] = Math.max(maxBsciMap[c.ticker] || 0, c.maxBsci);
+    }
+
+    // All non-core tickers, sorted by max BSCI descending
+    const stocks = [...tickers]
       .filter((t) => !CORE_TICKERS.includes(t))
-      .sort((a, b) => {
-        const maxA = Math.max(...heatmapData.filter((c) => c.ticker === a).map((c) => c.maxBsci), 0);
-        const maxB = Math.max(...heatmapData.filter((c) => c.ticker === b).map((c) => c.maxBsci), 0);
-        return maxB - maxA;
-      })
-      .slice(0, 20); // Top 20 anomalies beyond core 9
-    return [...core, ...top100];
+      .sort((a, b) => (maxBsciMap[b] || 0) - (maxBsciMap[a] || 0));
+
+    return [...core, ...stocks];
   }, [heatmapData]);
 
   // Range selector
@@ -85,7 +99,7 @@ export function HorizonHeatmapFrame() {
           ТЕПЛОВАЯ КАРТА BSCI
         </span>
         <span className="text-[6px] text-[var(--terminal-muted)] font-mono ml-1">
-          {sortedTickers.length} тикеров
+          {sortedTickers.length} тикеров (фьючерсы + акции)
         </span>
         <div className="ml-auto flex items-center gap-1">
           <Clock className="w-2 h-2 text-[var(--terminal-muted)]" />
@@ -138,7 +152,9 @@ export function HorizonHeatmapFrame() {
               >
                 {/* Ticker label */}
                 <div
-                  className="w-10 shrink-0 text-[5px] font-mono text-[var(--terminal-text)] font-bold py-0.5 px-1 cursor-pointer hover:text-[var(--terminal-accent)] truncate"
+                  className={`w-10 shrink-0 text-[5px] font-mono font-bold py-0.5 px-1 cursor-pointer hover:text-[var(--terminal-accent)] truncate ${
+                    CORE_TICKERS.includes(ticker) ? 'text-cyan-400' : 'text-[var(--terminal-text)]'
+                  }`}
                   onClick={() => selectTicker(ticker)}
                   title={ticker}
                 >
