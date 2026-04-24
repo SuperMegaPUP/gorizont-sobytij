@@ -1,18 +1,14 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
-import { Grid3x3, Clock } from 'lucide-react';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Grid3x3, Clock, ArrowUp } from 'lucide-react';
 import { useHorizonStore } from '@/lib/horizon-store';
 
 // Short codes for core 9 futures (shown first in grid)
 const CORE_TICKERS = ['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN'];
 
-// Map short futures codes → MOEX stock equivalents (for dedup when both appear)
-const SHORT_TO_MOEX: Record<string, string> = {
-  'SR': 'SBER', 'GZ': 'GAZP', 'GK': 'GMKN', 'LK': 'LKOH',
-  'RN': 'ROSN', 'MX': 'MOEX', 'Si': 'Si', 'RI': 'RI', 'BR': 'BR',
-};
-const MOEX_SET = new Set(Object.values(SHORT_TO_MOEX));
+// Fixed 48h range — no switching needed
+const HEATMAP_HOURS = 48;
 
 // Trading hours (Moscow time) for columns
 const TRADING_HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
@@ -36,15 +32,14 @@ export function HorizonHeatmapFrame() {
   const fetchHeatmap = useHorizonStore((s) => s.fetchHeatmap);
   const selectTimeSlice = useHorizonStore((s) => s.selectTimeSlice);
   const selectTicker = useHorizonStore((s) => s.selectTicker);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [hoursRange, setHoursRange] = useState(24);
-
-  // Fetch on mount + interval
+  // Fetch on mount + interval (always 48h)
   useEffect(() => {
-    fetchHeatmap(hoursRange);
-    const interval = setInterval(() => fetchHeatmap(hoursRange), 60000);
+    fetchHeatmap(HEATMAP_HOURS);
+    const interval = setInterval(() => fetchHeatmap(HEATMAP_HOURS), 60000);
     return () => clearInterval(interval);
-  }, [fetchHeatmap, hoursRange]);
+  }, [fetchHeatmap]);
 
   // Build grid lookup: key = "ticker:hour"
   const gridLookup = useMemo(() => {
@@ -57,7 +52,6 @@ export function HorizonHeatmapFrame() {
   }, [heatmapData]);
 
   // Build sorted ticker list: core 9 futures first, then all TOP 100 stocks by max BSCI
-  // All tickers shown together — futures + stocks combined
   const sortedTickers = useMemo(() => {
     const tickers = new Set(heatmapData.map((c) => c.ticker));
 
@@ -78,13 +72,6 @@ export function HorizonHeatmapFrame() {
     return [...core, ...stocks];
   }, [heatmapData]);
 
-  // Range selector
-  const ranges = [
-    { label: '8ч', value: 8 },
-    { label: '24ч', value: 24 },
-    { label: '48ч', value: 48 },
-  ];
-
   // Get current Moscow hour for highlight
   const now = new Date();
   const mskOffset = 3;
@@ -103,32 +90,20 @@ export function HorizonHeatmapFrame() {
         </span>
         <div className="ml-auto flex items-center gap-1">
           <Clock className="w-2 h-2 text-[var(--terminal-muted)]" />
-          {ranges.map((r) => (
-            <button
-              key={r.value}
-              onClick={() => setHoursRange(r.value)}
-              className={`text-[6px] font-mono px-1 py-0.5 rounded-sm transition-colors ${
-                hoursRange === r.value
-                  ? 'bg-[var(--terminal-accent)]/20 text-[var(--terminal-accent)] border border-[var(--terminal-accent)]/40'
-                  : 'text-[var(--terminal-muted)] border border-transparent hover:border-[var(--terminal-border)]'
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
+          <span className="text-[6px] font-mono text-[var(--terminal-muted)]">48ч</span>
         </div>
       </div>
 
-      {/* Heatmap Grid */}
-      <div className="flex-1 overflow-auto terminal-scroll">
+      {/* Heatmap Grid — scrollable */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-auto terminal-scroll">
         {heatmapData.length === 0 ? (
           <div className="text-[7px] text-[var(--terminal-muted)] font-mono text-center py-4">
             Нет данных тепловой карты. Запустите сканер.
           </div>
         ) : (
           <div className="min-w-[480px]">
-            {/* Hour headers */}
-            <div className="flex border-b border-[var(--terminal-border)]/30">
+            {/* Sticky hour headers */}
+            <div className="flex border-b border-[var(--terminal-border)]/30 sticky top-0 bg-[var(--terminal-bg)] z-10">
               <div className="w-10 shrink-0" /> {/* ticker column spacer */}
               {TRADING_HOURS.map((h) => (
                 <div
@@ -192,7 +167,7 @@ export function HorizonHeatmapFrame() {
             ))}
 
             {/* Legend */}
-            <div className="flex items-center gap-2 px-2 py-1 border-t border-[var(--terminal-border)]/30">
+            <div className="flex items-center gap-2 px-2 py-1 border-t border-[var(--terminal-border)]/30 sticky bottom-0 bg-[var(--terminal-bg)]">
               <span className="text-[5px] font-mono text-[var(--terminal-muted)]">BSCI:</span>
               {[
                 { color: 'bg-green-500/30', label: '<0.2' },
@@ -205,6 +180,11 @@ export function HorizonHeatmapFrame() {
                   <span className="text-[5px] font-mono text-[var(--terminal-muted)]">{l.label}</span>
                 </div>
               ))}
+              <span className="text-[var(--terminal-border)] mx-0.5">|</span>
+              <div className="flex items-center gap-0.5">
+                <div className="w-2 h-1.5 rounded-sm bg-cyan-400/40" />
+                <span className="text-[5px] font-mono text-[var(--terminal-muted)]">фьючерс</span>
+              </div>
             </div>
           </div>
         )}

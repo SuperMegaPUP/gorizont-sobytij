@@ -125,14 +125,16 @@ export function HorizonRadarFrame() {
     });
 
     // Second pass: resolve overlaps with deterministic jitter
-    const resolved = positions.map((dot, i) => {
+    // Use imperative loop (not .map) to safely reference previously-resolved dots
+    const resolved: ComputedDot[] = [];
+    for (let i = 0; i < positions.length; i++) {
+      const dot = positions[i];
       let cx = dot.baseCx;
       let cy = dot.baseCy;
 
-      // Check overlap with all previous dots
-      for (let j = 0; j < i; j++) {
+      // Check overlap with all previously-resolved dots
+      for (let j = 0; j < resolved.length; j++) {
         const prev = resolved[j];
-        if (!prev) continue;
         const dx = cx - prev.cx;
         const dy = cy - prev.cy;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -152,8 +154,8 @@ export function HorizonRadarFrame() {
       cx = Math.max(padX + dot.r, Math.min(dims.w - padX - dot.r, cx));
       cy = Math.max(padY + dot.r, Math.min(dims.h - padY - dot.r, cy));
 
-      return { ...dot, cx, cy };
-    });
+      resolved.push({ ...dot, cx, cy });
+    }
 
     return resolved;
   }, [radarData, dims]);
