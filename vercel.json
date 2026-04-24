@@ -15,6 +15,30 @@
     {
       "path": "/api/reports/cron",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/horizon/observe?auto=1&ticker=SBER",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/horizon/observe?auto=1&ticker=SBER",
+      "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/horizon/observe?auto=1&ticker=SBER",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/horizon/observe?auto=1&ticker=SBER",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/horizon/observe?auto=1&ticker=SBER",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/horizon/observe?auto=1&ticker=SBER",
+      "schedule": "0 17 * * *"
     }
   ]
 }

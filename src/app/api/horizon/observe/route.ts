@@ -1,13 +1,16 @@
 // ─── /api/horizon/observe ─────────────────────────────────────────────────
-// Сохранение наблюдения в PostgreSQL + Redis (двухуровневое)
-// POST: создать наблюдение
-// GET: получить последнее наблюдение по тикеру
+// POST: ручное сохранение наблюдения
+// GET:  — список наблюдений по тикеру
+//       — auto=1 → полный цикл AI Observer (cron mode)
 
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { saveObservation, type ObservationInput } from '@/lib/horizon/bsci/save-observation';
+import { generateObservation } from '@/lib/horizon/observer/generate-observation';
+
+// ─── POST: ручное создание наблюдения ──────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   try {
@@ -98,18 +101,56 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// ─── GET: список наблюдений или auto-наблюдение (cron) ──────────────────────
+
 export async function GET(request: NextRequest) {
   try {
-    const ticker = (request.nextUrl.searchParams.get('ticker') || '').toUpperCase();
-    const limit = Math.min(Number(request.nextUrl.searchParams.get('limit') || 10), 100);
+    const params = request.nextUrl.searchParams;
+    const auto = params.get('auto');
+    const ticker = (params.get('ticker') || 'SBER').toUpperCase();
+    const limit = Math.min(Number(params.get('limit') || 10), 100);
 
-    if (!ticker) {
-      return NextResponse.json(
-        { error: 'ticker parameter is required' },
-        { status: 400 }
-      );
+    // ── Cron mode: auto=1 → полный цикл AI Observer ──
+    if (auto === '1') {
+      const slot = params.get('slot') ? Number(params.get('slot')) : undefined;
+      const skipAI = params.get('skipAI') === '1';
+
+      console.log(`[/api/horizon/observe] AUTO mode: ticker=${ticker} slot=${slot} skipAI=${skipAI}`);
+
+      const result = await generateObservation(ticker, slot, skipAI);
+
+      if (!result.success) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: result.error,
+            bsci: result.bsci,
+            alertLevel: result.alertLevel,
+            ts: Date.now(),
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        observationId: result.observationId,
+        bsci: result.bsci,
+        alertLevel: result.alertLevel,
+        direction: result.direction,
+        topDetector: result.detectorScores.length > 0
+          ? result.detectorScores.reduce((top, ds) => ds.score > top.score ? ds : top, result.detectorScores[0]).detector
+          : 'NONE',
+        aiComment: result.aiComment,
+        aiTokensUsed: result.aiTokensUsed,
+        detectorCount: result.detectorScores.length,
+        savedToPg: result.savedToPg,
+        savedToRedis: result.savedToRedis,
+        ts: Date.now(),
+      });
     }
 
+    // ── Normal mode: список наблюдений ──
     const observations = await prisma.observation.findMany({
       where: { ticker },
       orderBy: { timestamp: 'desc' },
