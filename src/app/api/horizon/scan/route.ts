@@ -213,7 +213,6 @@ export async function POST(_request: NextRequest) {
     // Batch insert into bsci_log
     try {
       const logEntries = scannerData
-        .filter((d) => d.bsci > 0)
         .map((d) => ({
           ticker: d.ticker,
           bsci: d.bsci,

@@ -207,9 +207,20 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
   fetchScanner: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch('/api/horizon/scanner');
+      // 1. Try GET first (reads from Redis cache)
+      let res = await fetch('/api/horizon/scanner');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      let json = await res.json();
+
+      // 2. If no cached data, trigger a POST scan
+      if (!json.data || json.data.length === 0) {
+        console.log('[HorizonStore] No cached scanner data, triggering POST scan...');
+        const scanRes = await fetch('/api/horizon/scan', { method: 'POST' });
+        if (scanRes.ok) {
+          json = await scanRes.json();
+        }
+      }
+
       set({
         scannerData: json.data || [],
         lastScannerUpdate: Date.now(),
@@ -224,9 +235,18 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
 
   fetchRadar: async () => {
     try {
-      const res = await fetch('/api/horizon/radar');
+      let res = await fetch('/api/horizon/radar');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      let json = await res.json();
+
+      // If no radar data, trigger scan first then retry
+      if (!json.data || json.data.length === 0) {
+        console.log('[HorizonStore] No radar data, triggering scan...');
+        await fetch('/api/horizon/scan', { method: 'POST' });
+        res = await fetch('/api/horizon/radar');
+        if (res.ok) json = await res.json();
+      }
+
       set({ radarData: json.data || [] });
     } catch (error: any) {
       console.warn('[HorizonStore] fetchRadar error:', error.message);

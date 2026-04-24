@@ -20,7 +20,21 @@ export interface RadarDot {
 
 export async function GET(_request: NextRequest) {
   try {
-    const raw = await redis.get('horizon:scanner:latest');
+    let raw = await redis.get('horizon:scanner:latest');
+
+    if (!raw) {
+      // Auto-trigger scan if no cached data
+      console.log('[/api/horizon/radar] No cached data, auto-triggering scan...');
+      try {
+        const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+        await fetch(`${baseUrl}/api/horizon/scan`, { method: 'POST' });
+        // Re-read from Redis after scan
+        const freshRaw = await redis.get('horizon:scanner:latest');
+        if (freshRaw) raw = freshRaw;
+      } catch (scanErr: any) {
+        console.warn('[/api/horizon/radar] Auto-scan failed:', scanErr.message);
+      }
+    }
 
     if (!raw) {
       return NextResponse.json({
