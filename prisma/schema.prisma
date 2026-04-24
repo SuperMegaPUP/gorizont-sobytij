@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("POSTGRES_URL_NON_POOLING")
+  relationMode = "prisma"
+}
+
+// ============================================
+//  ГОРизОНТ СОБЫТИЙ — основная схема
+// ============================================
+
+model Observation {
+  id              String    @id @default(uuid())
+  ticker          String    // "SBER", "GAZP" и т.д.
+  slot            Int       // 0-5 (08:00=0, 10:30=1, 12:00=2, 15:00=3, 17:00=4, 20:00=5)
+  slotName        String    // "Предрыночный скан", "Утренний паттерн" и т.д.
+  timestamp       DateTime  @default(now())
+
+  // BSCI
+  bsci            Float     // 0..1
+  alertLevel      String    // GREEN / YELLOW / ORANGE / RED
+  direction       String    // BULLISH / BEARISH / NEUTRAL
+  confidence      Float     @default(0)
+
+  // AI
+  aiComment       String?   // Текст AI наблюдения
+  aiTokensUsed    Int?      // Сколько токенов потрачено
+
+  // Рыночный снапшот
+  marketSnapshot  Json?     // { indexValue, indexChange, vix, futoiSummary, topAnomalies }
+
+  // Связь с предыдущим наблюдением (для верификации)
+  previousObsId   String?   // UUID предыдущего наблюдения
+
+  // Верификация (заполняется ПОСЛЕ — когда рынок показал реальное направление)
+  accuracyVerified Boolean  @default(false)
+  actualDirection  String?  // BULLISH / BEARISH / NEUTRAL — что реально произошло
+
+  createdAt       DateTime  @default(now())
+
+  // Связи
+  detectorScores  DetectorScore[]
+
+  @@index([ticker, timestamp(sort: Desc)])
+  @@index([bsci])
+  @@index([alertLevel])
+  @@map("observations")
+}
+
+model DetectorScore {
+  id              String      @id @default(uuid())
+  observationId   String
+  detector        String      // GRAVITON, DARKMATTER, ACCRETOR, ...
+  score           Float       // 0..1
+  confidence      Float       @default(0)
+  signal          String?     // BULLISH / BEARISH / NEUTRAL
+  metadata        Json?       // { centerPrice, asymmetry, lensingRatio, ... }
+  createdAt       DateTime    @default(now())
+
+  observation     Observation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+
+  @@index([detector, createdAt(sort: Desc)])
+  @@index([observationId])
+  @@map("detector_scores")
+}
+
+model BsciLog {
+  id              String   @id @default(uuid())
+  ticker          String
+  bsci            Float    // 0..1
+  alertLevel      String
+  topDetector     String?  // Какой детектор дал макс score
+  direction       String?
+  timestamp       DateTime @default(now())
+
+  @@index([ticker, timestamp(sort: Desc)])
+  @@map("bsci_log")
+}
+
+model BsciWeight {
+  id              String   @id @default(uuid())
+  detector        String   @unique  // GRAVITON, DARKMATTER, ...
+  weight          Float    // Адаптивный вес 0..1
+  accuracy        Float    @default(0.5)  // Историческая точность
+  totalSignals    Int      @default(0)
+  correctSignals  Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  @@map("bsci_weights")
+}
+
+// ============================================
+//  ROBOT DETECT — существующие таблицы
+// ============================================
+
+model Report {
+  id              String   @id @default(uuid())
+  ticker          String
+  reportType      String   // "full", "hint", "horizon"
+  content         Json?    // Полный отчёт
+  hint            String?  // Краткий вывод
+  timestamp       DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([ticker, timestamp(sort: Desc)])
+  @@map("reports")
+}
