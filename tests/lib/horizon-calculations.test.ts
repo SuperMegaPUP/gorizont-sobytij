@@ -1,18 +1,21 @@
 // ─── Horizon Calculations — Тесты ────────────────────────────────────────
-// OFI, Cumulative Delta, VPIN
+// OFI, Cumulative Delta, VPIN, RealtimeOFI, Divergence
 
-import { calcOFI, calcWeightedOFI, calcOFIByLevel } from '@/lib/horizon/calculations/ofi';
-import type { OrderBookData } from '@/lib/horizon/calculations/ofi';
+import { calcOFI, calcWeightedOFI, calcOFIByLevel, calcRealtimeOFI, calcRealtimeOFIMultiLevel } from '@/lib/horizon/calculations/ofi';
+import type { OrderBookData, OrderBookSnapshot } from '@/lib/horizon/calculations/ofi';
 import {
   calcCumDelta,
   updateCumDelta,
   classifyTrade,
+  detectDivergence,
+  detectDivergenceMultiTF,
 } from '@/lib/horizon/calculations/delta';
 import type { Trade, CumDeltaResult } from '@/lib/horizon/calculations/delta';
 import {
   calcVPIN,
   bvcClassify,
   calcSigmaDeltaP,
+  sliceIntoVolumeBuckets,
 } from '@/lib/horizon/calculations/vpin';
 import type { Candle } from '@/lib/horizon/calculations/vpin';
 
@@ -97,6 +100,174 @@ describe('Horizon: OFI (Order Flow Imbalance)', () => {
   });
 });
 
+// ─── Real-time OFI (Cont et al. 2014) ──────────────────────────────────────
+
+describe('calcRealtimeOFI', () => {
+  it('should return 0 for identical snapshots', () => {
+    const snap: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: Date.now(),
+    };
+    expect(calcRealtimeOFI(snap, snap)).toBe(0);
+  });
+
+  it('should detect bullish pressure when bid level moves up', () => {
+    const prev: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 1,
+    };
+    const curr: OrderBookSnapshot = {
+      bids: [{ price: 100.5, volume: 60 }], // bid сдвинулся ВВЕРХ
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 2,
+    };
+    // P_bid_t > P_bid_prev → ofi_bid = b_t = 60
+    // P_ask_t === P_ask_prev → ofi_ask = a_t - a_prev = 0
+    // result = 60 - 0 = 60 (positive = bullish)
+    expect(calcRealtimeOFI(curr, prev)).toBe(60);
+  });
+
+  it('should detect bearish pressure when ask level moves down', () => {
+    const prev: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 1,
+    };
+    const curr: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 100.5, volume: 60 }], // ask сдвинулся ВНИЗ
+      timestamp: 2,
+    };
+    // P_bid_t === P_bid_prev → ofi_bid = 50 - 50 = 0
+    // P_ask_t < P_ask_prev → ofi_ask = a_t = 60
+    // result = 0 - 60 = -60 (negative = bearish)
+    expect(calcRealtimeOFI(curr, prev)).toBe(-60);
+  });
+
+  it('should return 0 for empty snapshots', () => {
+    const empty: OrderBookSnapshot = { bids: [], asks: [], timestamp: 0 };
+    const snap: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 1,
+    };
+    expect(calcRealtimeOFI(empty, snap)).toBe(0);
+    expect(calcRealtimeOFI(snap, empty)).toBe(0);
+  });
+
+  it('should detect bid moving down as bearish', () => {
+    const prev: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 1,
+    };
+    const curr: OrderBookSnapshot = {
+      bids: [{ price: 99.5, volume: 40 }], // bid сдвинулся ВНИЗ
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 2,
+    };
+    // P_bid_t < P_bid_prev → ofi_bid = -b_prev = -50
+    // P_ask_t === P_ask_prev → ofi_ask = 0
+    // result = -50 - 0 = -50
+    expect(calcRealtimeOFI(curr, prev)).toBe(-50);
+  });
+
+  it('should detect ask moving up as bullish', () => {
+    const prev: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 1,
+    };
+    const curr: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101.5, volume: 40 }], // ask сдвинулся ВВЕРХ
+      timestamp: 2,
+    };
+    // P_bid_t === P_bid_prev → ofi_bid = 0
+    // P_ask_t > P_ask_prev → ofi_ask = -a_prev = -50
+    // result = 0 - (-50) = 50 (positive = bullish)
+    expect(calcRealtimeOFI(curr, prev)).toBe(50);
+  });
+});
+
+describe('calcRealtimeOFIMultiLevel', () => {
+  it('should aggregate across multiple levels', () => {
+    const prev: OrderBookSnapshot = {
+      bids: [
+        { price: 100, volume: 50 },
+        { price: 99, volume: 40 },
+      ],
+      asks: [
+        { price: 101, volume: 50 },
+        { price: 102, volume: 40 },
+      ],
+      timestamp: 1,
+    };
+    const curr: OrderBookSnapshot = {
+      bids: [
+        { price: 100.5, volume: 60 }, // bid level 0 moved up → bullish
+        { price: 99, volume: 50 },    // bid level 1 same price, volume up
+      ],
+      asks: [
+        { price: 101, volume: 50 },   // ask level 0 same
+        { price: 102, volume: 40 },   // ask level 1 same
+      ],
+      timestamp: 2,
+    };
+    const result = calcRealtimeOFIMultiLevel(curr, prev, 2);
+    // Level 0: ofi_bid=60, ofi_ask=0 → 60
+    // Level 1: ofi_bid=50-40=10, ofi_ask=0 → 10
+    // Total: 70
+    expect(result).toBe(70);
+  });
+
+  it('should respect kLevels limit', () => {
+    const prev: OrderBookSnapshot = {
+      bids: [
+        { price: 100, volume: 50 },
+        { price: 99, volume: 40 },
+        { price: 98, volume: 30 },
+      ],
+      asks: [
+        { price: 101, volume: 50 },
+        { price: 102, volume: 40 },
+        { price: 103, volume: 30 },
+      ],
+      timestamp: 1,
+    };
+    const curr: OrderBookSnapshot = {
+      bids: [
+        { price: 100, volume: 60 },
+        { price: 99, volume: 50 },
+        { price: 98, volume: 20 },
+      ],
+      asks: [
+        { price: 101, volume: 40 },
+        { price: 102, volume: 40 },
+        { price: 103, volume: 30 },
+      ],
+      timestamp: 2,
+    };
+
+    const oneLevel = calcRealtimeOFIMultiLevel(curr, prev, 1);
+    const twoLevels = calcRealtimeOFIMultiLevel(curr, prev, 2);
+    // More levels → different result
+    expect(oneLevel).not.toBe(twoLevels);
+  });
+
+  it('should return 0 for empty snapshots', () => {
+    const empty: OrderBookSnapshot = { bids: [], asks: [], timestamp: 0 };
+    const snap: OrderBookSnapshot = {
+      bids: [{ price: 100, volume: 50 }],
+      asks: [{ price: 101, volume: 50 }],
+      timestamp: 1,
+    };
+    expect(calcRealtimeOFIMultiLevel(empty, snap, 5)).toBe(0);
+  });
+});
+
 // ─── Cumulative Delta ─────────────────────────────────────────────────────
 
 describe('Horizon: Cumulative Delta', () => {
@@ -158,6 +329,68 @@ describe('Horizon: Cumulative Delta', () => {
     const result = calcCumDelta(trades);
     expect(result.delta).toBe(10); // только B учтён
     expect(result.totalVolume).toBe(10); // X не учтён
+  });
+});
+
+// ─── Divergence ────────────────────────────────────────────────────────────
+
+describe('detectDivergence', () => {
+  it('should detect bullish divergence (price down, delta up)', () => {
+    // Цена падает: 100, 99.5, 99, 98.5, 98...
+    const prices = Array.from({ length: 30 }, (_, i) => 100 - i * 0.5);
+    // CumDelta растёт: 0, 5, 10, 15, 20...
+    const cumDeltas = Array.from({ length: 30 }, (_, i) => i * 5);
+
+    const result = detectDivergence(prices, cumDeltas, 20);
+    expect(result.detected).toBe(true);
+    expect(result.type).toBe('BULLISH');
+    expect(result.strength).toBeGreaterThan(0);
+  });
+
+  it('should detect bearish divergence (price up, delta down)', () => {
+    // Цена растёт
+    const prices = Array.from({ length: 30 }, (_, i) => 100 + i * 0.5);
+    // CumDelta падает
+    const cumDeltas = Array.from({ length: 30 }, (_, i) => -i * 5);
+
+    const result = detectDivergence(prices, cumDeltas, 20);
+    expect(result.detected).toBe(true);
+    expect(result.type).toBe('BEARISH');
+    expect(result.strength).toBeGreaterThan(0);
+  });
+
+  it('should return NONE when price and delta move together', () => {
+    // Оба растут — дивергенции нет
+    const prices = Array.from({ length: 30 }, (_, i) => 100 + i);
+    const cumDeltas = Array.from({ length: 30 }, (_, i) => i * 10);
+
+    const result = detectDivergence(prices, cumDeltas, 20);
+    expect(result.type).toBe('NONE');
+    expect(result.detected).toBe(false);
+  });
+
+  it('should return NONE for insufficient data', () => {
+    const result = detectDivergence([100, 101], [0, 5], 20);
+    expect(result.detected).toBe(false);
+    expect(result.type).toBe('NONE');
+  });
+
+  it('should work with multi-timeframe', () => {
+    const prices = Array.from({ length: 60 }, (_, i) => 100 - i * 0.3);
+    const cumDeltas = Array.from({ length: 60 }, (_, i) => i * 3);
+
+    const results = detectDivergenceMultiTF(prices, cumDeltas, [10, 20, 50]);
+    expect(results).toHaveLength(3);
+    expect(results.every((r) => r.type === 'BULLISH')).toBe(true);
+  });
+
+  it('should report strength between 0 and 1', () => {
+    const prices = Array.from({ length: 30 }, (_, i) => 100 - i * 0.5);
+    const cumDeltas = Array.from({ length: 30 }, (_, i) => i * 5);
+
+    const result = detectDivergence(prices, cumDeltas, 20);
+    expect(result.strength).toBeGreaterThanOrEqual(0);
+    expect(result.strength).toBeLessThanOrEqual(1);
   });
 });
 
@@ -247,6 +480,93 @@ describe('Horizon: VPIN', () => {
   });
 
   test('calcSigmaDeltaP для 1 свечи = 0', () => {
-    expect(calcSigmaDeltaP([{ open: 100, close: 101, high: 102, low: 99, volume: 100 }])).toBe(0);
+    expect(
+      calcSigmaDeltaP([{ open: 100, close: 101, high: 102, low: 99, volume: 100 }])
+    ).toBe(0);
+  });
+});
+
+// ─── VPIN BVC with timeDelta ─────────────────────────────────────────────
+
+describe('VPIN BVC with timeDelta', () => {
+  it('should handle candles with timeDelta correctly', () => {
+    const candles: Candle[] = [
+      { open: 100, close: 101, high: 101, low: 99, volume: 1000, timeDelta: 1 },
+      { open: 101, close: 103, high: 103, low: 100, volume: 1200, timeDelta: 5 },
+      { open: 103, close: 100, high: 104, low: 100, volume: 800, timeDelta: 2 },
+    ];
+    // Candle 2: ΔP=2, Δt=5, σ_ΔP≈1.53 → z = 2/(1.53×√5) ≈ 0.58 → больше BUY
+    // Candle 3: ΔP=-3, Δt=2, σ_ΔP≈2.08 → z = -3/(2.08×√2) ≈ -1.02 → больше SELL
+    const result = calcVPIN(candles);
+    expect(result.vpin).toBeGreaterThanOrEqual(0);
+    expect(result.vpin).toBeLessThanOrEqual(1);
+  });
+
+  it('should be backward compatible when timeDelta is omitted', () => {
+    const withDelta: Candle[] = [
+      { open: 100, close: 102, high: 102, low: 100, volume: 500, timeDelta: 1 },
+      { open: 102, close: 100, high: 102, low: 100, volume: 500, timeDelta: 1 },
+    ];
+    const withoutDelta: Candle[] = [
+      { open: 100, close: 102, high: 102, low: 100, volume: 500 },
+      { open: 102, close: 100, high: 102, low: 100, volume: 500 },
+    ];
+    // timeDelta=1 ≡ нет timeDelta → одинаковый результат
+    expect(calcVPIN(withDelta).vpin).toBeCloseTo(calcVPIN(withoutDelta).vpin, 10);
+  });
+
+  it('longer timeDelta should reduce z-score (normalize volatility)', () => {
+    // Нужны минимум 3 свечи для calcSigmaDeltaP ≠ 0 (нужна дисперсия в приращениях)
+    const shortDt: Candle[] = [
+      { open: 100, close: 101, high: 101, low: 100, volume: 1000, timeDelta: 1 },
+      { open: 101, close: 103, high: 103, low: 100, volume: 1000, timeDelta: 1 },
+      { open: 103, close: 102, high: 104, low: 101, volume: 1000, timeDelta: 1 },
+    ];
+    const longDt: Candle[] = [
+      { open: 100, close: 101, high: 101, low: 100, volume: 1000, timeDelta: 25 },
+      { open: 101, close: 103, high: 103, low: 100, volume: 1000, timeDelta: 25 },
+      { open: 103, close: 102, high: 104, low: 101, volume: 1000, timeDelta: 25 },
+    ];
+    // При Δt=25, √25=5, z-score в 5 раз меньше → BVC ближе к 50/50 → VPIN ниже
+    // Это правильно: то же движение за 25 сек — менее информативно, чем за 1 сек
+    const vpinShort = calcVPIN(shortDt).vpin;
+    const vpinLong = calcVPIN(longDt).vpin;
+    // VPIN с коротким Δt должен быть выше (более "токсичный" поток)
+    expect(vpinShort).toBeGreaterThan(vpinLong);
+  });
+
+  it('sliceIntoVolumeBuckets should fill timeDelta', () => {
+    const trades = [
+      { price: 100, volume: 300, timestamp: 1000 },
+      { price: 101, volume: 300, timestamp: 3000 }, // 2 сек
+      { price: 102, volume: 400, timestamp: 8000 }, // 7 сек
+    ];
+    const buckets = sliceIntoVolumeBuckets(trades, 500);
+    // Первый бакет: trades 1+2, volume=600, startTime=1000, lastTime=3000
+    // timeDelta = (3000-1000)/1000 = 2.0 сек
+    expect(buckets.length).toBeGreaterThanOrEqual(1);
+    expect(buckets[0].timeDelta).toBeDefined();
+    expect(buckets[0].timeDelta).toBeGreaterThan(0);
+  });
+
+  it('sliceIntoVolumeBuckets should produce valid OHLCV candles', () => {
+    const trades = [
+      { price: 100, volume: 200, timestamp: 1000 },
+      { price: 102, volume: 200, timestamp: 2000 },
+      { price: 101, volume: 200, timestamp: 3000 },
+    ];
+    const buckets = sliceIntoVolumeBuckets(trades, 400);
+    expect(buckets.length).toBeGreaterThanOrEqual(1);
+    // First bucket open = first trade price
+    expect(buckets[0].open).toBe(100);
+    // High should be max price in bucket
+    expect(buckets[0].high).toBeGreaterThanOrEqual(102);
+    // Low should be min price in bucket
+    expect(buckets[0].low).toBeLessThanOrEqual(100);
+  });
+
+  it('sliceIntoVolumeBuckets with empty trades', () => {
+    const buckets = sliceIntoVolumeBuckets([], 500);
+    expect(buckets).toHaveLength(0);
   });
 });

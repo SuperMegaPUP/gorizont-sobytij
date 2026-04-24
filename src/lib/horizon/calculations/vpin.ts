@@ -3,7 +3,7 @@
 //
 // Алгоритм:
 // 1. Аккумулировать объём в корзины фиксированного размера V (1/50 дневного объёма)
-// 2. Классифицировать объём через BVC: V_buy = V_total × Φ((close-open) / σ_ΔP)
+// 2. Классифицировать объём через BVC: V_buy = V_total × Φ((close-open) / (σ_ΔP × √Δt_i))
 // 3. VPIN = Σ|V_buy - V_sell| / Σ(V_buy + V_sell) по 50 корзинам
 // 4. VPIN > 0.6 = высокая токсичность, > 0.8 = экстремальная
 
@@ -13,6 +13,8 @@ export interface Candle {
   high: number;
   low: number;
   volume: number;
+  /** Δt_i — длительность корзины в секундах. Если не указано — предполагаем 1 (обратная совместимость) */
+  timeDelta?: number;
 }
 
 export interface VPINResult {
@@ -37,21 +39,28 @@ function normalCDF(x: number): number {
   const sign = x < 0 ? -1 : 1;
   const absX = Math.abs(x);
   const t = 1.0 / (1.0 + p * absX);
-  const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX / 2);
+  const y =
+    1.0 -
+    ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) *
+      t *
+      Math.exp(-absX * absX / 2);
 
   return 0.5 * (1.0 + sign * y);
 }
 
 /**
  * BVC (Bulk Volume Classification) — классификация объёма по свече
- * V_buy = V_total × Φ((close - open) / σ_ΔP)
+ * V_buy = V_total × Φ((close - open) / (σ_ΔP × √Δt_i))
  * V_sell = V_total - V_buy
+ *
+ * Δt_i нормализует волатильность к единице времени:
+ * если корзина длилась 5 секунд — √5 ≈ 2.24 — волатильность "на секунду" ниже
  */
 export function bvcClassify(
   candle: Candle,
   sigmaDeltaP: number
 ): { buyVolume: number; sellVolume: number } {
-  if (sigmaDeltaP <= 0) {
+  if (sigmaDeltaP <= 0 || candle.volume <= 0) {
     // Если σ=0, считаем 50/50
     return {
       buyVolume: candle.volume / 2,
@@ -59,7 +68,10 @@ export function bvcClassify(
     };
   }
 
-  const z = (candle.close - candle.open) / sigmaDeltaP;
+  const dt = candle.timeDelta ?? 1; // default 1 для обратной совместимости
+  const sqrtDt = Math.sqrt(dt);
+
+  const z = (candle.close - candle.open) / (sigmaDeltaP * sqrtDt);
   const buyFraction = normalCDF(z);
 
   return {
@@ -125,8 +137,6 @@ export function calcVPIN(candles: Candle[], numBuckets: number = 50): VPINResult
   }
 
   // Аккумулируем в корзины
-  let accBuy = 0;
-  let accSell = 0;
   let bucketBuy = 0;
   let bucketSell = 0;
   let bucketFill = 0;
@@ -175,4 +185,77 @@ export function calcVPIN(candles: Candle[], numBuckets: number = 50): VPINResult
     avgBuyVolume: numFilled > 0 ? sumTotal / numFilled / 2 : 0,
     avgSellVolume: numFilled > 0 ? sumTotal / numFilled / 2 : 0,
   };
+}
+
+/**
+ * Нарезка сделок на volume-бакеты с заполнением timeDelta
+ * Каждый бакет — OHLCV свеча с длительностью в секундах
+ *
+ * @param trades — массив сделок с price, volume, timestamp
+ * @param bucketVolume — объём одного бакета
+ */
+export function sliceIntoVolumeBuckets(
+  trades: Array<{ price: number; volume: number; timestamp: number }>,
+  bucketVolume: number
+): Candle[] {
+  const buckets: Candle[] = [];
+  let currentBucket: {
+    open: number;
+    close: number;
+    high: number;
+    low: number;
+    volume: number;
+    startTime: number;
+    lastTime: number;
+  } | null = null;
+
+  for (const trade of trades) {
+    if (!currentBucket) {
+      currentBucket = {
+        open: trade.price,
+        close: trade.price,
+        high: trade.price,
+        low: trade.price,
+        volume: 0,
+        startTime: trade.timestamp,
+        lastTime: trade.timestamp,
+      };
+    }
+
+    currentBucket.close = trade.price;
+    currentBucket.high = Math.max(currentBucket.high, trade.price);
+    currentBucket.low = Math.min(currentBucket.low, trade.price);
+    currentBucket.volume += trade.volume;
+    currentBucket.lastTime = trade.timestamp;
+
+    if (currentBucket.volume >= bucketVolume) {
+      const timeDeltaSec =
+        (currentBucket.lastTime - currentBucket.startTime) / 1000;
+      buckets.push({
+        open: currentBucket.open,
+        close: currentBucket.close,
+        high: currentBucket.high,
+        low: currentBucket.low,
+        volume: currentBucket.volume,
+        timeDelta: Math.max(timeDeltaSec, 0.001), // минимум 1мс, защита от /0
+      });
+      currentBucket = null;
+    }
+  }
+
+  // Последний неполный бакет
+  if (currentBucket && currentBucket.volume > 0) {
+    const timeDeltaSec =
+      (currentBucket.lastTime - currentBucket.startTime) / 1000;
+    buckets.push({
+      open: currentBucket.open,
+      close: currentBucket.close,
+      high: currentBucket.high,
+      low: currentBucket.low,
+      volume: currentBucket.volume,
+      timeDelta: Math.max(timeDeltaSec, 0.001),
+    });
+  }
+
+  return buckets;
 }
