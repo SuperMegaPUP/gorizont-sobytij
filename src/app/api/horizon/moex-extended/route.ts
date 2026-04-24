@@ -129,7 +129,7 @@ async function getFuturesOI() {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = request;
+  const searchParams = request.nextUrl.searchParams;
   const action = searchParams.get('action') || 'orderbook';
   const ticker = (searchParams.get('ticker') || 'SBER').toUpperCase();
 

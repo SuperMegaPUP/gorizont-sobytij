@@ -9,7 +9,7 @@ import type { OrderBookData } from '@/lib/horizon/calculations/ofi';
 import { calcCumDelta } from '@/lib/horizon/calculations/delta';
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = request;
+  const searchParams = request.nextUrl.searchParams;
   const ticker = (searchParams.get('ticker') || 'SBER').toUpperCase();
 
   try {
