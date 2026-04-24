@@ -1,0 +1,1243 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "react-grid-layout/css/styles.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  /* Terminal color tokens — resolve through --t-* which themes override */
+  --color-terminal-green: var(--t-positive);
+  --color-terminal-red: var(--t-negative);
+  --color-terminal-yellow: var(--t-warning);
+  --color-terminal-cyan: var(--t-accent);
+  --color-terminal-orange: var(--t-warning);
+  --color-terminal-bg: var(--t-bg);
+  --color-terminal-surface: var(--t-surface);
+  --color-terminal-border: var(--t-border);
+  --color-terminal-text: var(--t-text);
+  --color-terminal-muted: var(--t-muted);
+  --color-terminal-positive: var(--t-positive);
+  --color-terminal-negative: var(--t-negative);
+  --color-terminal-neutral: var(--t-neutral);
+  --color-terminal-accent: var(--t-accent);
+  --color-terminal-warning: var(--t-warning);
+  --color-terminal-critical: var(--t-critical);
+  --color-terminal-surface-hover: var(--t-surface-hover);
+  --color-terminal-text-dim: var(--t-text-dim);
+  --color-terminal-frame-border: var(--t-frame-border);
+  --color-terminal-frame-header: var(--t-frame-header);
+  --color-terminal-card: var(--t-card);
+  --color-terminal-card-hover: var(--t-card-hover);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DEFAULT ROOT VARS — must come BEFORE theme classes so themes can override
+   ═══════════════════════════════════════════════════════════════════════════════ */
+:root {
+  --radius: 0.625rem;
+
+  /* ── Default theme vars (NIGHT OWL values as fallback) ── */
+  --t-bg: #0a0e17;
+  --t-surface: #111827;
+  --t-surface-hover: #1a2332;
+  --t-border: #1e293b;
+  --t-text: #e2e8f0;
+  --t-text-dim: #94a3b8;
+  --t-muted: #64748b;
+  --t-positive: #4ade80;
+  --t-negative: #f87171;
+  --t-neutral: #94a3b8;
+  --t-accent: #3b82f6;
+  --t-warning: #f59e0b;
+  --t-critical: #ef4444;
+  --t-frame-border: #1e293b;
+  --t-frame-header: #94a3b8;
+  --t-card: #111827;
+  --t-card-hover: #1a2332;
+  --t-scrollbar-track: #0a0e17;
+  --t-scrollbar-thumb: #1e293b;
+  --t-scrollbar-thumb-hover: #334155;
+  --t-glow-positive: 0 0 8px #4ade8040;
+  --t-glow-negative: 0 0 8px #f8717140;
+  --t-glow-critical: 0 0 12px #ef444460;
+  --t-pulse-positive: #4ade80;
+  --t-pulse-negative: #f87171;
+  --t-pulse-warning: #f59e0b;
+  --t-anomaly-border-dim: rgba(245, 158, 11, 0.5);
+  --t-anomaly-border-bright: #f59e0b;
+
+  /* ── Chart colors (duration bars, strategy charts, pattern tags) ── */
+  --t-chart-hft: #e11d48;
+  --t-chart-scalper: #ff3366;
+  --t-chart-impulse: #00ccff;
+  --t-chart-structural: #fb923c;
+  --t-chart-accumulation: #a78bfa;
+  --t-chart-pattern-1: #00ff88;
+  --t-chart-pattern-2: #ff3366;
+  --t-chart-pattern-3: #00ccff;
+  --t-chart-pattern-4: #ffcc00;
+  --t-chart-pattern-5: #a78bfa;
+  --t-chart-pattern-6: #f43f5e;
+  --t-chart-pattern-7: #38bdf8;
+  --t-chart-pattern-8: #34d399;
+  --t-chart-pattern-9: #fb923c;
+  --t-chart-pattern-10: #94a3b8;
+  --t-chart-pattern-11: #ff8800;
+
+  /* ── Component-facing aliases — resolve via --t-* at runtime ── */
+  --terminal-bg: var(--t-bg);
+  --terminal-surface: var(--t-surface);
+  --terminal-surface-hover: var(--t-surface-hover);
+  --terminal-border: var(--t-border);
+  --terminal-text: var(--t-text);
+  --terminal-text-dim: var(--t-text-dim);
+  --terminal-muted: var(--t-muted);
+  --terminal-positive: var(--t-positive);
+  --terminal-negative: var(--t-negative);
+  --terminal-neutral: var(--t-neutral);
+  --terminal-accent: var(--t-accent);
+  --terminal-warning: var(--t-warning);
+  --terminal-critical: var(--t-critical);
+  --terminal-frame-border: var(--t-frame-border);
+  --terminal-frame-header: var(--t-frame-header);
+  --terminal-card: var(--t-card);
+  --terminal-card-hover: var(--t-card-hover);
+  --terminal-scrollbar-track: var(--t-scrollbar-track);
+  --terminal-scrollbar-thumb: var(--t-scrollbar-thumb);
+  --terminal-scrollbar-thumb-hover: var(--t-scrollbar-thumb-hover);
+  --terminal-glow-positive: var(--t-glow-positive);
+  --terminal-glow-negative: var(--t-glow-negative);
+  --terminal-glow-critical: var(--t-glow-critical);
+  --terminal-chart-hft: var(--t-chart-hft);
+  --terminal-chart-scalper: var(--t-chart-scalper);
+  --terminal-chart-impulse: var(--t-chart-impulse);
+  --terminal-chart-structural: var(--t-chart-structural);
+  --terminal-chart-accumulation: var(--t-chart-accumulation);
+  --terminal-chart-pattern-1: var(--t-chart-pattern-1);
+  --terminal-chart-pattern-2: var(--t-chart-pattern-2);
+  --terminal-chart-pattern-3: var(--t-chart-pattern-3);
+  --terminal-chart-pattern-4: var(--t-chart-pattern-4);
+  --terminal-chart-pattern-5: var(--t-chart-pattern-5);
+  --terminal-chart-pattern-6: var(--t-chart-pattern-6);
+  --terminal-chart-pattern-7: var(--t-chart-pattern-7);
+  --terminal-chart-pattern-8: var(--t-chart-pattern-8);
+  --terminal-chart-pattern-9: var(--t-chart-pattern-9);
+  --terminal-chart-pattern-10: var(--t-chart-pattern-10);
+  --terminal-chart-pattern-11: var(--t-chart-pattern-11);
+
+  /* ── shadcn/ui defaults (NIGHT OWL dark) ── */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 1: NIGHT OWL — Current dark theme with fixes (less red noise)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-night-owl {
+  --t-bg: #0a0e17;
+  --t-surface: #111827;
+  --t-surface-hover: #1a2332;
+  --t-border: #1e293b;
+  --t-text: #e2e8f0;
+  --t-text-dim: #94a3b8;
+  --t-muted: #64748b;
+  --t-positive: #4ade80;
+  --t-negative: #f87171;
+  --t-neutral: #94a3b8;
+  --t-accent: #3b82f6;
+  --t-warning: #f59e0b;
+  --t-critical: #ef4444;
+  --t-frame-border: #1e293b;
+  --t-frame-header: #94a3b8;
+  --t-card: #111827;
+  --t-card-hover: #1a2332;
+  --t-scrollbar-track: #0a0e17;
+  --t-scrollbar-thumb: #1e293b;
+  --t-scrollbar-thumb-hover: #334155;
+  --t-glow-positive: 0 0 8px #4ade8040;
+  --t-glow-negative: 0 0 8px #f8717140;
+  --t-glow-critical: 0 0 12px #ef444460;
+  --t-pulse-positive: #4ade80;
+  --t-pulse-negative: #f87171;
+  --t-pulse-warning: #f59e0b;
+  --t-anomaly-border-dim: rgba(245, 158, 11, 0.5);
+  --t-anomaly-border-bright: #f59e0b;
+  /* Chart colors */
+  --t-chart-hft: #e11d48;
+  --t-chart-scalper: #ff3366;
+  --t-chart-impulse: #00ccff;
+  --t-chart-structural: #fb923c;
+  --t-chart-accumulation: #a78bfa;
+  --t-chart-pattern-1: #00ff88;
+  --t-chart-pattern-2: #ff3366;
+  --t-chart-pattern-3: #00ccff;
+  --t-chart-pattern-4: #ffcc00;
+  --t-chart-pattern-5: #a78bfa;
+  --t-chart-pattern-6: #f43f5e;
+  --t-chart-pattern-7: #38bdf8;
+  --t-chart-pattern-8: #34d399;
+  --t-chart-pattern-9: #fb923c;
+  --t-chart-pattern-10: #94a3b8;
+  --t-chart-pattern-11: #ff8800;
+  /* shadcn/ui overrides */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 2: SHADE — Calm dark, adaptive brightness. Only critical events glow.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-shade {
+  --t-bg: #121418;
+  --t-surface: #1a1d24;
+  --t-surface-hover: #22262e;
+  --t-border: #252830;
+  --t-text: #9ca3af;
+  --t-text-dim: #6b7280;
+  --t-muted: #6b7280;
+  --t-positive: #4ade80;
+  --t-negative: #f87171;
+  --t-neutral: #6b7280;
+  --t-accent: #6366f1;
+  --t-warning: #fbbf24;
+  --t-critical: #f87171;
+  --t-frame-border: #252830;
+  --t-frame-header: #9ca3af;
+  --t-card: #1a1d24;
+  --t-card-hover: #22262e;
+  --t-scrollbar-track: #121418;
+  --t-scrollbar-thumb: #252830;
+  --t-scrollbar-thumb-hover: #374151;
+  --t-glow-positive: 0 0 6px #4ade8030;
+  --t-glow-negative: 0 0 6px #f8717130;
+  --t-glow-critical: 0 0 10px #f8717150;
+  --t-pulse-positive: #4ade80;
+  --t-pulse-negative: #f87171;
+  --t-pulse-warning: #fbbf24;
+  --t-anomaly-border-dim: rgba(251, 191, 36, 0.4);
+  --t-anomaly-border-bright: #fbbf24;
+  /* Chart colors — muted for calm theme */
+  --t-chart-hft: #be123c;
+  --t-chart-scalper: #e11d48;
+  --t-chart-impulse: #0ea5e9;
+  --t-chart-structural: #f59e0b;
+  --t-chart-accumulation: #8b5cf6;
+  --t-chart-pattern-1: #22c55e;
+  --t-chart-pattern-2: #e11d48;
+  --t-chart-pattern-3: #0ea5e9;
+  --t-chart-pattern-4: #eab308;
+  --t-chart-pattern-5: #8b5cf6;
+  --t-chart-pattern-6: #dc2626;
+  --t-chart-pattern-7: #0284c7;
+  --t-chart-pattern-8: #10b981;
+  --t-chart-pattern-9: #f59e0b;
+  --t-chart-pattern-10: #6b7280;
+  --t-chart-pattern-11: #ea580c;
+  /* shadcn/ui overrides */
+  --background: oklch(0.13 0 0);
+  --foreground: oklch(0.75 0 0);
+  --card: oklch(0.17 0 0);
+  --card-foreground: oklch(0.75 0 0);
+  --popover: oklch(0.17 0 0);
+  --popover-foreground: oklch(0.75 0 0);
+  --primary: oklch(0.7 0.12 270);
+  --primary-foreground: oklch(0.2 0 0);
+  --secondary: oklch(0.22 0 0);
+  --secondary-foreground: oklch(0.75 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.55 0 0);
+  --accent: oklch(0.22 0 0);
+  --accent-foreground: oklch(0.75 0 0);
+  --destructive: oklch(0.65 0.15 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.5 0.1 270);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 3: FOG — Light pastel. Morning Bloomberg, soft & calm.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-fog {
+  --t-bg: #f8f9fb;
+  --t-surface: #ffffff;
+  --t-surface-hover: #f3f4f6;
+  --t-border: #e5e7eb;
+  --t-text: #374151;
+  --t-text-dim: #6b7280;
+  --t-muted: #9ca3af;
+  --t-positive: #86efac;
+  --t-negative: #fca5a5;
+  --t-neutral: #9ca3af;
+  --t-accent: #818cf8;
+  --t-warning: #fde68a;
+  --t-critical: #fca5a5;
+  --t-frame-border: #e5e7eb;
+  --t-frame-header: #475569;
+  --t-card: #ffffff;
+  --t-card-hover: #f3f4f6;
+  --t-scrollbar-track: #f3f4f6;
+  --t-scrollbar-thumb: #d1d5db;
+  --t-scrollbar-thumb-hover: #9ca3af;
+  --t-glow-positive: 0 0 4px #86efac40;
+  --t-glow-negative: 0 0 4px #fca5a540;
+  --t-glow-critical: 0 0 8px #fca5a560;
+  --t-pulse-positive: #86efac;
+  --t-pulse-negative: #fca5a5;
+  --t-pulse-warning: #fde68a;
+  --t-anomaly-border-dim: rgba(253, 230, 138, 0.6);
+  --t-anomaly-border-bright: #fde68a;
+  /* Chart colors — darker for light theme */
+  --t-chart-hft: #be123c;
+  --t-chart-scalper: #dc2626;
+  --t-chart-impulse: #0369a1;
+  --t-chart-structural: #c2410c;
+  --t-chart-accumulation: #7c3aed;
+  --t-chart-pattern-1: #16a34a;
+  --t-chart-pattern-2: #dc2626;
+  --t-chart-pattern-3: #0369a1;
+  --t-chart-pattern-4: #ca8a04;
+  --t-chart-pattern-5: #7c3aed;
+  --t-chart-pattern-6: #e11d48;
+  --t-chart-pattern-7: #0284c7;
+  --t-chart-pattern-8: #059669;
+  --t-chart-pattern-9: #c2410c;
+  --t-chart-pattern-10: #64748b;
+  --t-chart-pattern-11: #d97706;
+  /* shadcn/ui overrides */
+  --background: oklch(0.98 0 0);
+  --foreground: oklch(0.2 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0 0);
+  --primary: oklch(0.55 0.2 270);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.94 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.94 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: oklch(0.94 0 0);
+  --accent-foreground: oklch(0.2 0 0);
+  --destructive: oklch(0.7 0.15 25);
+  --border: oklch(0.88 0 0);
+  --input: oklch(0.88 0 0);
+  --ring: oklch(0.55 0.2 270);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 5: SOFT GRAY GRADIENT — Минималистичная серая. 95% монохром, цвет только
+   для критических сигналов. Амбер #f59e0b — единственный яркий акцент.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-soft-gray {
+  --t-bg: #1a202c;
+  --t-surface: #2d3748;
+  --t-surface-hover: #3a4558;
+  --t-border: #4a5568;
+  --t-text: #e2e8f0;
+  --t-text-dim: #cbd5e0;
+  --t-muted: #a0aec0;
+  --t-positive: #8c9dab;
+  --t-negative: #ab8c8c;
+  --t-neutral: #718096;
+  --t-accent: #718096;
+  --t-warning: #f59e0b;
+  --t-critical: #f59e0b;
+  --t-frame-border: #4a5568;
+  --t-frame-header: #a0aec0;
+  --t-card: #4a5568;
+  --t-card-hover: #5a6678;
+  --t-scrollbar-track: #1a202c;
+  --t-scrollbar-thumb: #4a5568;
+  --t-scrollbar-thumb-hover: #5a6678;
+  --t-glow-positive: 0 0 4px #8c9dab30;
+  --t-glow-negative: 0 0 4px #ab8c8c30;
+  --t-glow-critical: 0 0 12px #f59e0b60;
+  --t-pulse-positive: #8c9dab;
+  --t-pulse-negative: #ab8c8c;
+  --t-pulse-warning: #f59e0b;
+  --t-anomaly-border-dim: rgba(245, 158, 11, 0.4);
+  --t-anomaly-border-bright: #f59e0b;
+  /* Chart colors — muted monochrome + amber accent */
+  --t-chart-hft: #a8324a;
+  --t-chart-scalper: #b84858;
+  --t-chart-impulse: #5888a8;
+  --t-chart-structural: #b0884a;
+  --t-chart-accumulation: #8878a8;
+  --t-chart-pattern-1: #6a9e78;
+  --t-chart-pattern-2: #b84858;
+  --t-chart-pattern-3: #5888a8;
+  --t-chart-pattern-4: #b0984a;
+  --t-chart-pattern-5: #8878a8;
+  --t-chart-pattern-6: #a84858;
+  --t-chart-pattern-7: #5890b0;
+  --t-chart-pattern-8: #5a9870;
+  --t-chart-pattern-9: #b0884a;
+  --t-chart-pattern-10: #718096;
+  --t-chart-pattern-11: #c08830;
+  /* shadcn/ui overrides — dark gray monochrome */
+  --background: oklch(0.18 0.005 260);
+  --foreground: oklch(0.92 0.005 260);
+  --card: oklch(0.28 0.008 260);
+  --card-foreground: oklch(0.92 0.005 260);
+  --popover: oklch(0.28 0.008 260);
+  --popover-foreground: oklch(0.92 0.005 260);
+  --primary: oklch(0.88 0 0);
+  --primary-foreground: oklch(0.18 0.005 260);
+  --secondary: oklch(0.32 0.008 260);
+  --secondary-foreground: oklch(0.88 0 0);
+  --muted: oklch(0.32 0.008 260);
+  --muted-foreground: oklch(0.62 0.005 260);
+  --accent: oklch(0.32 0.008 260);
+  --accent-foreground: oklch(0.88 0 0);
+  --destructive: oklch(0.75 0.15 65);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.75 0.15 65);
+  --chart-1: oklch(0.55 0.01 260);
+  --chart-2: oklch(0.60 0.01 260);
+  --chart-3: oklch(0.50 0.01 260);
+  --chart-4: oklch(0.75 0.15 65);
+  --chart-5: oklch(0.65 0.01 260);
+  --sidebar: oklch(0.18 0.005 260);
+  --sidebar-foreground: oklch(0.92 0.005 260);
+  --sidebar-primary: oklch(0.88 0 0);
+  --sidebar-primary-foreground: oklch(0.18 0.005 260);
+  --sidebar-accent: oklch(0.32 0.008 260);
+  --sidebar-accent-foreground: oklch(0.88 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.75 0.15 65);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 6: DUSTY ROSE LAVENDER — Пыльная роза и лаванда. Светлая пастельная с
+   нежными розово-фиолетовыми оттенками. Лёгкость и воздушность.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-dusty-rose {
+  --t-bg: #fdf2f8;
+  --t-surface: #ffffff;
+  --t-surface-hover: #fdf2f8;
+  --t-border: #f3e8ff;
+  --t-text: #525252;
+  --t-text-dim: #8b8b8b;
+  --t-muted: #a3a3a3;
+  --t-positive: #9caf9e;
+  --t-negative: #d4726a;
+  --t-neutral: #a3a3a3;
+  --t-accent: #c4b5fd;
+  --t-warning: #f9a8d4;
+  --t-critical: #e879a0;
+  --t-frame-border: #f3e8ff;
+  --t-frame-header: #7c7c7c;
+  --t-card: #ffffff;
+  --t-card-hover: #fdf2f8;
+  --t-scrollbar-track: #fdf2f8;
+  --t-scrollbar-thumb: #f3e8ff;
+  --t-scrollbar-thumb-hover: #e9d5ff;
+  --t-glow-positive: 0 0 4px #9caf9e40;
+  --t-glow-negative: 0 0 4px #d4726a40;
+  --t-glow-critical: 0 0 8px #e879a060;
+  --t-pulse-positive: #9caf9e;
+  --t-pulse-negative: #d4726a;
+  --t-pulse-warning: #f9a8d4;
+  --t-anomaly-border-dim: rgba(249, 168, 212, 0.5);
+  --t-anomaly-border-bright: #f9a8d4;
+  /* Chart colors — dusty pastels for light pink theme */
+  --t-chart-hft: #9f1239;
+  --t-chart-scalper: #c0284a;
+  --t-chart-impulse: #6d28d9;
+  --t-chart-structural: #b45309;
+  --t-chart-accumulation: #7e22ce;
+  --t-chart-pattern-1: #15803d;
+  --t-chart-pattern-2: #c0284a;
+  --t-chart-pattern-3: #6d28d9;
+  --t-chart-pattern-4: #a16207;
+  --t-chart-pattern-5: #7e22ce;
+  --t-chart-pattern-6: #be123c;
+  --t-chart-pattern-7: #1d4ed8;
+  --t-chart-pattern-8: #047857;
+  --t-chart-pattern-9: #b45309;
+  --t-chart-pattern-10: #737373;
+  --t-chart-pattern-11: #c2410c;
+  /* shadcn/ui overrides — soft pink light */
+  --background: oklch(0.96 0.02 340);
+  --foreground: oklch(0.35 0.015 340);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.35 0.015 340);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.35 0.015 340);
+  --primary: oklch(0.65 0.1 290);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0.015 340);
+  --secondary-foreground: oklch(0.35 0.015 340);
+  --muted: oklch(0.95 0.015 340);
+  --muted-foreground: oklch(0.55 0.015 340);
+  --accent: oklch(0.75 0.08 290);
+  --accent-foreground: oklch(0.35 0.015 340);
+  --destructive: oklch(0.65 0.15 20);
+  --border: oklch(0.9 0.02 340);
+  --input: oklch(0.9 0.02 340);
+  --ring: oklch(0.75 0.08 290);
+  --chart-1: oklch(0.75 0.08 290);
+  --chart-2: oklch(0.7 0.1 150);
+  --chart-3: oklch(0.78 0.1 340);
+  --chart-4: oklch(0.7 0.08 20);
+  --chart-5: oklch(0.72 0.09 290);
+  --sidebar: oklch(0.96 0.02 340);
+  --sidebar-foreground: oklch(0.35 0.015 340);
+  --sidebar-primary: oklch(0.75 0.08 290);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.95 0.015 340);
+  --sidebar-accent-foreground: oklch(0.35 0.015 340);
+  --sidebar-border: oklch(0.9 0.02 340);
+  --sidebar-ring: oklch(0.75 0.08 290);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 7: OCEAN MIST DARK — Океанический туман. Глубокие сине-бирюзовые
+   оттенки с коралловыми и мятными акцентами. Морская глубина и спокойствие.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-ocean-mist {
+  --t-bg: #1e3a4a;
+  --t-surface: #2d4f63;
+  --t-surface-hover: #345a70;
+  --t-border: #334e68;
+  --t-text: #d1dfe8;
+  --t-text-dim: #829ab1;
+  --t-muted: #627d98;
+  --t-positive: #6ee7b7;
+  --t-negative: #fb923c;
+  --t-neutral: #627d98;
+  --t-accent: #6ee7b7;
+  --t-warning: #fb923c;
+  --t-critical: #fb923c;
+  --t-frame-border: #334e68;
+  --t-frame-header: #829ab1;
+  --t-card: #334e68;
+  --t-card-hover: #3b5a72;
+  --t-scrollbar-track: #1e3a4a;
+  --t-scrollbar-thumb: #334e68;
+  --t-scrollbar-thumb-hover: #4a6580;
+  --t-glow-positive: 0 0 6px #6ee7b740;
+  --t-glow-negative: 0 0 6px #fb923c40;
+  --t-glow-critical: 0 0 10px #fb923c60;
+  --t-pulse-positive: #6ee7b7;
+  --t-pulse-negative: #fb923c;
+  --t-pulse-warning: #fb923c;
+  --t-anomaly-border-dim: rgba(251, 146, 60, 0.4);
+  --t-anomaly-border-bright: #fb923c;
+  /* Chart colors — ocean teal/coral palette */
+  --t-chart-hft: #e11d48;
+  --t-chart-scalper: #f97316;
+  --t-chart-impulse: #06b6d4;
+  --t-chart-structural: #fb923c;
+  --t-chart-accumulation: #2dd4bf;
+  --t-chart-pattern-1: #34d399;
+  --t-chart-pattern-2: #f97316;
+  --t-chart-pattern-3: #06b6d4;
+  --t-chart-pattern-4: #fbbf24;
+  --t-chart-pattern-5: #2dd4bf;
+  --t-chart-pattern-6: #ef4444;
+  --t-chart-pattern-7: #22d3ee;
+  --t-chart-pattern-8: #4ade80;
+  --t-chart-pattern-9: #fb923c;
+  --t-chart-pattern-10: #627d98;
+  --t-chart-pattern-11: #f59e0b;
+  /* shadcn/ui overrides — ocean dark */
+  --background: oklch(0.22 0.03 220);
+  --foreground: oklch(0.88 0.02 220);
+  --card: oklch(0.30 0.035 220);
+  --card-foreground: oklch(0.88 0.02 220);
+  --popover: oklch(0.30 0.035 220);
+  --popover-foreground: oklch(0.88 0.02 220);
+  --primary: oklch(0.80 0.12 165);
+  --primary-foreground: oklch(0.22 0.03 220);
+  --secondary: oklch(0.34 0.035 220);
+  --secondary-foreground: oklch(0.88 0.02 220);
+  --muted: oklch(0.34 0.035 220);
+  --muted-foreground: oklch(0.60 0.025 220);
+  --accent: oklch(0.34 0.035 220);
+  --accent-foreground: oklch(0.88 0.02 220);
+  --destructive: oklch(0.70 0.15 40);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.80 0.12 165);
+  --chart-1: oklch(0.80 0.12 165);
+  --chart-2: oklch(0.70 0.14 40);
+  --chart-3: oklch(0.60 0.03 220);
+  --chart-4: oklch(0.65 0.04 220);
+  --chart-5: oklch(0.55 0.025 220);
+  --sidebar: oklch(0.22 0.03 220);
+  --sidebar-foreground: oklch(0.88 0.02 220);
+  --sidebar-primary: oklch(0.80 0.12 165);
+  --sidebar-primary-foreground: oklch(0.22 0.03 220);
+  --sidebar-accent: oklch(0.34 0.035 220);
+  --sidebar-accent-foreground: oklch(0.88 0.02 220);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.80 0.12 165);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 8: TWILIGHT PURPLE — Сумеречный фиолетовый. Глубокие фиолетовые
+   градиенты с лавандовыми и персиковыми акцентами. Элегантность и стиль.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-twilight-purple {
+  --t-bg: #2e1065;
+  --t-surface: #3b1580;
+  --t-surface-hover: #451a95;
+  --t-border: #4c1d95;
+  --t-text: #e9d5ff;
+  --t-text-dim: #c4b5fd;
+  --t-muted: #8b5cf6;
+  --t-positive: #6ee7b7;
+  --t-negative: #fdba74;
+  --t-neutral: #8b5cf6;
+  --t-accent: #a78bfa;
+  --t-warning: #fdba74;
+  --t-critical: #ef4444;
+  --t-frame-border: #4c1d95;
+  --t-frame-header: #c4b5fd;
+  --t-card: #4c1d95;
+  --t-card-hover: #5b22b6;
+  --t-scrollbar-track: #2e1065;
+  --t-scrollbar-thumb: #4c1d95;
+  --t-scrollbar-thumb-hover: #5b22b6;
+  --t-glow-positive: 0 0 6px #6ee7b740;
+  --t-glow-negative: 0 0 6px #fdba7440;
+  --t-glow-critical: 0 0 10px #ef444460;
+  --t-pulse-positive: #6ee7b7;
+  --t-pulse-negative: #fdba74;
+  --t-pulse-warning: #fdba74;
+  --t-anomaly-border-dim: rgba(253, 186, 116, 0.4);
+  --t-anomaly-border-bright: #fdba74;
+  /* Chart colors — purple/peach palette */
+  --t-chart-hft: #f43f5e;
+  --t-chart-scalper: #fb7185;
+  --t-chart-impulse: #818cf8;
+  --t-chart-structural: #fdba74;
+  --t-chart-accumulation: #c084fc;
+  --t-chart-pattern-1: #6ee7b7;
+  --t-chart-pattern-2: #fb7185;
+  --t-chart-pattern-3: #818cf8;
+  --t-chart-pattern-4: #fcd34d;
+  --t-chart-pattern-5: #c084fc;
+  --t-chart-pattern-6: #f43f5e;
+  --t-chart-pattern-7: #93c5fd;
+  --t-chart-pattern-8: #86efac;
+  --t-chart-pattern-9: #fdba74;
+  --t-chart-pattern-10: #8b5cf6;
+  --t-chart-pattern-11: #fb923c;
+  /* shadcn/ui overrides — deep purple dark */
+  --background: oklch(0.18 0.08 290);
+  --foreground: oklch(0.88 0.05 290);
+  --card: oklch(0.25 0.08 290);
+  --card-foreground: oklch(0.88 0.05 290);
+  --popover: oklch(0.25 0.08 290);
+  --popover-foreground: oklch(0.88 0.05 290);
+  --primary: oklch(0.72 0.12 290);
+  --primary-foreground: oklch(0.18 0.08 290);
+  --secondary: oklch(0.30 0.08 290);
+  --secondary-foreground: oklch(0.88 0.05 290);
+  --muted: oklch(0.30 0.08 290);
+  --muted-foreground: oklch(0.58 0.06 290);
+  --accent: oklch(0.30 0.08 290);
+  --accent-foreground: oklch(0.88 0.05 290);
+  --destructive: oklch(0.70 0.15 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.72 0.12 290);
+  --chart-1: oklch(0.72 0.12 290);
+  --chart-2: oklch(0.65 0.10 165);
+  --chart-3: oklch(0.55 0.07 290);
+  --chart-4: oklch(0.70 0.12 60);
+  --chart-5: oklch(0.50 0.08 290);
+  --sidebar: oklch(0.18 0.08 290);
+  --sidebar-foreground: oklch(0.88 0.05 290);
+  --sidebar-primary: oklch(0.72 0.12 290);
+  --sidebar-primary-foreground: oklch(0.18 0.08 290);
+  --sidebar-accent: oklch(0.30 0.08 290);
+  --sidebar-accent-foreground: oklch(0.88 0.05 290);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.72 0.12 290);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 4: WARM SAND LIGHT — Warm sand. Earthy natural tones, bionic design.
+   Уютная, как природный пейзаж. Тёплая альтернатива холодным синим темам.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-warm-sand {
+  --t-bg: #f5efe6;
+  --t-surface: #faf6f1;
+  --t-surface-hover: #f0e9dd;
+  --t-border: #e8dfd0;
+  --t-text: #3d3630;
+  --t-text-dim: #7a6f64;
+  --t-muted: #9c8e80;
+  --t-positive: #a3b18a;
+  --t-negative: #d4726a;
+  --t-neutral: #9c8e80;
+  --t-accent: #d4a373;
+  --t-warning: #e6b44c;
+  --t-critical: #c44536;
+  --t-frame-border: #e8dfd0;
+  --t-frame-header: #6b5d50;
+  --t-card: #ffffff;
+  --t-card-hover: #faf6f1;
+  --t-scrollbar-track: #f5efe6;
+  --t-scrollbar-thumb: #ddd3c3;
+  --t-scrollbar-thumb-hover: #c9bba8;
+  --t-glow-positive: 0 0 6px #a3b18a40;
+  --t-glow-negative: 0 0 6px #d4726a40;
+  --t-glow-critical: 0 0 10px #c4453660;
+  --t-pulse-positive: #a3b18a;
+  --t-pulse-negative: #d4726a;
+  --t-pulse-warning: #e6b44c;
+  --t-anomaly-border-dim: rgba(230, 180, 76, 0.5);
+  --t-anomaly-border-bright: #e6b44c;
+  /* Chart colors — earthy warm tones */
+  --t-chart-hft: #9f1239;
+  --t-chart-scalper: #b91c1c;
+  --t-chart-impulse: #1e6091;
+  --t-chart-structural: #92400e;
+  --t-chart-accumulation: #6b21a8;
+  --t-chart-pattern-1: #166534;
+  --t-chart-pattern-2: #b91c1c;
+  --t-chart-pattern-3: #1e6091;
+  --t-chart-pattern-4: #854d0e;
+  --t-chart-pattern-5: #6b21a8;
+  --t-chart-pattern-6: #9f1239;
+  --t-chart-pattern-7: #1e40af;
+  --t-chart-pattern-8: #065f46;
+  --t-chart-pattern-9: #92400e;
+  --t-chart-pattern-10: #78716c;
+  --t-chart-pattern-11: #b45309;
+  /* shadcn/ui overrides — warm light */
+  --background: oklch(0.95 0.015 75);
+  --foreground: oklch(0.25 0.02 55);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.25 0.02 55);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.25 0.02 55);
+  --primary: oklch(0.6 0.08 55);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.93 0.015 75);
+  --secondary-foreground: oklch(0.25 0.02 55);
+  --muted: oklch(0.93 0.015 75);
+  --muted-foreground: oklch(0.5 0.02 55);
+  --accent: oklch(0.72 0.09 55);
+  --accent-foreground: oklch(0.25 0.02 55);
+  --destructive: oklch(0.6 0.15 20);
+  --border: oklch(0.88 0.02 75);
+  --input: oklch(0.88 0.02 75);
+  --ring: oklch(0.72 0.09 55);
+  --chart-1: oklch(0.72 0.09 55);
+  --chart-2: oklch(0.7 0.1 130);
+  --chart-3: oklch(0.75 0.12 85);
+  --chart-4: oklch(0.6 0.15 25);
+  --chart-5: oklch(0.65 0.1 55);
+  --sidebar: oklch(0.95 0.015 75);
+  --sidebar-foreground: oklch(0.25 0.02 55);
+  --sidebar-primary: oklch(0.72 0.09 55);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.93 0.015 75);
+  --sidebar-accent-foreground: oklch(0.25 0.02 55);
+  --sidebar-border: oklch(0.88 0.02 75);
+  --sidebar-ring: oklch(0.72 0.09 55);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 9: MUDDY LATTE — Кофе с молоком. Тёплая тёмно-бежевая пастель,
+   не белая а как латте. Чистый контраст, яркий только критический сигнал.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-muddy-latte {
+  --t-bg: #2e2822;
+  --t-surface: #3d352d;
+  --t-surface-hover: #4a4138;
+  --t-border: #4e453c;
+  --t-text: #eae0d6;
+  --t-text-dim: #c4b8aa;
+  --t-muted: #8a7e72;
+  --t-positive: #8aaa80;
+  --t-negative: #c08878;
+  --t-neutral: #8a7e72;
+  --t-accent: #c8986a;
+  --t-warning: #c8986a;
+  --t-critical: #e09030;
+  --t-frame-border: #4e453c;
+  --t-frame-header: #c4b8aa;
+  --t-card: #3d352d;
+  --t-card-hover: #4a4138;
+  --t-scrollbar-track: #2e2822;
+  --t-scrollbar-thumb: #4e453c;
+  --t-scrollbar-thumb-hover: #5e554c;
+  --t-glow-positive: 0 0 4px #8aaa8030;
+  --t-glow-negative: 0 0 4px #c0887830;
+  --t-glow-critical: 0 0 10px #e0903050;
+  --t-pulse-positive: #8aaa80;
+  --t-pulse-negative: #c08878;
+  --t-pulse-warning: #c8986a;
+  --t-anomaly-border-dim: rgba(224, 144, 48, 0.4);
+  --t-anomaly-border-bright: #e09030;
+  /* Chart colors — warm muted earth tones */
+  --t-chart-hft: #8b4a3a;
+  --t-chart-scalper: #a85a48;
+  --t-chart-impulse: #5a8878;
+  --t-chart-structural: #b08a5a;
+  --t-chart-accumulation: #8a7898;
+  --t-chart-pattern-1: #6a9a6a;
+  --t-chart-pattern-2: #a85a48;
+  --t-chart-pattern-3: #5a8878;
+  --t-chart-pattern-4: #b09a4a;
+  --t-chart-pattern-5: #8a7898;
+  --t-chart-pattern-6: #9a4a4a;
+  --t-chart-pattern-7: #5a8098;
+  --t-chart-pattern-8: #5a986a;
+  --t-chart-pattern-9: #b08a5a;
+  --t-chart-pattern-10: #8a7a6a;
+  --t-chart-pattern-11: #b07840;
+  /* shadcn/ui overrides — warm brownish */
+  --background: oklch(0.22 0.02 55);
+  --foreground: oklch(0.90 0.01 55);
+  --card: oklch(0.28 0.025 55);
+  --card-foreground: oklch(0.90 0.01 55);
+  --popover: oklch(0.28 0.025 55);
+  --popover-foreground: oklch(0.90 0.01 55);
+  --primary: oklch(0.72 0.06 55);
+  --primary-foreground: oklch(0.18 0.02 55);
+  --secondary: oklch(0.32 0.025 55);
+  --secondary-foreground: oklch(0.88 0.01 55);
+  --muted: oklch(0.32 0.025 55);
+  --muted-foreground: oklch(0.62 0.01 55);
+  --accent: oklch(0.32 0.025 55);
+  --accent-foreground: oklch(0.88 0.01 55);
+  --destructive: oklch(0.65 0.1 30);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.72 0.06 55);
+  --chart-1: oklch(0.55 0.03 55);
+  --chart-2: oklch(0.50 0.04 150);
+  --chart-3: oklch(0.60 0.04 85);
+  --chart-4: oklch(0.50 0.06 30);
+  --chart-5: oklch(0.48 0.03 300);
+  --sidebar: oklch(0.22 0.02 55);
+  --sidebar-foreground: oklch(0.90 0.01 55);
+  --sidebar-primary: oklch(0.72 0.06 55);
+  --sidebar-primary-foreground: oklch(0.18 0.02 55);
+  --sidebar-accent: oklch(0.32 0.025 55);
+  --sidebar-accent-foreground: oklch(0.88 0.01 55);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.72 0.06 55);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 10: CARBON SLATE — Карбоновый сланец. Холодный тёмно-серый с синим
+   подтоном. Монохромная сталь, бирюзовый только для критического.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-carbon-slate {
+  --t-bg: #181e20;
+  --t-surface: #242c2e;
+  --t-surface-hover: #2e383a;
+  --t-border: #384244;
+  --t-text: #e2e8e8;
+  --t-text-dim: #b0baba;
+  --t-muted: #6e7e80;
+  --t-positive: #7ea8a0;
+  --t-negative: #b07878;
+  --t-neutral: #6e7e80;
+  --t-accent: #5eead4;
+  --t-warning: #5eead4;
+  --t-critical: #2dd4bf;
+  --t-frame-border: #384244;
+  --t-frame-header: #b0baba;
+  --t-card: #242c2e;
+  --t-card-hover: #2e383a;
+  --t-scrollbar-track: #181e20;
+  --t-scrollbar-thumb: #384244;
+  --t-scrollbar-thumb-hover: #485658;
+  --t-glow-positive: 0 0 4px #7ea8a030;
+  --t-glow-negative: 0 0 4px #b0787830;
+  --t-glow-critical: 0 0 10px #2dd4bf50;
+  --t-pulse-positive: #7ea8a0;
+  --t-pulse-negative: #b07878;
+  --t-pulse-warning: #5eead4;
+  --t-anomaly-border-dim: rgba(94, 234, 212, 0.35);
+  --t-anomaly-border-bright: #5eead4;
+  /* Chart colors — cool slate/teal palette */
+  --t-chart-hft: #8a4a4a;
+  --t-chart-scalper: #9a5a5a;
+  --t-chart-impulse: #4a8898;
+  --t-chart-structural: #7a9a6a;
+  --t-chart-accumulation: #6a78a8;
+  --t-chart-pattern-1: #5aaa8a;
+  --t-chart-pattern-2: #9a5a5a;
+  --t-chart-pattern-3: #4a8898;
+  --t-chart-pattern-4: #8a9a4a;
+  --t-chart-pattern-5: #6a78a8;
+  --t-chart-pattern-6: #8a4a5a;
+  --t-chart-pattern-7: #4a90b0;
+  --t-chart-pattern-8: #5aaa7a;
+  --t-chart-pattern-9: #7a9a6a;
+  --t-chart-pattern-10: #6b8284;
+  --t-chart-pattern-11: #5aa0a0;
+  /* shadcn/ui overrides — dark teal-gray */
+  --background: oklch(0.15 0.01 185);
+  --foreground: oklch(0.92 0.005 185);
+  --card: oklch(0.21 0.015 185);
+  --card-foreground: oklch(0.92 0.005 185);
+  --popover: oklch(0.21 0.015 185);
+  --popover-foreground: oklch(0.92 0.005 185);
+  --primary: oklch(0.78 0.1 170);
+  --primary-foreground: oklch(0.15 0.01 185);
+  --secondary: oklch(0.25 0.015 185);
+  --secondary-foreground: oklch(0.88 0.005 185);
+  --muted: oklch(0.25 0.015 185);
+  --muted-foreground: oklch(0.58 0.008 185);
+  --accent: oklch(0.25 0.015 185);
+  --accent-foreground: oklch(0.88 0.005 185);
+  --destructive: oklch(0.65 0.1 20);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.78 0.1 170);
+  --chart-1: oklch(0.55 0.04 185);
+  --chart-2: oklch(0.50 0.05 170);
+  --chart-3: oklch(0.45 0.03 185);
+  --chart-4: oklch(0.60 0.08 170);
+  --chart-5: oklch(0.48 0.04 240);
+  --sidebar: oklch(0.15 0.01 185);
+  --sidebar-foreground: oklch(0.92 0.005 185);
+  --sidebar-primary: oklch(0.78 0.1 170);
+  --sidebar-primary-foreground: oklch(0.15 0.01 185);
+  --sidebar-accent: oklch(0.25 0.015 185);
+  --sidebar-accent-foreground: oklch(0.88 0.005 185);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.78 0.1 170);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THEME 11: DESERT DUSK — Пустынный закат. Тёмный песок с ржавыми и медными
+   оттенками. Землистая теплота, медный акцент только для критического.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.theme-desert-dusk {
+  --t-bg: #1e1810;
+  --t-surface: #2e261c;
+  --t-surface-hover: #3a3228;
+  --t-border: #443a2e;
+  --t-text: #e8ddd0;
+  --t-text-dim: #bab0a2;
+  --t-muted: #7e7266;
+  --t-positive: #8aaa78;
+  --t-negative: #b87868;
+  --t-neutral: #7e7266;
+  --t-accent: #c87941;
+  --t-warning: #c87941;
+  --t-critical: #e08030;
+  --t-frame-border: #443a2e;
+  --t-frame-header: #bab0a2;
+  --t-card: #2e261c;
+  --t-card-hover: #3a3228;
+  --t-scrollbar-track: #1e1810;
+  --t-scrollbar-thumb: #443a2e;
+  --t-scrollbar-thumb-hover: #544a3e;
+  --t-glow-positive: 0 0 4px #8aaa7830;
+  --t-glow-negative: 0 0 4px #b8786830;
+  --t-glow-critical: 0 0 10px #e0803050;
+  --t-pulse-positive: #8aaa78;
+  --t-pulse-negative: #b87868;
+  --t-pulse-warning: #c87941;
+  --t-anomaly-border-dim: rgba(200, 121, 65, 0.4);
+  --t-anomaly-border-bright: #c87941;
+  /* Chart colors — desert rust/copper palette */
+  --t-chart-hft: #8a3a2a;
+  --t-chart-scalper: #a04838;
+  --t-chart-impulse: #4a7888;
+  --t-chart-structural: #a87838;
+  --t-chart-accumulation: #786888;
+  --t-chart-pattern-1: #5a9a5a;
+  --t-chart-pattern-2: #a04838;
+  --t-chart-pattern-3: #4a7888;
+  --t-chart-pattern-4: #a89038;
+  --t-chart-pattern-5: #786888;
+  --t-chart-pattern-6: #8a3838;
+  --t-chart-pattern-7: #4878a0;
+  --t-chart-pattern-8: #4a9860;
+  --t-chart-pattern-9: #a87838;
+  --t-chart-pattern-10: #7a6858;
+  --t-chart-pattern-11: #b07030;
+  /* shadcn/ui overrides — warm dark sand */
+  --background: oklch(0.14 0.02 50);
+  --foreground: oklch(0.92 0.01 50);
+  --card: oklch(0.20 0.025 50);
+  --card-foreground: oklch(0.92 0.01 50);
+  --popover: oklch(0.20 0.025 50);
+  --popover-foreground: oklch(0.92 0.01 50);
+  --primary: oklch(0.65 0.1 45);
+  --primary-foreground: oklch(0.14 0.02 50);
+  --secondary: oklch(0.24 0.025 50);
+  --secondary-foreground: oklch(0.88 0.01 50);
+  --muted: oklch(0.24 0.025 50);
+  --muted-foreground: oklch(0.56 0.01 50);
+  --accent: oklch(0.24 0.025 50);
+  --accent-foreground: oklch(0.88 0.01 50);
+  --destructive: oklch(0.65 0.12 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.65 0.1 45);
+  --chart-1: oklch(0.55 0.04 50);
+  --chart-2: oklch(0.50 0.05 150);
+  --chart-3: oklch(0.45 0.03 50);
+  --chart-4: oklch(0.58 0.08 45);
+  --chart-5: oklch(0.45 0.04 300);
+  --sidebar: oklch(0.14 0.02 50);
+  --sidebar-foreground: oklch(0.92 0.01 50);
+  --sidebar-primary: oklch(0.65 0.1 45);
+  --sidebar-primary-foreground: oklch(0.14 0.02 50);
+  --sidebar-accent: oklch(0.24 0.025 50);
+  --sidebar-accent-foreground: oklch(0.88 0.01 50);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.65 0.1 45);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom terminal scrollbar — uses theme variables */
+.terminal-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.terminal-scroll::-webkit-scrollbar-track {
+  background: var(--terminal-scrollbar-track, var(--t-scrollbar-track, #0a0e17));
+}
+.terminal-scroll::-webkit-scrollbar-thumb {
+  background: var(--terminal-scrollbar-thumb, var(--t-scrollbar-thumb, #1e293b));
+  border-radius: 3px;
+}
+.terminal-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--terminal-scrollbar-thumb-hover, var(--t-scrollbar-thumb-hover, #334155));
+}
+
+/* Pulse animation for LIVE indicator — uses theme variables */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 4px var(--t-pulse-positive, #4ade80), 0 0 8px color-mix(in srgb, var(--t-pulse-positive, #4ade80) 25%, transparent);
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 8px var(--t-pulse-positive, #4ade80), 0 0 16px color-mix(in srgb, var(--t-pulse-positive, #4ade80) 38%, transparent);
+  }
+}
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Anomaly pulse — uses theme variables */
+@keyframes anomaly-pulse {
+  0%, 100% { border-color: var(--t-anomaly-border-dim, rgba(245, 158, 11, 0.5)); }
+  50% { border-color: var(--t-anomaly-border-bright, #f59e0b); }
+}
+.anomaly-pulse {
+  animation: anomaly-pulse 2s ease-in-out infinite;
+}
+
+/* Row flash animation — uses theme variables */
+@keyframes row-flash-green {
+  0% { background-color: color-mix(in srgb, var(--t-positive, #4ade80) 19%, transparent); }
+  100% { background-color: transparent; }
+}
+@keyframes row-flash-red {
+  0% { background-color: color-mix(in srgb, var(--t-negative, #f87171) 19%, transparent); }
+  100% { background-color: transparent; }
+}
+@keyframes row-flash-yellow {
+  0% { background-color: color-mix(in srgb, var(--t-warning, #f59e0b) 19%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.row-flash-green {
+  animation: row-flash-green 1.5s ease-out;
+}
+.row-flash-red {
+  animation: row-flash-red 1.5s ease-out;
+}
+.row-flash-yellow {
+  animation: row-flash-yellow 1.5s ease-out;
+}
+
+/* Confidence bar */
+.confidence-bar {
+  font-family: var(--font-geist-mono);
+  letter-spacing: 1px;
+}
+
+/* Gauge needle transition */
+.gauge-needle {
+  transition: transform 1s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: bottom center;
+}
+
+/* Theme switcher transitions — smooth theme change */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   react-grid-layout overrides — themed to match terminal
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.react-grid-layout {
+  min-height: 100%;
+}
+
+/* Placeholder — where the item will land when dropped */
+.react-grid-item.react-grid-placeholder {
+  background: var(--terminal-accent, #3b82f6);
+  opacity: 0.12;
+  border: 2px dashed var(--terminal-accent, #3b82f6);
+  border-radius: 6px;
+  transition: opacity 0.15s ease;
+}
+
+/* Resize handle — bottom-right corner */
+.react-grid-item > .react-resizable-handle {
+  width: 20px;
+  height: 20px;
+}
+.react-grid-item > .react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--terminal-accent, #3b82f6);
+  border-bottom: 2px solid var(--terminal-accent, #3b82f6);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.dashboard-grid.edit-mode .react-grid-item > .react-resizable-handle::after {
+  opacity: 0.4;
+}
+
+.react-grid-item:hover > .react-resizable-handle::after {
+  opacity: 0.8 !important;
+}
+
+/* Edit mode — highlight on hover, subtle blue glow */
+.dashboard-grid.edit-mode .react-grid-item {
+  transition: box-shadow 0.2s ease, outline 0.2s ease;
+}
+
+.dashboard-grid.edit-mode .react-grid-item:hover {
+  outline: 1px solid color-mix(in srgb, var(--terminal-accent, #3b82f6) 50%, transparent);
+  outline-offset: -1px;
+  z-index: 10;
+}
+
+/* Dragging item — slightly raised */
+.react-grid-item.react-draggable-dragging {
+  opacity: 0.85;
+  z-index: 100 !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Resizing item */
+.react-grid-item.resizing {
+  opacity: 0.85;
+  z-index: 100 !important;
+}
+
+/* FrameTooltip icon hover — uses CSS custom property --tt-accent set per-instance */
+.frame-tooltip-icon:hover {
+  color: var(--tt-accent, var(--terminal-accent));
+}

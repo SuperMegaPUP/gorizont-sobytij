@@ -1,0 +1,75 @@
+name: CI/CD
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:ci
+      - run: npm run test:coverage
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+  deploy-lab:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: lab
+      url: https://robot-lab-v3.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Deploy to Vercel LAB
+        run: |
+          cd $GITHUB_WORKSPACE
+          rm -rf .vercel .next
+          npx vercel link --yes -p robot-lab-v3 --token ${{ secrets.VERCEL_TOKEN }}
+          npx vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
+      - name: Smoke test LAB
+        run: |
+          sleep 10
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-lab-v3.vercel.app/)
+          if [ "$STATUS" != "200" ]; then echo "FAIL: HTTP $STATUS"; exit 1; fi
+          echo "OK: HTTP $STATUS"
+
+  deploy-prod:
+    needs: deploy-lab
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://robot-detect-v3.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - name: Deploy to Vercel PROD
+        run: |
+          cd $GITHUB_WORKSPACE
+          rm -rf .vercel .next
+          npx vercel link --yes -p robot-detect-v3 --token ${{ secrets.VERCEL_TOKEN }}
+          npx vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
+      - name: Smoke test PROD
+        run: |
+          sleep 10
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-detect-v3.vercel.app/)
+          if [ "$STATUS" != "200" ]; then echo "FAIL: HTTP $STATUS"; exit 1; fi
+          echo "OK: HTTP $STATUS"
