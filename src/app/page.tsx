@@ -9,6 +9,8 @@ import { getMoscowTime, nextId, isMarketOpen, getMarketStatusText, toMoscowTime 
 import { TICKERS } from '@/lib/static-data';
 import { HelpModal } from '@/components/frames/HelpModal';
 import { AIHintModal } from '@/components/AIHintModal';
+import { TickerModal } from '@/components/horizon/modals/TickerModal';
+import { TimeSliceModal } from '@/components/horizon/modals/TimeSliceModal';
 import { Header } from '@/components/frames/Header';
 import { DashboardGrid } from '@/components/frames/DashboardGrid';
 import { SideZone } from '@/components/frames/SideZone';
@@ -504,6 +506,8 @@ export default function RobotDetectorTerminal() {
         {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       </AnimatePresence>
       <AIHintModal open={showAIHint} onOpenChange={setShowAIHint} />
+      <TickerModal />
+      <TimeSliceModal />
     </div>
   );
 }

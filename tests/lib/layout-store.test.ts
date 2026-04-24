@@ -1,5 +1,5 @@
 // ─── Layout Store Tests ──────────────────────────────────────────────────
-// LAYOUT_VERSION=16, 17 фреймов, DEFAULT_ZONE
+// LAYOUT_VERSION=18, 21 фреймов, DEFAULT_ZONE
 
 import {
   LAYOUT_VERSION,
@@ -8,12 +8,12 @@ import {
 } from '@/lib/layout-store';
 
 describe('Layout Store', () => {
-  test('LAYOUT_VERSION = 16', () => {
-    expect(LAYOUT_VERSION).toBe(16);
+  test('LAYOUT_VERSION = 18', () => {
+    expect(LAYOUT_VERSION).toBe(18);
   });
 
-  test('ALL_FRAME_KEYS содержит 17 фреймов', () => {
-    expect(ALL_FRAME_KEYS).toHaveLength(17);
+  test('ALL_FRAME_KEYS содержит 21 фрейм', () => {
+    expect(ALL_FRAME_KEYS).toHaveLength(21);
   });
 
   test('ALL_FRAME_KEYS содержит обязательные фреймы', () => {
@@ -21,7 +21,8 @@ describe('Layout Store', () => {
       'instruments', 'tickers', 'duration', 'orderbook', 'dynamics',
       'signals', 'institutional', 'anomalies', 'fearGreed', 'hourlyActivity',
       'smartMoney', 'oiDynamics', 'futuresOI', 'top5', 'strategies',
-      'robotHistory', 'news',
+      'robotHistory', 'news', 'horizonScanner', 'horizonRadar',
+      'horizonObserver', 'horizonHeatmap',
     ];
     for (const key of required) {
       expect(ALL_FRAME_KEYS).toContain(key);

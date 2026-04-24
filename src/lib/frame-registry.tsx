@@ -6,11 +6,14 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Bot,
   Clock,
   Database,
+  Grid3x3,
   History,
   ListOrdered,
   Newspaper,
+  Radar,
   Radio,
   Shield,
   TrendingUp,
@@ -37,6 +40,10 @@ import { Top5Frame } from '@/components/frames/Top5Frame';
 import { StrategiesFrame } from '@/components/frames/StrategiesFrame';
 import { RobotHistoryFrame } from '@/components/frames/RobotHistoryFrame';
 import { NewsFrame } from '@/components/frames/NewsFrame';
+import { HorizonScannerFrame } from '@/components/horizon/frames/ScannerFrame';
+import { HorizonRadarFrame } from '@/components/horizon/frames/RadarFrame';
+import { HorizonAIObserverFrame } from '@/components/horizon/frames/AIObserverFrame';
+import { HorizonHeatmapFrame } from '@/components/horizon/frames/HeatmapFrame';
 
 // ─── Frame definition ────────────────────────────────────────────────────────
 export interface FrameDefinition {
@@ -167,6 +174,34 @@ export const FRAME_REGISTRY: FrameDefinition[] = [
     title: 'НОВОСТИ РЫНКА',
     icon: Newspaper,
     component: NewsFrame,
+    removable: true,
+  },
+  {
+    key: 'horizonScanner',
+    title: 'СКАНЕР: Чёрные звёзды',
+    icon: ScanSearch,
+    component: HorizonScannerFrame,
+    removable: true,
+  },
+  {
+    key: 'horizonRadar',
+    title: 'РАДАР: Карта аномалий',
+    icon: Radar,
+    component: HorizonRadarFrame,
+    removable: true,
+  },
+  {
+    key: 'horizonObserver',
+    title: 'AI НАБЛЮДАТЕЛЬ',
+    icon: Bot,
+    component: HorizonAIObserverFrame,
+    removable: true,
+  },
+  {
+    key: 'horizonHeatmap',
+    title: 'ТЕПЛОВАЯ КАРТА BSCI',
+    icon: Grid3x3,
+    component: HorizonHeatmapFrame,
     removable: true,
   },
 ];

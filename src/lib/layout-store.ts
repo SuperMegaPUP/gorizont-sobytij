@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import type { LayoutItem, Layout } from 'react-grid-layout';
 
 // ─── Layout version — bump to force reset when grid config changes ──────────
-export const LAYOUT_VERSION = 16;
+export const LAYOUT_VERSION = 18;
 
 // ─── Layout validation: detect stretched/corrupt layouts ────────────────────
 // Default lg layout max y + h ≈ 52. If a layout has items with y > 100,
@@ -40,7 +40,11 @@ export type FrameKey =
   | 'top5'
   | 'strategies'
   | 'robotHistory'
-  | 'news';
+  | 'news'
+  | 'horizonScanner'
+  | 'horizonRadar'
+  | 'horizonObserver'
+  | 'horizonHeatmap';
 
 export const ALL_FRAME_KEYS: FrameKey[] = [
   'instruments',
@@ -60,6 +64,10 @@ export const ALL_FRAME_KEYS: FrameKey[] = [
   'strategies',
   'robotHistory',
   'news',
+  'horizonScanner',
+  'horizonRadar',
+  'horizonObserver',
+  'horizonHeatmap',
 ];
 
 // ─── Default Layout (24 cols, rowHeight 20px — fine-grained positioning) ───
@@ -82,6 +90,10 @@ export const DEFAULT_LAYOUT_ITEMS: Record<string, LayoutItem[]> = {
     { i: 'strategies',      x: 18, y: 44, w: 6, h: 8, minW: 1, minH: 2 },
     { i: 'robotHistory',     x: 0, y: 32, w: 6, h: 12, minW: 1, minH: 2 },
     { i: 'news',             x: 6, y: 32, w: 6, h: 12, minW: 1, minH: 2 },
+    { i: 'horizonScanner',   x: 0, y: 54, w: 14, h: 10, minW: 10, minH: 6 },
+    { i: 'horizonRadar',     x: 14, y: 54, w: 10, h: 10, minW: 6, minH: 6 },
+    { i: 'horizonObserver',  x: 0, y: 64, w: 14, h: 6, minW: 8, minH: 4 },
+    { i: 'horizonHeatmap',   x: 14, y: 64, w: 10, h: 6, minW: 6, minH: 4 },
   ],
   md: [
     { i: 'instruments', x: 0, y: 0, w: 4, h: 24, minW: 1, minH: 2 },
@@ -101,6 +113,10 @@ export const DEFAULT_LAYOUT_ITEMS: Record<string, LayoutItem[]> = {
     { i: 'strategies',      x: 0, y: 62, w: 8, h: 8, minW: 1, minH: 2 },
     { i: 'robotHistory',     x: 8, y: 62, w: 8, h: 10, minW: 1, minH: 2 },
     { i: 'news',             x: 0, y: 72, w: 8, h: 10, minW: 1, minH: 2 },
+    { i: 'horizonScanner',   x: 0, y: 82, w: 16, h: 10, minW: 10, minH: 6 },
+    { i: 'horizonRadar',     x: 0, y: 92, w: 8, h: 10, minW: 6, minH: 6 },
+    { i: 'horizonObserver',  x: 8, y: 92, w: 8, h: 6, minW: 8, minH: 4 },
+    { i: 'horizonHeatmap',   x: 0, y: 98, w: 16, h: 6, minW: 6, minH: 4 },
   ],
   sm: [
     { i: 'instruments', x: 0, y: 0, w: 8, h: 16, minW: 1, minH: 2 },
@@ -120,6 +136,10 @@ export const DEFAULT_LAYOUT_ITEMS: Record<string, LayoutItem[]> = {
     { i: 'strategies',      x: 0, y: 132, w: 8, h: 8, minW: 1, minH: 2 },
     { i: 'robotHistory',     x: 0, y: 140, w: 8, h: 10, minW: 1, minH: 2 },
     { i: 'news',             x: 0, y: 150, w: 8, h: 10, minW: 1, minH: 2 },
+    { i: 'horizonScanner',   x: 0, y: 160, w: 8, h: 10, minW: 4, minH: 6 },
+    { i: 'horizonRadar',     x: 0, y: 170, w: 8, h: 8, minW: 4, minH: 4 },
+    { i: 'horizonObserver',  x: 0, y: 178, w: 8, h: 6, minW: 4, minH: 4 },
+    { i: 'horizonHeatmap',   x: 0, y: 184, w: 8, h: 6, minW: 4, minH: 4 },
   ],
 };
 
