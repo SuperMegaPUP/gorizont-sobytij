@@ -4,40 +4,28 @@ export const dynamic = 'force-dynamic';
 
 const MOEX_JWT = process.env.MOEX_JWT;
 
-// ─── Статический маппинг ticker → FIGI для Tinkoff API ────────────────────
-// Обновлять раз в месяц (FIGI не меняются часто)
+// Статический маппинг FIGI для Tinkoff API (обновляется редко)
 const FIGI_MAP: Record<string, string> = {
-  SBER: 'BBG004730N88',
-  GAZP: 'BBG004716R88',
-  LKOH: 'BBG004720LK0',
-  GMKN: 'BBG004YKBDH2',
-  NVTK: 'BBG00475KKY6',
-  ROSN: 'BBG004716RP6',
-  YNDX: 'BBG006L8G4H1',
-  VTBR: 'BBG004730ZJ6',
-  PLZL: 'BBG004S681W1',
-  MOEX: 'BBG004730JJ88',
-  MGNT: 'BBG004S68CP95',
-  MTSS: 'BBG004730ZZ98',
-  ALRS: 'BBG004S68B31',
-  CHMF: 'BBG004S686M5',
-  NLMK: 'BBG004S68707',
-  POLY: 'BBG004DXK2H3',
-  TATN: 'BBG0049MHP94',
-  SNGS: 'BBG0047315Y93',
-  SNGSP: 'BBG0047316R86',
-  RUAL: 'BBG004F00V53',
-  FIVE: 'BBG004RVN5H3',
-  PHOR: 'BBG004S689Z3',
-  IRAO: 'BBG00475KHZ4',
-  OZON: 'BBG004F5FBN0',
-  AFKS: 'BBG004S685G5',
-  RTKM: 'BBG004731484',
-  PIKK: 'BBG004S68CT84',
-  GNLK: 'BBG004S68BW6',
-  FEES: 'BBG004730RPX3',
-  MAGN: 'BBG004S68BRH7',
-  // ... остальные по необходимости
+  SBER: 'BBG004730N88', SBERP: 'BBG0047315Y7',
+  GAZP: 'BBG004716R88', LKOH: 'BBG004720LK0',
+  GMKN: 'BBG004YKBDH2', NVTK: 'BBG00475KKY6',
+  ROSN: 'BBG004716RP6', YNDX: 'BBG006L8G4H1',
+  VTBR: 'BBG004730ZJ6', PLZL: 'BBG004S681W1',
+  MOEX: 'BBG004730JJ88', MGNT: 'BBG004S68BV8',
+  TATN: 'BBG004S686K9', ALRS: 'BBG004S68B31',
+  CHMF: 'BBG00475TCK0', NLMK: 'BBG004S687B1',
+  POLY: 'BBG004HQ0KW1', SNGS: 'BBG004S685V1',
+  SNGSP: 'BBG004S685W9', RUAL: 'BBG008F2T0P2',
+  OZON: 'BBG00R3QT8W4', FIVE: 'BBG00J6P4C29',
+  AFKS: 'BBG004S686N5', PIKK: 'BBG00475KBD8',
+  RTKM: 'BBG004S683B1', MTLR: 'BBG004S686M7',
+  IRAO: 'BBG004S68641', FEES: 'BBG004S689Z8',
+  TRNFP: 'BBG004S68CT8', Magnit: 'BBG00J6P4C29',
+  PHOR: 'BBG00B3XVQD1', TCSG: 'BBG00QPXN5G1',
+  FIXP: 'BBG00T9K0FV1', VKCO: 'BBG00Y0R6P91',
+  HEAD: 'BBG00VHK0S36', SELG: 'BBG00RPR0MZ0',
+  SPBE: 'BBG00R2PLQ89', SGZH: 'BBG00SBWQW92',
+  LENT: 'BBG00V0VM8L7', RNFT: 'BBG00VSK0QF9',
 };
 
 interface Instrument {
@@ -45,57 +33,66 @@ interface Instrument {
   figi: string;
   lot: number;
   name: string;
+  shortName: string;
   board: string;
-  dailyValue: number;   // оборот за день
-  dailyVolume: number;  // объём в лотах
+  dailyValue: number;
+  dailyVolume: number;
   price: number;
+  prevPrice: number;
   changePct: number;
+  marketCap: number;
 }
 
 export async function GET() {
   try {
-    // MOEX ISS: TOP акций по обороту на Т+ рынке
-    const url = 'https://iss.moex.com/iss/statistics/engines/stock/markets/shares/turnovers.json';
     const headers: Record<string, string> = {};
     if (MOEX_JWT) headers['Authorization'] = `Bearer ${MOEX_JWT}`;
+
+    // MOEX ISS: обороты на рынке акций Т+
+    const url = 'https://iss.moex.com/iss/statistics/engines/stock/markets/shares/turnovers.json?iss.meta=off&iss.only=turnovers&turnovers.columns=SECID,BOARDID,SHORTNAME,VALTODAY,VOLTODAY,MARKETPRICE,PREVPRICE,ISSUECAPITALIZATION';
 
     const resp = await fetch(url, { headers, next: { revalidate: 0 } });
     if (!resp.ok) throw new Error(`MOEX turnovers: ${resp.status}`);
 
     const json = await resp.json();
-    const turnovers = json.turnovers || json.data || [];
+    const turnovers = json.turnovers || {};
+    const columns: string[] = turnovers.columns || [];
+    const data: any[][] = turnovers.data || [];
 
-    // Парсим — MOEX возвращает массив массивов
-    const columns = turnovers.columns || [];
-    const data = turnovers.data || [];
-
-    const tickerIdx = columns.indexOf('SECID');
-    const boardIdx = columns.indexOf('BOARDID');
-    const valueIdx = columns.indexOf('VALTODAY');
-    const volIdx = columns.indexOf('VOLTODAY');
-    const priceIdx = columns.indexOf('MARKETPRICE');
-    const nameIdx = columns.indexOf('SHORTNAME');
+    const idx = (name: string) => columns.indexOf(name);
+    const tickerI = idx('SECID');
+    const boardI = idx('BOARDID');
+    const shortNameI = idx('SHORTNAME');
+    const valueI = idx('VALTODAY');
+    const volI = idx('VOLTODAY');
+    const priceI = idx('MARKETPRICE');
+    const prevI = idx('PREVPRICE');
+    const capI = idx('ISSUECAPITALIZATION');
 
     const instruments: Instrument[] = data
-      .filter((row: any[]) => {
-        // Только Т+ рынок (TQBR)
-        const board = row[boardIdx];
-        return board === 'TQBR';
-      })
-      .sort((a: any[], b: any[]) => (b[valueIdx] || 0) - (a[valueIdx] || 0)) // по обороту ↓
-      .slice(0, 100)  // TOP 100
-      .map((row: any[]) => {
-        const ticker = row[tickerIdx] || '';
+      .filter((row) => row[boardI] === 'TQBR')           // Только Т+ рынок
+      .filter((row) => (Number(row[valueI]) || 0) > 0)    // Есть оборот
+      .sort((a, b) => (Number(b[valueI]) || 0) - (Number(a[valueI]) || 0)) // По обороту ↓
+      .slice(0, 100)                                       // TOP 100
+      .map((row) => {
+        const ticker = String(row[tickerI] || '');
+        const price = Number(row[priceI]) || 0;
+        const prevPrice = Number(row[prevI]) || 0;
+        const changePct = prevPrice > 0 ? ((price - prevPrice) / prevPrice) * 100 : 0;
+
         return {
           ticker,
-          figi: FIGI_MAP[ticker] || '',  // FIGI из статического маппинга
-          lot: 1,    // MOEX turnovers не даёт лотность
-          name: row[nameIdx] || row[tickerIdx] || '',
-          board: row[boardIdx] || 'TQBR',
-          dailyValue: Number(row[valueIdx]) || 0,
-          dailyVolume: Number(row[volIdx]) || 0,
-          price: Number(row[priceIdx]) || 0,
-          changePct: 0,  // Нужно отдельный запрос
+          figi: FIGI_MAP[ticker] || '',
+          lot: 1,
+          name: String(row[shortNameI] || ticker),
+          shortName: String(row[shortNameI] || ticker),
+          board: 'TQBR',
+          dailyValue: Number(row[valueI]) || 0,
+          dailyVolume: Number(row[volI]) || 0,
+          price,
+          prevPrice,
+          changePct: Math.round(changePct * 100) / 100,
+          marketCap: Number(row[capI]) || 0,
         };
       });
 
@@ -103,12 +100,13 @@ export async function GET() {
       instruments,
       count: instruments.length,
       timestamp: new Date().toISOString(),
+      source: 'moex-iss',
     });
 
   } catch (error: any) {
-    console.error('instruments error:', error.message);
+    console.error('[instruments] error:', error.message);
     return NextResponse.json(
-      { error: error.message, instruments: [] },
+      { error: error.message, instruments: [], count: 0 },
       { status: 500 }
     );
   }
