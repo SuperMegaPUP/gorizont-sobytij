@@ -7,6 +7,11 @@ import { useDashboardStore } from '@/lib/store';
 import { fmtNum, fmtDelta } from '@/lib/helpers';
 import type { SortCol, SortDir } from '@/lib/types';
 
+function SortArrow({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol; sortDir: SortDir }) {
+  if (sortCol !== col) return <span className="text-[#475569]/40 ml-0.5">{'\u2195'}</span>;
+  return <span className="text-[var(--terminal-accent)] ml-0.5">{sortDir === 'desc' ? '\u25BC' : '\u25B2'}</span>;
+}
+
 export function TickersFrame() {
   const tickerAggs = useDashboardStore((s) => s.tickerAggs);
   const dataSource = useDashboardStore((s) => s.dataSource);
@@ -41,11 +46,6 @@ export function TickersFrame() {
     return arr;
   }, [tickerAggs, sortCol, sortDir]);
 
-  const SortArrow = ({ col }: { col: SortCol }) => {
-    if (sortCol !== col) return <span className="text-[#475569]/40 ml-0.5">{'\u2195'}</span>;
-    return <span className="text-[var(--terminal-accent)] ml-0.5">{sortDir === 'desc' ? '\u25BC' : '\u25B2'}</span>;
-  };
-
   if (tickerAggs.length === 0) {
     return (
       <div className="flex flex-col h-full">
@@ -72,13 +72,13 @@ export function TickersFrame() {
       </div>
       <div className="flex-1 overflow-y-auto terminal-scroll">
         <div className="grid grid-cols-[40px_24px_1fr_1fr_48px_40px_1fr] gap-0.5 px-2 py-1 text-[7px] text-[var(--terminal-muted)] font-mono border-b border-[var(--terminal-border)]/50 sticky top-0 bg-[var(--terminal-bg)] z-10">
-          <span className="cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('ticker')}>Тикер<SortArrow col="ticker" /></span>
-          <span className="text-center cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('events')}>Соб<SortArrow col="events" /></span>
-          <span className="text-right cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('buyLots')}>Покуп.<SortArrow col="buyLots" /></span>
-          <span className="text-right cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('sellLots')}>Прод.<SortArrow col="sellLots" /></span>
-          <span className="text-right cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('deltaNet')}>Дельта<SortArrow col="deltaNet" /></span>
-          <span className="cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('direction')}>Напр<SortArrow col="direction" /></span>
-          <span className="text-center cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('score')}>SCORE<SortArrow col="score" /></span>
+          <span className="cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('ticker')}>Тикер<SortArrow col="ticker" sortCol={sortCol} sortDir={sortDir} /></span>
+          <span className="text-center cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('events')}>Соб<SortArrow col="events" sortCol={sortCol} sortDir={sortDir} /></span>
+          <span className="text-right cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('buyLots')}>Покуп.<SortArrow col="buyLots" sortCol={sortCol} sortDir={sortDir} /></span>
+          <span className="text-right cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('sellLots')}>Прод.<SortArrow col="sellLots" sortCol={sortCol} sortDir={sortDir} /></span>
+          <span className="text-right cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('deltaNet')}>Дельта<SortArrow col="deltaNet" sortCol={sortCol} sortDir={sortDir} /></span>
+          <span className="cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('direction')}>Напр<SortArrow col="direction" sortCol={sortCol} sortDir={sortDir} /></span>
+          <span className="text-center cursor-pointer hover:text-[var(--terminal-accent)] transition-colors select-none" onClick={() => handleSort('score')}>SCORE<SortArrow col="score" sortCol={sortCol} sortDir={sortDir} /></span>
         </div>
         {sortedAggs.map((t) => {
           const scorePct = maxScore > 0 ? (t.score / maxScore) * 100 : 0;

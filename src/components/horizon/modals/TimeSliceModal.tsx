@@ -13,30 +13,28 @@ export function TimeSliceModal() {
   const selectTicker = useHorizonStore((s) => s.selectTicker);
   const fetchObservations = useHorizonStore((s) => s.fetchObservations);
 
-  if (!selectedTimeSlice) return null;
-
-  const { ticker, hour } = selectedTimeSlice;
+  const ticker = selectedTimeSlice?.ticker ?? '';
+  const hour = selectedTimeSlice?.hour ?? 0;
 
   // Find heatmap cell for this time slice
   const cell = useMemo(() => {
+    if (!selectedTimeSlice) return null;
     return heatmapData.find((c) => c.ticker === ticker && c.hour === hour) || null;
-  }, [heatmapData, ticker, hour]);
+  }, [heatmapData, ticker, hour, selectedTimeSlice]);
 
   // Find current scanner data for this ticker
   const scannerItem = useMemo(() => {
+    if (!selectedTimeSlice) return null;
     return scannerData.find((t) => t.ticker === ticker) || null;
-  }, [scannerData, ticker]);
+  }, [scannerData, ticker, selectedTimeSlice]);
 
   // Find all cells for this ticker (for mini sparkline)
   const tickerCells = useMemo(() => {
+    if (!selectedTimeSlice) return [];
     return heatmapData
       .filter((c) => c.ticker === ticker)
       .sort((a, b) => a.hour - b.hour);
-  }, [heatmapData, ticker]);
-
-  const bsciLevel = cell ? getBsciLevel(cell.avgBsci) : 'GREEN';
-  const bsciColor = cell ? getBsciColor(cell.avgBsci) : getBsciColor(0);
-  const bsciEmoji = cell ? getBsciEmoji(cell.avgBsci) : getBsciEmoji(0);
+  }, [heatmapData, ticker, selectedTimeSlice]);
 
   // Sparkline data for SVG
   const sparkW = 260;
@@ -52,6 +50,12 @@ export function TimeSliceModal() {
       })
       .join(' ');
   }, [tickerCells]);
+
+  if (!selectedTimeSlice) return null;
+
+  const bsciLevel = cell ? getBsciLevel(cell.avgBsci) : 'GREEN';
+  const bsciColor = cell ? getBsciColor(cell.avgBsci) : getBsciColor(0);
+  const bsciEmoji = cell ? getBsciEmoji(cell.avgBsci) : getBsciEmoji(0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">

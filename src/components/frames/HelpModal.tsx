@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, startTransition } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, AlertTriangle, TrendingUp, Calendar, ChevronLeft, ChevronRight, Shield, Activity, Radio, Bot, Zap, RefreshCw, Database } from 'lucide-react';
 import { useDashboardStore } from '@/lib/store';
@@ -102,8 +102,10 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
     const year = calMonth.year;
     const existing = calendarDays.some(d => d.date.startsWith(`${year}-`));
     if (existing) return;
-    setCalLoading(true);
-    setCalError('');
+    startTransition(() => {
+      setCalLoading(true);
+      setCalError('');
+    });
     fetch(`/api/calendar?from=${year}-01-01&till=${year}-12-31`)
       .then(res => res.ok ? res.json() : Promise.reject(`HTTP ${res.status}`))
       .then(data => {

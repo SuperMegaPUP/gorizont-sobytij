@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, startTransition } from 'react';
 
 export type ThemeName = 'night-owl' | 'shade' | 'fog' | 'warm-sand' | 'soft-gray' | 'dusty-rose' | 'ocean-mist' | 'twilight-purple' | 'muddy-latte' | 'carbon-slate' | 'desert-dusk';
 
@@ -119,9 +119,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY) as ThemeName | null;
     if (saved && THEMES.some(t => t.name === saved)) {
-      setThemeState(saved);
+      startTransition(() => {
+        setThemeState(saved);
+      });
     }
-    setMounted(true);
+    startTransition(() => {
+      setMounted(true);
+    });
   }, []);
 
   // Apply theme class + dark/light mode to document
