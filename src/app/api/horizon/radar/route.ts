@@ -54,14 +54,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3. Deduplicate by ticker (top100 data takes priority for same ticker)
+    // 3. Deduplicate by ticker (resolve shortCode ↔ moexTicker duplicates)
+    // Core scanner uses short codes (SR, GZ), TOP-100 uses MOEX codes (SBER, GAZP)
+    const SHORT_TO_MOEX: Record<string, string> = {
+      'SR': 'SBER', 'GZ': 'GAZP', 'GK': 'GMKN', 'LK': 'LKOH',
+      'RN': 'ROSN', 'MX': 'MOEX', 'Si': 'Si', 'RI': 'RI', 'BR': 'BR',
+    };
+    const MOEX_TO_SHORT: Record<string, string> = Object.fromEntries(
+      Object.entries(SHORT_TO_MOEX).map(([k, v]) => [v, k]),
+    );
+
+    // Normalize ticker to MOEX code for dedup
+    function normalizeTicker(t: string): string {
+      return SHORT_TO_MOEX[t] || t;
+    }
+
     const seen = new Map<string, any>();
     for (const d of combinedData) {
       if (!d.ticker) continue;
-      const existing = seen.get(d.ticker);
+      const normKey = normalizeTicker(d.ticker);
+      const existing = seen.get(normKey);
       // Keep the one with higher BSCI (more informative)
       if (!existing || (d.bsci || 0) > (existing.bsci || 0)) {
-        seen.set(d.ticker, d);
+        seen.set(normKey, d);
       }
     }
     const deduped = Array.from(seen.values());
@@ -98,8 +113,11 @@ export async function GET(request: NextRequest) {
       const turnoverRatio = (d.turnover || 0) / maxTurnover;
       const dotSize = (d.bsci || 0) * Math.sqrt(turnoverRatio);
 
+      // Use MOEX ticker as display name (more recognizable: SBER vs SR)
+      const displayTicker = MOEX_TO_SHORT[d.ticker] ? d.ticker : normalizeTicker(d.ticker);
+
       return {
-        ticker: d.ticker,
+        ticker: displayTicker,
         bsci: d.bsci || 0,
         alertLevel: d.alertLevel || 'GREEN',
         direction: d.direction || 'NEUTRAL',

@@ -76,7 +76,9 @@ export function HorizonRadarFrame() {
     return radarData.map((d) => {
       const cx = padding + ((d.cumDelta - minCD) / rangeCD) * chartW;
       const cy = padding + (1 - (d.vpin - minVP) / rangeVP) * chartH; // inverted: top=low vpin
-      const r = Math.max(4, Math.min(25, d.dotSize * 15));
+      // Scale dot size: bsci determines base size (3-18), turnover adds weight
+      const bsciFactor = 3 + d.bsci * 15; // 3-18 based on BSCI
+      const r = Math.max(3, Math.min(20, bsciFactor));
       const color = ALERT_COLORS[d.alertLevel] || ALERT_COLORS.GREEN;
       const glow = ALERT_GLOW[d.alertLevel] || ALERT_GLOW.GREEN;
 
@@ -144,8 +146,8 @@ export function HorizonRadarFrame() {
               <circle cx={dot.cx} cy={dot.cy} r={dot.r + 3} fill={dot.glow} />
               {/* Main dot */}
               <circle cx={dot.cx} cy={dot.cy} r={dot.r} fill={dot.color} opacity={0.8} />
-              {/* Label for big dots */}
-              {dot.r > 10 && (
+              {/* Label for big dots or anomalous tickers */}
+              {(dot.r > 10 || dot.bsci > 0.3) && (
                 <text
                   x={dot.cx} y={dot.cy}
                   textAnchor="middle" dominantBaseline="central"
