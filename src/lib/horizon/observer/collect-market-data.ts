@@ -114,6 +114,80 @@ const RVI_CACHE_TTL = 60000; // 1 минута
 let futuresOICache: { value: FuturesOIResult[]; ts: number } = { value: [], ts: 0 };
 const FUTURES_OI_CACHE_TTL = 60000; // 1 минута
 
+// ─── Dynamic TOP-100 by Turnover ────────────────────────────────────────────
+
+export interface TopTickerEntry {
+  ticker: string;
+  name: string;
+  turnover: number;
+}
+
+/** Кеш ТОП-100 тикеров по обороту (обновляем раз в 30 минут) */
+let top100Cache: { value: TopTickerEntry[]; ts: number } = { value: [], ts: 0 };
+const TOP100_CACHE_TTL = 1800000; // 30 минут
+
+/**
+ * Получает топ-100 акций MOEX (TQBR) по обороту за сегодня.
+ * Использует ISS endpoint securities с сортировкой по VALTODAY.
+ * Кеширует на 30 минут.
+ */
+export async function fetchTop100Tickers(): Promise<TopTickerEntry[]> {
+  // Return cached if fresh
+  if (top100Cache.value.length > 0 && Date.now() - top100Cache.ts < TOP100_CACHE_TTL) {
+    return top100Cache.value;
+  }
+
+  try {
+    const path = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=VALTODAY&sort_order=desc&first=100&securities.columns=SECCODE,SHORTNAME,VALTODAY';
+    const data = await moexFetch(path);
+    const rows = parseIssGrid(data.securities);
+
+    const result: TopTickerEntry[] = rows
+      .filter((r) => r.SECCODE && r.VALTODAY && Number(r.VALTODAY) > 0)
+      .map((r) => ({
+        ticker: String(r.SECCODE),
+        name: String(r.SHORTNAME || r.SECCODE),
+        turnover: Number(r.VALTODAY || 0),
+      }))
+      .slice(0, 100);
+
+    if (result.length >= 20) {
+      top100Cache = { value: result, ts: Date.now() };
+      console.log(`[fetchTop100Tickers] Got ${result.length} tickers from MOEX (top: ${result[0]?.ticker} ${result[0]?.turnover})`);
+      return result;
+    }
+
+    // If too few results, try without securities.columns (full response)
+    console.warn(`[fetchTop100Tickers] Only ${result.length} tickers with VALTODAY, retrying with full response...`);
+
+    const path2 = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=VALTODAY&sort_order=desc&first=100';
+    const data2 = await moexFetch(path2);
+    const rows2 = parseIssGrid(data2.securities);
+
+    const result2: TopTickerEntry[] = rows2
+      .filter((r) => r.SECCODE && r.VALTODAY && Number(r.VALTODAY) > 0)
+      .map((r) => ({
+        ticker: String(r.SECCODE),
+        name: String(r.SHORTNAME || r.SECCODE),
+        turnover: Number(r.VALTODAY || 0),
+      }))
+      .slice(0, 100);
+
+    if (result2.length >= 10) {
+      top100Cache = { value: result2, ts: Date.now() };
+      console.log(`[fetchTop100Tickers] Retry got ${result2.length} tickers`);
+      return result2;
+    }
+
+    // Fallback: return stale cache or empty
+    console.warn(`[fetchTop100Tickers] MOEX returned too few tickers, using cache/fallback`);
+    return top100Cache.value;
+  } catch (e: any) {
+    console.warn(`[fetchTop100Tickers] Error: ${e.message}`);
+    return top100Cache.value; // Return stale cache on error
+  }
+}
+
 /**
  * Резолвит активный фьючерсный контракт для заданного префикса (Si, RI, BR)
  * Ищет ближайший неисполненный контракт на FORTS

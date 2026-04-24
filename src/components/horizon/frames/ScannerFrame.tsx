@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo, startTransition } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { ScanSearch, List, Trophy } from 'lucide-react';
 import { useHorizonStore, type ScannerMode } from '@/lib/horizon-store';
 import { getBsciEmoji, getBsciColor } from '../shared/BSCIColor';
@@ -8,8 +8,6 @@ import { DirectionArrow } from '../shared/DirectionArrow';
 import { DetectorDots } from '../scanner/DetectorDots';
 
 type FilterMode = 'all' | 'alert' | 'bear' | 'bull';
-
-const PAGE_SIZE = 100; // Show all 100 tickers at once in scrollable table
 
 export function HorizonScannerFrame() {
   const scannerData = useHorizonStore((s) => s.scannerData);
@@ -30,7 +28,6 @@ export function HorizonScannerFrame() {
   const [filter, setFilter] = useState<FilterMode>('all');
   const [countdown, setCountdown] = useState(30);
   const [now, setNow] = useState(new Date());
-  const [page, setPage] = useState(0);
 
   // Current data source based on mode
   const currentData = scannerMode === 'top100' ? top100Data : scannerData;
@@ -56,10 +53,8 @@ export function HorizonScannerFrame() {
     }
   }, [scannerMode, top100Data.length, top100Loading, fetchTop100]);
 
-  // Reset page on mode/filter change
-  useEffect(() => {
-    startTransition(() => { setPage(0); });
-  }, [scannerMode, filter]);
+  // Reset on filter change
+  // (no pagination needed — all items shown in scroll)
 
   // Countdown timer
   useEffect(() => {
@@ -96,11 +91,9 @@ export function HorizonScannerFrame() {
   }, [currentData, filter, scannerSortBy]);
 
   // Display data: show all items (scrollable)
-  const paginated = useMemo(() => {
+  const displayData = useMemo(() => {
     return filtered; // Show all tickers — scrollable table
   }, [filtered]);
-
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
   // Summary
   const summary = useMemo(() => {
@@ -216,7 +209,7 @@ export function HorizonScannerFrame() {
           <div className="text-[7px] text-[var(--terminal-muted)] font-mono text-center py-3">
             {scannerMode === 'top100' ? 'Сканирование ТОП 100 (~30 сек)...' : 'Загрузка сканера...'}
           </div>
-        ) : paginated.length === 0 ? (
+        ) : displayData.length === 0 ? (
           <div className="text-[7px] text-[var(--terminal-muted)] font-mono text-center py-3">
             {scannerMode === 'top100' && !top100Loading ? (
               <button
@@ -243,8 +236,8 @@ export function HorizonScannerFrame() {
               </tr>
             </thead>
             <tbody>
-              {paginated.map((ticker, idx) => {
-                const globalIdx = scannerMode === 'top100' ? page * PAGE_SIZE + idx + 1 : idx + 1;
+              {displayData.map((ticker, idx) => {
+                const globalIdx = idx + 1;
                 const bsciColor = getBsciColor(ticker.bsci);
                 const bsciEmoji = getBsciEmoji(ticker.bsci);
                 const actionStyle = ticker.action === 'URGENT'
@@ -309,29 +302,6 @@ export function HorizonScannerFrame() {
           </table>
         )}
       </div>
-
-      {/* Pagination (TOP-100 mode only) */}
-      {scannerMode === 'top100' && totalPages > 1 && (
-        <div className="flex items-center justify-center gap-1 px-2 py-1 border-t border-[var(--terminal-border)] shrink-0">
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="text-[7px] font-mono px-1.5 py-0.5 rounded-sm text-[var(--terminal-muted)] disabled:opacity-30 hover:text-[var(--terminal-accent)] border border-[var(--terminal-border)]"
-          >
-            ←
-          </button>
-          <span className="text-[7px] font-mono text-[var(--terminal-muted)]">
-            {page + 1}/{totalPages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
-            className="text-[7px] font-mono px-1.5 py-0.5 rounded-sm text-[var(--terminal-muted)] disabled:opacity-30 hover:text-[var(--terminal-accent)] border border-[var(--terminal-border)]"
-          >
-            →
-          </button>
-        </div>
-      )}
 
       {/* Footer summary */}
       <div className="flex items-center gap-2 px-2 py-1 border-t border-[var(--terminal-border)] bg-[var(--terminal-surface)]/30 shrink-0 text-[6px] font-mono text-[var(--terminal-muted)]">

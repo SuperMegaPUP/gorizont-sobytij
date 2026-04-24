@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import redis from '@/lib/redis';
-import { collectMarketData } from '@/lib/horizon/observer/collect-market-data';
+import { collectMarketData, fetchTop100Tickers } from '@/lib/horizon/observer/collect-market-data';
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 
@@ -311,6 +311,22 @@ export async function scanBatch(
   return results;
 }
 
+// ─── Dynamic TOP-100 Helper ────────────────────────────────────────────────
+
+async function getTop100Tickers(): Promise<{ ticker: string; name: string }[]> {
+  try {
+    const dynamic = await fetchTop100Tickers();
+    if (dynamic.length >= 20) {
+      return dynamic.map(t => ({ ticker: t.ticker, name: t.name }));
+    }
+  } catch (e: any) {
+    console.warn('[/api/horizon/scan] Dynamic TOP-100 fetch failed:', e.message);
+  }
+  // Fallback to hardcoded list
+  console.warn('[/api/horizon/scan] Using hardcoded TOP-100 list as fallback');
+  return [...TOP100_TICKERS];
+}
+
 // ─── POST: Run Scanner ────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -335,7 +351,7 @@ export async function POST(request: NextRequest) {
     } catch { /* ignore parse errors */ }
 
     const tickersToScan = customTickers ||
-      (scanMode === 'top100' ? [...TOP100_TICKERS] : [...SCANNER_TICKERS]);
+      (scanMode === 'top100' ? await getTop100Tickers() : [...SCANNER_TICKERS]);
 
     console.log(`[/api/horizon/scan] Starting scanner for ${tickersToScan.length} tickers (mode=${scanMode})`);
 
