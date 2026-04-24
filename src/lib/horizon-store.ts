@@ -55,6 +55,8 @@ export interface RadarDot {
 export interface HeatmapCell {
   ticker: string;
   hour: number;
+  slotKey?: string;     // "24/04 10" — unique per date+hour
+  slotIndex?: number;   // 0-47 position in 48h timeline
   avgBsci: number;
   maxBsci: number;
   alertLevel: string;
