@@ -106,6 +106,14 @@ const TICKER_MAP: Record<string, Omit<TickerConfig, 'shortCode'>> = {
 const futuresCache: Record<string, { seccode: string; ts: number }> = {};
 const FUTURES_CACHE_TTL = 3600000; // 1 час
 
+/** Кеш RVI (одинаков для всех тикеров, обновляем раз в минуту) */
+let rviCache: { value: RVIResult | null; ts: number } = { value: null, ts: 0 };
+const RVI_CACHE_TTL = 60000; // 1 минута
+
+/** Кеш FuturesOI (одинаков для всех тикеров, обновляем раз в минуту) */
+let futuresOICache: { value: FuturesOIResult[]; ts: number } = { value: [], ts: 0 };
+const FUTURES_OI_CACHE_TTL = 60000; // 1 минута
+
 /**
  * Резолвит активный фьючерсный контракт для заданного префикса (Si, RI, BR)
  * Ищет ближайший неисполненный контракт на FORTS
@@ -243,41 +251,57 @@ async function fetchTrades(config: TickerConfig, limit: number = 200): Promise<T
   }
 }
 
-/** RVI — Russian Volatility Index */
+/** RVI — Russian Volatility Index (with caching) */
 async function fetchRVI(): Promise<RVIResult | null> {
+  // Return cached if fresh
+  if (rviCache.value !== null && Date.now() - rviCache.ts < RVI_CACHE_TTL) {
+    return rviCache.value;
+  }
+  if (rviCache.value === null && Date.now() - rviCache.ts < RVI_CACHE_TTL) {
+    return null; // Still in cooldown after a failed attempt
+  }
   try {
     const path = '/iss/statistics/engines/stock/volatility/RVI.json';
     const data = await moexFetch(path);
     const rows = parseIssGrid(data.rvi);
-    if (rows.length === 0) return null;
+    if (rows.length === 0) { rviCache.ts = Date.now(); return null; }
     const last = rows[rows.length - 1];
-    return {
+    const result: RVIResult = {
       value: Number(last.RVI || last.VALUE || 0),
       change: Number(last.CHANGE || 0),
     };
+    rviCache = { value: result, ts: Date.now() };
+    return result;
   } catch (e: any) {
     console.warn('[collect-market-data] RVI error:', e.message);
+    rviCache = { value: null, ts: Date.now() }; // Cache failure to avoid hammering
     return null;
   }
 }
 
-/** OI фьючерсов для кросс-тикерного анализа */
+/** OI фьючерсов для кросс-тикерного анализа (with caching) */
 async function fetchFuturesOI(): Promise<FuturesOIResult[]> {
+  // Return cached if fresh
+  if (futuresOICache.value.length > 0 && Date.now() - futuresOICache.ts < FUTURES_OI_CACHE_TTL) {
+    return futuresOICache.value;
+  }
   try {
     const path = '/iss/engines/futures/markets/forts/securities.json';
     const data = await moexFetch(path);
     const rows = parseIssGrid(data.securities);
     const targets = ['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN'];
-    return rows
+    const result = rows
       .filter((r) => targets.some((t) => String(r.SECCODE || '').startsWith(t)))
       .map((r) => ({
         ticker: String(r.SECCODE || ''),
         oi: Number(r.OPENPOSITIONS || r.NUMTRADES || 0),
         change: Number(r.CHANGE || 0),
       }));
+    futuresOICache = { value: result, ts: Date.now() };
+    return result;
   } catch (e: any) {
     console.warn('[collect-market-data] futures OI error:', e.message);
-    return [];
+    return futuresOICache.value; // Return stale cache on error
   }
 }
 

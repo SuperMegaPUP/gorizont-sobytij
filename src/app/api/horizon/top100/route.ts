@@ -52,8 +52,8 @@ export async function POST(_request: NextRequest) {
   try {
     console.log('[/api/horizon/top100] Starting TOP-100 batch scan...');
 
-    // Scan TOP 100 in batches: 5 at a time, 2s delay
-    const scannerData = await scanBatch(TOP100_TICKERS, 5, 2000);
+    // Scan TOP 100 in batches: 20 at a time, 300ms delay (~15-30s total)
+    const scannerData = await scanBatch(TOP100_TICKERS, 20, 300);
 
     // Sort by BSCI descending
     const sorted = scannerData.sort((a, b) => b.bsci - a.bsci);

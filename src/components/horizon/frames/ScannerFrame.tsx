@@ -9,7 +9,7 @@ import { DetectorDots } from '../scanner/DetectorDots';
 
 type FilterMode = 'all' | 'alert' | 'bear' | 'bull';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 100; // Show all 100 tickers at once in scrollable table
 
 export function HorizonScannerFrame() {
   const scannerData = useHorizonStore((s) => s.scannerData);
@@ -95,14 +95,10 @@ export function HorizonScannerFrame() {
     return data;
   }, [currentData, filter, scannerSortBy]);
 
-  // Paginated data
+  // Display data: show all items (scrollable)
   const paginated = useMemo(() => {
-    if (scannerMode === 'top100') {
-      const start = page * PAGE_SIZE;
-      return filtered.slice(start, start + PAGE_SIZE);
-    }
-    return filtered; // Core: show all 9
-  }, [filtered, page, scannerMode]);
+    return filtered; // Show all tickers — scrollable table
+  }, [filtered]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
@@ -218,7 +214,7 @@ export function HorizonScannerFrame() {
       <div className="flex-1 overflow-y-auto terminal-scroll">
         {isLoading && currentData.length === 0 ? (
           <div className="text-[7px] text-[var(--terminal-muted)] font-mono text-center py-3">
-            {scannerMode === 'top100' ? 'Сканирование ТОП 100 (2-3 мин)...' : 'Загрузка сканера...'}
+            {scannerMode === 'top100' ? 'Сканирование ТОП 100 (~30 сек)...' : 'Загрузка сканера...'}
           </div>
         ) : paginated.length === 0 ? (
           <div className="text-[7px] text-[var(--terminal-muted)] font-mono text-center py-3">

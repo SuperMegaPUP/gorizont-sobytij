@@ -369,8 +369,8 @@ export async function POST(request: NextRequest) {
         };
       });
     } else {
-      // TOP-100: batched scanning (5 at a time, 2s delay)
-      scannerData = await scanBatch(tickersToScan, 5, 2000);
+      // TOP-100: batched scanning (20 at a time, 300ms delay)
+      scannerData = await scanBatch(tickersToScan, 20, 300);
     }
 
     // Save to Redis
