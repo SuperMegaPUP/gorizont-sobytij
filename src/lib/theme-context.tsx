@@ -112,20 +112,18 @@ export function useTheme() {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeName>(DEFAULT_THEME);
+  const [theme, setThemeState] = useState<ThemeName>(() => {
+    if (typeof window === 'undefined') return DEFAULT_THEME;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY) as ThemeName | null;
+      if (saved && THEMES.some(t => t.name === saved)) return saved;
+    } catch { /* ignore */ }
+    return DEFAULT_THEME;
+  });
   const [mounted, setMounted] = useState(false);
 
-  // Load from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as ThemeName | null;
-    if (saved && THEMES.some(t => t.name === saved)) {
-      startTransition(() => {
-        setThemeState(saved);
-      });
-    }
-    startTransition(() => {
-      setMounted(true);
-    });
+    startTransition(() => { setMounted(true); });
   }, []);
 
   // Apply theme class + dark/light mode to document

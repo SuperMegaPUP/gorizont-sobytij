@@ -115,11 +115,11 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
             .sort((a, b) => a.date.localeCompare(b.date));
           updateCalendar(merged);
         } else if (data.error) {
-          setCalError(data.error);
+          startTransition(() => { setCalError(data.error); });
         }
       })
-      .catch(e => setCalError(String(e)))
-      .finally(() => setCalLoading(false));
+      .catch(e => startTransition(() => { setCalError(String(e)); }))
+      .finally(() => startTransition(() => { setCalLoading(false); }));
   }, [activeTab, calMonth.year, calendarDays, updateCalendar]);
 
   // Календарные данные для текущего месяца
