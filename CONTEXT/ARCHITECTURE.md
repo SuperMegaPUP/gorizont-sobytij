@@ -1,5 +1,7 @@
 # АРХИТЕКТУРА: Горизонт Событий
 
+> Спецификация v4
+
 ## Пайплайн сканирования
 
 ```
@@ -13,17 +15,22 @@ collectMarketData(ticker)
    └── Market snapshot (mid, spread, RVI)
    │
    ▼
-runAllDetectors(detectorInput)
-   ├── GRAVITON     → DetectorResult { score, signal, confidence, metadata }
-   ├── DARKMATTER   → DetectorResult
-   ├── ACCRETOR     → DetectorResult
-   ├── DECOHERENCE  → DetectorResult
-   ├── HAWKING      → DetectorResult
-   ├── PREDATOR     → DetectorResult
-   ├── CIPHER       → DetectorResult
-   ├── ENTANGLE     → DetectorResult
-   ├── WAVEFUNCTION → DetectorResult
-   └── ATTRACTOR    → DetectorResult
+zScoreNormalize(features, window=100)  ← v4: сквозная нормализация (П2)
+   ├── volume, trade_size, interval → нормализованы
+   └── Критично для CIPHER, HAWKING, ACCRETOR
+   │
+   ▼
+runAllDetectors(detectorInput)  ← v4: финальные формулы
+   ├── GRAVITON     → центры масс + walls + 80% cutoff (П2)
+   ├── DARKMATTER   → ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME (П1)
+   ├── ACCRETOR     → DBSCAN + ATR-нормализация (П2)
+   ├── DECOHERENCE  → символьный поток + tick_rule при ΔP=0 (П1)
+   ├── HAWKING      → ACF + Welch при N≥100 + noise_ratio fix (П1)
+   ├── PREDATOR     → 5 фаз + FALSE_BREAKOUT + estimated_stops (П2)
+   ├── CIPHER       → PCA→ICA двухуровневый + z-score + condition number (П2)
+   ├── ENTANGLE     → ADF-тест + Granger lag=3 (П2)
+   ├── WAVEFUNCTION → particle filter + ресэмплинг + log-weights (П2)
+   └── ATTRACTOR    → Takens + volume_profile + stickiness по spread (П2)
    │
    ▼
 Cross-Section Normalization (Z-score по батчу)
@@ -32,7 +39,7 @@ Cross-Section Normalization (Z-score по батчу)
    └── crossSectionNormalizeSingle() → для одиночных наблюдений vs кэш
    │
    ▼
-calcBSCI(normalizedScores, weights)
+calcBSCI(normalizedScores, weights)  ← v4: η=0.03, min_w=0.04
    ├── BSCI = Σ(w_i × score_i) / Σ(w_i)
    ├── Alert Level: GREEN / YELLOW / ORANGE / RED
    ├── Direction: BULLISH / BEARISH / NEUTRAL
@@ -59,18 +66,13 @@ calculateRobotContext(ticker, algopack, detectorScores, topDetector, bsci)
    ├── Burst Detection: типы активных роботов
    ├── computeRobotConfirmation() → confirmation: 0.1-1.0
    ├── isRobotConfirmed() → порог 0.4
-   ├── DETECTOR_PATTERN_MAP: 10 детекторов ↔ 11 паттернов
-   ├── DETECTOR_ALGOPACK_MAP: прямые AlgoPack-индикаторы
-   └── tryAlgoPackMatch(): fallback для non-top детекторов
+   └── DETECTOR_PATTERN_MAP + DETECTOR_ALGOPACK_MAP
    │
    ▼
 calculateConvergenceScore(bsciDir, bsciScore, indicators, hasDivergence, atrCompressed, robotConfirmed, hasSpoofing, cancelRatio)
    ├── База: 5 индикаторов × 0-2 балла = 0-10
-   ├── +1 дивергенция (скрытая активность)
-   ├── +1 ATR-сжатие (прорыв)
-   ├── +1 робот-подтверждение (isRobotConfirmed)
-   ├── −2 СПУФИНГ (hasSpoofing)
-   ├── −1 cancel>80% (cancelRatio > 0.8)
+   ├── +1 дивергенция, +1 ATR-сжатие, +1 роботы
+   ├── −2 СПУФИНГ, −1 cancel>80%
    └── score = clamp(totalPoints, 0, 10)
    │
    ▼
@@ -95,10 +97,69 @@ applyScannerRules(scannerInput)
    ▼
 Сохранение:
    ├── Redis: horizon:scanner:latest (TTL 1h) / horizon:scanner:top100 (TTL 30min)
-   ├── Redis: horizon:scanner:bsci:{ticker} (TTL 1h) — prev BSCI
-   ├── Redis: horizon:cross-section:stats (TTL 2h) — z-score статистики
-   ├── Redis: horizon:algopack:{ticker} (TTL 5m) — AlgoPack кэш
+   ├── Redis: horizon:scanner:bsci:{ticker} (TTL 1h)
+   ├── Redis: horizon:cross-section:stats (TTL 2h)
+   ├── Redis: horizon:algopack:{ticker} (TTL 5m)
    └── PostgreSQL: bsci_log — батч-инсерт
+```
+
+## Signal Generator Pipeline (Sprint 4)
+
+```
+TickerScanResult (из сканера)
+   │
+   ▼
+signal-generator.ts
+   ├── Проверка порогов: BSCI≥0.55 AND conv≥7 AND topDet≥0.75
+   ├── Если НЕ проходит → НЕТ сигнала (тишина)
+   │
+   ▼ (если проходит)
+   level-calculator.ts
+   ├── S/R за 30 свечей
+   ├── estimated_stops(level) из PREDATOR
+   ├── entryZone = [price ± 0.3×ATR]
+   ├── stopLoss = nearest S/R ± 0.5×ATR
+   └── T1/T2/T3 через ATR
+   │
+   ▼
+confidence = BSCI(25) + conv(25) + RSI/CRSI(20) + роботы(15) + дивергенция(15)
+   │
+   ▼
+TradeSignal {
+   type: LONG/SHORT/AWAIT/BREAKOUT,
+   state: ACTIVE,
+   wavefunction_state: ACCUMULATE/DISTRIBUTE/HOLD,
+   TTL: 4 часа,
+   exitConditions: [...]
+}
+   │
+   ▼
+Сохранение:
+   ├── Redis: horizon:signals:active (TTL 4h)
+   ├── PostgreSQL: signals — постоянное хранение
+   └── SignalSnapshot при каждом скане (6/день)
+```
+
+## Виртуальный P&L (Sprint 4)
+
+```
+Cron каждые 5 минут → checkActiveSignals()
+   ├── Запрос текущей цены тикера
+   ├── LONG: max(price)>=target → WIN; min(price)<=stop → LOSS; иначе EXPIRED
+   ├── SHORT — зеркально
+   │
+   ▼
+Закрытие сигнала:
+   ├── state → CLOSED
+   ├── close_reason: TARGET | STOP | EXPIRED
+   ├── close_price, pnl_ticks
+   └── result: WIN | LOSS | EXPIRED
+   │
+   ▼
+SignalFeedbackStore → обратная связь:
+   ├── WAVEFUNCTION: ACCUMULATE→WIN → +0.01 к переходу
+   ├── BSCI: weekly win_rate → корректировка весов
+   └── Минимум 30+ сигналов для корректировки
 ```
 
 ## AI Observer (6 раз/день)
@@ -131,9 +192,10 @@ Cron/Manual → generateObservation(ticker, slot?)
 | `horizon:scanner:latest` | JSON | 1h | Core 9 scanner results |
 | `horizon:scanner:top100` | JSON | 30m | TOP-100 scanner results |
 | `horizon:scanner:bsci:{ticker}` | String | 1h | Previous BSCI per ticker |
-| `horizon:cross-section:stats` | JSON | 2h | Z-score stats {mean, std} per detector |
+| `horizon:cross-section:stats` | JSON | 2h | Z-score stats per detector |
 | `horizon:observe:{ticker}` | JSON | 30m | Last observation per ticker |
 | `horizon:algopack:{ticker}` | JSON | 5m | AlgoPack data per ticker |
+| `horizon:signals:active` | JSON | 4h | Active trade signals (Sprint 4) |
 
 ### PostgreSQL (постоянное хранение)
 
@@ -144,74 +206,23 @@ Cron/Manual → generateObservation(ticker, slot?)
 | `bsci_log` | Лог BSCI: ticker, bsci, alertLevel, topDetector |
 | `bsci_weights` | Адаптивные веса: detector, weight, accuracy, totalSignals |
 | `reports` | Робот-отчёты: ticker, reportType, content, hint |
+| `signals` | Торговые сигналы + результат + виртуальный P&L (Sprint 4) |
 
-## BSCI Composite Index
+## BSCI Composite Index (v4)
 
 ```
-BSCI = Σ(w_i × score_i) / Σ(w_i)
+w_k(t) = w_k(t-1) + η × (S_k(t) - w_k(t-1)) × w_k(t-1)
+η = 0.03 (снижено с 0.1)
+min_w = 0.04 (повышено с 0.02)
+Нормализация: Σ(w_k) = 1
+
+П2: Daily weight decay = 0.99 × w + 0.01/K
 
 Alert Levels:
-  GREEN  — BSCI < 0.3   (CALM)
-  YELLOW — BSCI 0.3-0.5 (WATCH)
-  ORANGE — BSCI 0.5-0.7 (WARNING)
-  RED    — BSCI ≥ 0.7   (CRITICAL)
+  GREEN  — BSCI < 0.3
+  YELLOW — BSCI 0.3-0.5
+  ORANGE — BSCI 0.5-0.7
+  RED    — BSCI ≥ 0.7
 
-Direction (weighted vote):
-  BULLISH if bullWeight > bearWeight × 1.3
-  BEARISH if bearWeight > bullWeight × 1.3
-  NEUTRAL otherwise
-
-Weights:
-  Default: 0.1 (equal, 10 detectors)
-  Stored in: bsci_weights table
-  Update: manual or calibration (Sprint 5)
-```
-
-## Cross-Section Normalization
-
-```
-ПРОБЛЕМА:
-  ACCRETOR: 0.8-0.99 у 90% тикеров (шум)
-  GRAVITON: 0.00 у 98% (мёртвый)
-  → BSCI сжимается в 0.08-0.40
-
-РЕШЕНИЕ:
-  Для каждого детектора: z = (score - mean) / std
-  normalized = clamp(0.5 + z × 0.25, 0, 1)
-
-  z = 0 (среднее) → 0.5
-  z = +2 (выброс) → 1.0
-  z = -2 (выброс) → 0.0
-
-РЕЗУЛЬТАТ:
-  BSCI растягивается до 0.05-0.75
-  Появляются ORANGE и RED тикеры
-
-КЭШИРОВАНИЕ:
-  Stats (mean, std) → Redis horizon:cross-section:stats (TTL 2h)
-  Single-ticker normalization → crossSectionNormalizeSingle() vs кэш
-```
-
-## Convergence Score (0-10)
-
-Детальное описание → TA-CONTEXT.md
-
-```
-База: RSI + CMF + CRSI + VWAP + ATR (каждый 0-2 балла)
-Бонусы: +1 дивергенция, +1 ATR-сжатие, +1 роботы
-Штрафы: −2 спуфинг, −1 cancel>80%
-Финал: clamp(итого, 0, 10)
-```
-
-## Robot Context
-
-Детальное описание → ROBOT-INTEGRATION.md
-
-```
-AlgoPack → стены, накопления, cancel ratio, спуфинг
-Burst Detection → типы активных роботов (11 паттернов)
-DETECTOR_PATTERN_MAP → маппинг детекторов ↔ паттернов
-computeRobotConfirmation() → 0.1-1.0
-isRobotConfirmed() → порог 0.4
-Влияние на convergence: +1 роботы, −2 спуфинг, −1 cancel>80%
+Direction: BULLISH / BEARISH / NEUTRAL (weighted vote)
 ```

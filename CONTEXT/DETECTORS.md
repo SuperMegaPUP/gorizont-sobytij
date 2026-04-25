@@ -1,5 +1,7 @@
 # ДЕТЕКТОРЫ: 10 Black Star детекторов аномалий
 
+> Спецификация v4 — ФИНАЛЬНЫЕ ФОРМУЛЫ (заморожены)
+
 ## Типы
 
 ```typescript
@@ -34,38 +36,292 @@ interface DetectorInput {
 }
 ```
 
-## Все 10 детекторов
+## ε-ЗАЩИТА (сквозное правило v4)
 
-| # | Имя | Файл | Что ищет | Ключевые входы |
-|---|-----|------|----------|----------------|
-| 1 | GRAVITON | graviton.ts | Гравитационная линза — ценовое притяжение к уровню | prices, volumes, orderbook |
-| 2 | DARKMATTER | darkmatter.ts | Тёмная материя — скрытая ликвидность (айсберги) | orderbook, trades, vpin |
-| 3 | ACCRETOR | accretor.ts | Аккреция — мелкое консистентное накопление | trades, cumDelta, volumes |
-| 4 | DECOHERENCE | decoherence.ts | Декогеренция — расхождение цены и объёма | prices, cumDelta, ofi |
-| 5 | HAWKING | hawking.ts | Излучение Хокинга — резкий выброс активности | trades, volumes, ofi |
-| 6 | PREDATOR | predator.ts | Хищник — агрессия крупного игрока | trades, cumDelta, orderbook |
-| 7 | CIPHER | cipher.ts | Шифр — алгоритмический паттерн | trades (timing, size pattern) |
-| 8 | ENTANGLE | entangle.ts | Запутанность — корреляция с другими тикерами | crossTickers, prices |
-| 9 | WAVEFUNCTION | wavefunction.ts | Волновая функция — осцилляция цены/объёма | prices, volumes, candles |
-| 10 | ATTRACTOR | attractor.ts | Аттрактор — стена в стакане | orderbook (bid/ask walls) |
+Во ВСЕ формулы с делением добавить ε=1e-6. Defensive programming — не обсуждается.
 
-## Регистрация
+## Все 10 детекторов + BSCI
 
-```typescript
-// registry.ts
-const ALL_DETECTORS = [
-  { name: 'GRAVITON',     detect: detectGraviton },
-  { name: 'DARKMATTER',   detect: detectDarkmatter },
-  { name: 'ACCRETOR',     detect: detectAccretor },
-  { name: 'DECOHERENCE',  detect: detectDecoherence },
-  { name: 'HAWKING',      detect: detectHawking },
-  { name: 'PREDATOR',     detect: detectPredator },
-  { name: 'CIPHER',       detect: detectCipher },
-  { name: 'ENTANGLE',     detect: detectEntangle },
-  { name: 'WAVEFUNCTION', detect: detectWavefunction },
-  { name: 'ATTRACTOR',    detect: detectAttractor },
-];
-```
+### 1. GRAVITON — Гравитационное линзирование стакана (П2)
+
+**Файл**: `graviton.ts` | **Ключевые входы**: prices, volumes, orderbook
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) Обрезка стакана до 80% объёма (отсекает фантомные стены ММ на периферии):
+   - cutoffLevel = min level where cumulative_volume >= 0.8 * totalSideVolume
+   - Все расчёты ТОЛЬКО на уровнях [0..cutoffLevel]
+
+2) Центры масс:
+   - center_mass_bid = sum(volume_i * price_i) / (sum(volume_i) + ε)
+   - center_mass_ask = sum(volume_i * price_i) / (sum(volume_i) + ε)
+
+3) separation = (center_mass_ask - center_mass_bid) / (mid_price + ε)
+
+4) asymmetry = (sum(bid_vol * dist_from_cm_bid) - sum(ask_vol * dist_from_cm_ask)) / (total_vol + ε)
+
+5) detect_walls():
+   - wall = уровень где volume > 3 * median_volume_per_level
+   - wall_proximity = min(distance_to_wall) / (spread + ε)
+   - wall_score = sum(wall_volume * w_depth_k) / (total_side_volume + ε)
+   - w_depth_k = exp(-depth_k / (avg_depth + ε))
+
+6) graviton_score = f(separation, asymmetry, wall_score)
+
+### 2. DARKMATTER — Тёмная материя (П1 — критическое)
+
+**Файл**: `darkmatter.ts` | **Ключевые входы**: orderbook, trades, vpin
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) expected_entropy:
+   - median_entropy_sessions (пересчитывается ежедневно)
+   - Альтернатива v1: expected_entropy = f(avg_depth, spread)
+
+2) darkmatter_entropy_score:
+   - observed_entropy = Shannon_entropy(объёмы_по_уровням_стакана)
+   - ΔH_norm = (expected_entropy - observed_entropy) / (expected_entropy + ε)
+   - observed >= expected → score = 0 (нет аномалии)
+   - observed < expected → score = ΔH_norm, диапазон (0, 1]
+
+3) iceberg_score:
+   - Группируем сделки по price_level
+   - Ищем consecutive runs одинакового объёма (подряд идущие!)
+   - Минимальная длина run: n_consecutive ≥ 3
+   - Минимальный объём: levelVolume >= 0.005 * dailyTurnover (0.5% дневного оборота)
+   - Если levelVolume < MIN_ICEBERG_VOLUME → iceberg_score_at_level = 0
+   - iceberg_score_at_level = n_consecutive_same_vol / n_total_at_level
+   - weight = 1 / (1 + distance_from_best)
+   - iceberg_score = weighted_average(iceberg_score_at_level)
+
+4) darkmatter_score = 0.5 * darkmatter_entropy_score + 0.5 * iceberg_score
+
+### 3. ACCRETOR — Аккреционный диск (П2)
+
+**Файл**: `accretor.ts` | **Ключевые входы**: trades, cumDelta, volumes
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) Фильтруем сделки: volume < 0.3 * avg_lot_size
+
+2) DBSCAN к множеству {(time, price)} мелких сделок:
+   - eps_time = 60 секунд
+   - eps_price = 1 tick
+   - min_samples = 5
+   - Окно: 200 последних сделок
+   - Пересчёт: каждые 30 секунд
+
+3) accretor_score = (n_clustered_trades / (n_small_trades + ε)) * cluster_concentration
+   - cluster_concentration = avg_cluster_size / (ATR(14) / (tick_size + ε))
+   - ATR-нормализация делает метрику сравнимой между тикерами
+
+4) >60% мелких сделок кластеризовано → крупный игрок дробит заявку
+
+5) НЕ дублирует DECOHERENCE: DECOHERENCE = символьный поток (частоты), ACCRETOR = spatial clustering (время+цена)
+
+### 4. DECOHERENCE — Декогеренция (П1 — критическое)
+
+**Файл**: `decoherence.ts` | **Ключевые входы**: prices, cumDelta, ofi
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) Символьный поток:
+   - if (price_change > 0) symbol = round(log2(volume)) * +1
+   - else if (price_change < 0) symbol = round(log2(volume)) * -1
+   - else symbol = round(log2(volume)) * sign(tick_rule_direction)
+   - tick_rule_direction из CumDelta — предотвращает ложную «декогерентность» в боковике
+
+2) Алфавит: от -10 до +10 (21 символ, включая 0)
+
+3) Скользящее окно W=100 сделок → частотное распределение символов
+
+4) Shannon entropy: H = -sum(p_i * log2(p_i)) для всех p_i > 0
+
+5) Декогерентность = 1 - (H / H_max), где H_max = log2(21) ≈ 4.39
+
+6) Интерпретация:
+   - Высокая → один/несколько символов доминируют → алгоритмическая система
+   - Низкая → равномерное распределение → естественный рынок
+
+### 5. HAWKING — Излучение Хокинга (П1 — критическое)
+
+**Файл**: `hawking.ts` | **Ключевые входы**: trades, volumes, ofi
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) trade_intervals = t[i] - t[i-1] для последних N сделок
+
+2) Минимальное окно:
+   - n_trades < 50 → hawking_score = 0 (недостаточно данных)
+   - 50 ≤ n_trades < 100 → сырой FFT
+   - n_trades >= 100 → Welch's method (перекрывающиеся окна + усреднение PSD)
+
+3) Autocorrelation lag 1..20
+
+4) Периодичность = max(|ACF(k)|) для k=2..20
+
+5) noise_ratio = 1 - (peak_power / (median_psd * bandwidth + ε))
+   - Сравниваем пик с «фоном», не с общей мощностью — устойчивее к шуму
+
+6) hawking_score = периодичность * (1 - noise_ratio)
+
+7) Частоты 0.5-5 Hz = зона алгоритмической торговли
+
+8) Убрать ВСЕ упоминания WVD из спецификации и комментариев
+
+### 6. PREDATOR — Хищник (П2 estimated_stops + FALSE_BREAKOUT)
+
+**Файл**: `predator.ts` | **Ключевые входы**: trades, cumDelta, orderbook
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+Основной детектор — aggression_ratio + cumulative delta acceleration (как сейчас)
+
+НОВОЕ: 5-фазный цикл с FALSE_BREAKOUT:
+1. STALK — цена приближается к уровню скопления стопов
+2. HERDING — мелкие сделки толпы на уровне
+3. ATTACK — агрессивный пробой
+4. CONSUME — кит выкупает (цена возвращается, CumDelta +)
+5. FALSE_BREAKOUT — новостной пробой (цена не возвращается, CumDelta -)
+
+Условие CONSUME vs FALSE_BREAKOUT (после ATTACK в течение window_confirm 3-5 мин):
+- price_reversion = (current_price - attack_extreme) / (pre_attack_price - attack_extreme)
+- delta_flip = sign(cumDelta_current) ≠ sign(cumDelta_during_attack)
+- price_reversion >= 0.5 && delta_flip → CONSUME (настоящий stop-hunt)
+- price_reversion < 0.5 || !delta_flip → FALSE_BREAKOUT (новостной пробой)
+- Только CONSUME генерирует сигнал LONG/SHORT
+- FALSE_BREAKOUT → сигнал AWAIT
+
+НОВОЕ: estimated_stops(level) для signal_generator:
+1) volume_cluster_density(level) = sum(volume within ±2 ticks) / (avg_volume_per_tick_range + ε)
+2) round_number_bonus(level) = 1 если level кратен 5/10 пунктам, иначе 0
+3) recent_breakout_frequency(level) = count(breakouts) / (N + ε)
+4) vwap_distance_penalty(level) = 1 - min(|level - VWAP|, max_dist) / (max_dist + ε)
+
+estimated_stops(level) = 0.35 * volume_cluster_density + 0.25 * round_number_bonus + 0.25 * recent_breakout_frequency + 0.15 * vwap_distance_penalty
+
+### 7. CIPHER — Шифр (П2)
+
+**Файл**: `cipher.ts` | **Ключевые входы**: trades (timing, size pattern)
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+УРОВЕНЬ 1 (быстрый скрининг):
+1) features = zScoreNormalize([volume, trade_size, interval], window=100)
+2) PCA(n_components=3).fit(features)
+3) dominance_ratio = explained_variance_ratio_[0]
+4) Если dominance_ratio > 0.6 → алгоритм
+5) cipher_quick = dominance_ratio
+
+УРОВЕНЬ 2 (глубокий анализ, только если cipher_quick > 0.5):
+1) Проверяем condition number матрицы ковариации:
+   - cov_condition > 1000 → skip ICA → cipher_score = cipher_quick
+2) ICA на том же normalized matrix, max_iterations=200
+3) Если ICA не сошлась → cipher_score = cipher_quick
+4) kurtosis = mean(|IC_i|^4) / mean(|IC_i|^2)^2
+5) kurtosis > 3 → негауссово → несколько независимых алгоритмов
+6) cipher_deep = (cipher_quick + kurtosis_normalized) / 2
+
+Финал: cipher_quick <= 0.5 → cipher_quick; иначе → cipher_deep; ICA fallback → cipher_quick
+
+### 8. ENTANGLE — Запутанность (П2 ADF-фикс, П3 Hilbert)
+
+**Файл**: `entangle.ts` | **Ключевые входы**: crossTickers, prices
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+v1 (сейчас + ADF-фикс):
+1) Перед расчётом ANY correlation/causality — проверить стационарность:
+   - augmentedDickeyFullerTest(series)
+   - pvalue < 0.05 → стационарно → используем series
+   - иначе → первые разности → повторный ADF
+   - даже разности нестационарны → entangle_score = 0, skip
+
+2) Granger causality с лагом = 3 (фиксированный для v1)
+
+v2: AIC/BIC для топ-20 пар + Hilbert transform для phase difference
+
+### 9. WAVEFUNCTION — Волновая функция (П2 ресэмплинг, П3 learnable)
+
+**Файл**: `wavefunction.ts` | **Ключевые входы**: prices, volumes, candles
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) Transition matrix фиксированная:
+   - [0.7, 0.2, 0.1] ACCUMULATE
+   - [0.2, 0.6, 0.2] DISTRIBUTE
+   - [0.1, 0.2, 0.7] HOLD
+
+2) Student-t likelihood + Laplace smoothing (как сейчас)
+
+3) ОБЯЗАТЕЛЬНО — Мониторинг вырождения + ресэмплинг:
+   - N_eff = 1 / (sum(weights^2) + ε)
+   - if (N_eff < 0.5 * n_particles) → systematicResample()
+
+4) ОБЯЗАТЕЛЬНО — Логарифмирование весов:
+   - Все операции в лог-пространстве
+   - Нормализация через log-sum-exp
+   - Предотвращает underflow при длинных окнах
+
+v1.5: Обратная связь по виртуальному P&L (ACCUMULATE→LONG→WIN → +0.01)
+v2: EM-алгоритм (минимум 500+ сигналов), адаптивные частицы 200-1000
+
+### 10. ATTRACTOR — Аттрактор (П2)
+
+**Файл**: `attractor.ts` | **Ключевые входы**: orderbook (bid/ask walls)
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) takens_convergence (с авто τ и Silverman bandwidth):
+   - d=3 фиксированный, τ — автоматический
+   - Авто τ: τ = findFirstZeroACF(price_series) || 5 (раз/час, min=2, max=20)
+   - KDE: h = 1.06 * sigma * N^(-1/5) (правило Сильвермана)
+   - takens_convergence = концентрация плотности вокруг аттрактора
+
+2) volume_profile_attractor:
+   - POC = уровень с максимальным объёмом
+   - Если |price-POC|<2 ticks > 60% времени → зона аттрактора
+
+3) price_stickiness:
+   - sticky = |price[t] - price[t-1]| < 0.5 * current_spread (НЕ по tick, а по spread)
+   - stickiness_ratio = sticky_time / window_length
+
+4) attractor_score = 0.4 * takens_convergence + 0.3 * volume_profile_attractor + 0.3 * price_stickiness
+
+### 11. BSCI — Композитный индекс (П1 η+min_w, П2 decay)
+
+ФИНАЛЬНАЯ ФОРМУЛА v4:
+
+1) w_k(t) = w_k(t-1) + η * (S_k(t) - w_k(t-1)) * w_k(t-1), η = 0.03
+
+2) min_w = 0.04 (повышено с 0.02 для быстрого восстановления «мёртвых» детекторов)
+
+3) Нормализация: sum(w_k) = 1
+
+4) П2: Мягкий daily weight decay:
+   - w_k = 0.99 * w_k + 0.01 * (1/K)
+   - 1% в день к равновесию → за 100 дней → 63% сдвиг
+   - Решает «дрейф весов при длительном флете»
+
+5) L2-регуляризация ОТКЛОНЕНА — противоречит адаптации
+6) Accuracy decay ОТКЛОНЁН — двойное замедление при η=0.03
+
+Alert Levels: GREEN < 0.3 | YELLOW 0.3-0.5 | ORANGE 0.5-0.7 | RED ≥ 0.7
+
+## Детектор ↔ Робот-паттерн (DETECTOR_PATTERN_MAP)
+
+| Детектор | Робот-паттерны | AlgoPack |
+|----------|---------------|----------|
+| GRAVITON | market_maker, absorber, iceberg | wall_score |
+| DARKMATTER | iceberg, absorber | wall_score + cancel |
+| ACCRETOR | accumulator, slow_grinder | accumulation_score |
+| DECOHERENCE | aggressive, momentum, scalper | — |
+| HAWKING | scalper, hft, market_maker | — |
+| PREDATOR | aggressive, momentum, sweeper | — |
+| CIPHER | periodic, fixed_volume, layered | — |
+| ENTANGLE | ping_pong, periodic, market_maker | — |
+| WAVEFUNCTION | periodic, ping_pong, market_maker | — |
+| ATTRACTOR | slow_grinder, absorber, iceberg | wall_score + accumulation_score |
 
 ## Scanner Rules (10 IF-THEN)
 
@@ -82,28 +338,27 @@ const ALL_DETECTORS = [
 | 9 | VPIN>0.7 + DARKMATTER>0.5 | INFORMED_TRADING | ALERT |
 | 10 | prevBsci - bsci > 0.3 | SIGNAL_FADE | WATCH |
 
-## Детектор ↔ Робот-паттерн (DETECTOR_PATTERN_MAP)
+## Приоритеты реализации
 
-Каждый детектор привязан к робот-паттернам для подтверждения сигналов:
+| Приоритет | Детекторы | Когда |
+|-----------|----------|-------|
+| П1 (критическое) | DARKMATTER, DECOHERENCE, HAWKING, BSCI(η+min_w) | Sprint 4 (параллельно) |
+| П2 (структурные) | GRAVITON, ACCRETOR, CIPHER, ATTRACTOR, ENTANGLE, PREDATOR, WAVEFUNCTION, BSCI(decay) | Sprint 5 |
+| П3 (продвинутые) | WAVEFUNCTION(learnable), ENTANGLE(Hilbert), PREDATOR(POC), ATTRACTOR(FNN) | Sprint 6+ |
 
-| Детектор | Робот-паттерны | AlgoPack |
-|----------|---------------|----------|
-| GRAVITON | market_maker, absorber, iceberg | wall_score |
-| DARKMATTER | iceberg, absorber | wall_score + cancel |
-| ACCRETOR | accumulator, slow_grinder | accumulation_score |
-| DECOHERENCE | aggressive, momentum, scalper | — |
-| HAWKING | scalper, hft, market_maker | — |
-| PREDATOR | aggressive, momentum, sweeper | — |
-| CIPHER | periodic, fixed_volume, layered | — |
-| ENTANGLE | ping_pong, periodic, market_maker | — |
-| WAVEFUNCTION | periodic, ping_pong, market_maker | — |
-| ATTRACTOR | slow_grinder, absorber, iceberg | wall_score + accumulation_score |
+## Сквозные изменения
 
-Подробности → ROBOT-INTEGRATION.md
+- **ε=1e-6** во всех делениях (обязательно)
+- **z-score нормализация** в data pipeline для CIPHER, HAWKING, ACCRETOR (П2)
+- **Синтетические тест-сценарии** (П3): iceberg, accumulator, predator, algorithm, coordinated, regime_change
+- **KL-divergence мониторинг** (П3): weekly drift > 0.15 → заморозка адаптации
 
 ## Состояние и известные проблемы
 
-- **ACCRETOR**: До нормализации давал 0.8-0.99 для 90% тикеров (шум). После cross-section norm — дискриминирует
-- **GRAVITON**: Часто 0.00 — "мёртвый" детектор. Z-score нормализация вытягивает
-- **ATTRACTOR**: На тикерах с нулевым оборотом (SGZH) давал ложные 0.70 → решается Уровнем 0 (внутренняя консистентность)
-- **Все 10 детекторов**: Теперь имеют маппинг на робот-паттерны (Спринт 3) → см. DETECTOR_PATTERN_MAP
+- **ACCRETOR**: До нормализации давал 0.8-0.99 (шум). После cross-section norm — дискриминирует. v4: DBSCAN вместо угловых секторов
+- **GRAVITON**: Часто 0.00 — "мёртвый". v4: центры масс + walls вместо экспоненциальной модели
+- **DECOHERENCE**: Текущий «паттерн» неопределённый. v4: символьный поток + Shannon entropy
+- **DARKMATTER**: Нет expected_entropy. v4: ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME
+- **HAWKING**: noise_ratio некорректный. v4: median_psd + Welch при N≥100 + N≥50 минимум
+- **CIPHER**: Нет z-score перед PCA. v4: обязательная нормализация + condition number check
+- **ATTRACTOR**: Галлюцинации на мёртвых тикерах. v4: stickiness по spread + volume_profile + Takens
