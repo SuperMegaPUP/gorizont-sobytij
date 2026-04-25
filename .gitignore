@@ -24,6 +24,8 @@ server.log
 /download/
 /mini-services/
 /moexalgo-docs.json
-/CONTEXT/
+# /CONTEXT/ — убрано из gitignore, теперь синхронизируется с GitHub
+# Но токен НЕ коммитится:
+CONTEXT/TOKEN
 /vercel-source/
 /vercel-file-list.json
