@@ -12,7 +12,7 @@
 //
 // Это БЕСПЛАТНАЯ проверка — не требует внешних данных (роботы, результаты).
 
-import type { DetectorResult } from '../detectors/types';
+import type { DetectorResult } from './detectors/types';
 
 // ─── Типы ────────────────────────────────────────────────────────────────────
 

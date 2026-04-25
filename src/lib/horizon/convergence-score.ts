@@ -13,7 +13,7 @@
 //
 // Максимум = 10 (5×2 + бонусы)
 
-import type { TAIndicators } from '../ta-context';
+import type { TAIndicators } from './ta-context';
 
 // ─── Типы ────────────────────────────────────────────────────────────────────
 
