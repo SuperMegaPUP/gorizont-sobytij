@@ -344,6 +344,7 @@ export async function scanTicker(
       alertLevel: bsciResult.alertLevel,
       direction: bsciResult.direction,
       confidence,
+      _topDetector: topDetector,  // DEBUG: remove after fixing
       detectorScores: scoresMap,
       keySignal: scannerResult.signal,
       action: scannerResult.action,
