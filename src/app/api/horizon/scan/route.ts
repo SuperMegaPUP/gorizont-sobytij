@@ -20,6 +20,7 @@ import { calculateTAIndicators, calculateSignalConvergence, type SignalConvergen
 import { checkInternalConsistency, type InternalConsistencyResult } from '@/lib/horizon/internal-consistency';
 import { calculateConvergenceScore, type ConvergenceScoreResult } from '@/lib/horizon/convergence-score';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
+import { calculateRobotContext, findTopDetector, isRobotConfirmed, type RobotContext } from '@/lib/horizon/robot-context';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
 
@@ -173,6 +174,8 @@ export interface TickerScanResult {
   convergenceScore?: ConvergenceScoreResult;
   // Level-0 internal consistency
   consistencyCheck?: InternalConsistencyResult;
+  // Robot context (Спринт 3)
+  robotContext?: RobotContext;
   // Internal fields for cross-section normalization (stripped before API response)
   _rawDetectorResults?: DetectorResult[];
   _weights?: Record<string, number>;
@@ -280,6 +283,7 @@ export async function scanTicker(
     // 11. TA Context layer (НЕ входит в BSCI — только контекст!)
     let taContext: SignalConvergence | undefined;
     let convergenceScore: ConvergenceScoreResult | undefined;
+    let robotContext: RobotContext | undefined;
     try {
       const taIndicators = calculateTAIndicators(
         detectorInput.candles,
@@ -292,14 +296,35 @@ export async function scanTicker(
         taIndicators,
       );
 
+      // 11.3 Robot Context (Спринт 3) — до convergence score!
+      const topDetector = findTopDetector(scoresMap);
+      const totalTradeVolumeLots = detectorInput.trades.reduce(
+        (sum, t) => sum + t.quantity, 0,
+      );
+      try {
+        robotContext = await calculateRobotContext(
+          ticker,
+          detectorInput.trades.map(t => ({
+            price: t.price,
+            quantity: t.quantity,
+            side: t.side as 'BUY' | 'SELL',
+            time: t.time,
+          })),
+          topDetector,
+          totalTradeVolumeLots,
+        );
+      } catch (robotErr: any) {
+        console.warn(`[horizon/scan] Robot context failed for ${ticker}:`, robotErr.message);
+      }
+
       // 11.5 Convergence Score 0-10
       convergenceScore = calculateConvergenceScore(
         bsciResult.direction,
         bsciResult.bsci,
         taIndicators,
-        taContext.divergence,               // бонус за дивергенцию
-        taIndicators.atrZone === 'COMPRESSED', // бонус за ATR-сжатие
-        false,                                // робот-подтверждение (Спринт 3)
+        taContext.divergence,                   // бонус за дивергенцию
+        taIndicators.atrZone === 'COMPRESSED',   // бонус за ATR-сжатие
+        isRobotConfirmed(robotContext),           // робот-подтверждение (Спринт 3)!
       );
     } catch (taErr: any) {
       console.warn(`[horizon/scan] TA context failed for ${ticker}:`, taErr.message);
@@ -327,6 +352,7 @@ export async function scanTicker(
       taContext,
       convergenceScore,
       consistencyCheck,
+      robotContext,
       // Internal: for cross-section normalization
       _rawDetectorResults: detectorScores,
       _weights: weights,
@@ -356,6 +382,7 @@ export async function scanTicker(
       taContext: undefined,
       convergenceScore: undefined,
       consistencyCheck: undefined,
+      robotContext: undefined,
       _rawDetectorResults: undefined,
       _weights: undefined,
     };
@@ -567,6 +594,7 @@ export async function POST(request: NextRequest) {
           taContext: undefined,
           convergenceScore: undefined,
           consistencyCheck: undefined,
+          robotContext: undefined,
           _rawDetectorResults: undefined,
           _weights: undefined,
         };

@@ -330,6 +330,124 @@ export function TickerModal() {
             </div>
           )}
 
+          {/* ═══ РОБОТ-КОНТЕКСТ (Спринт 3) ═══ */}
+          {detail.robotContext && detail.robotContext.source !== 'none' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono text-[var(--terminal-muted)]">
+                  🤖 Робот-контекст
+                </span>
+                {/* Confirmation badge */}
+                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                  detail.robotContext.confirmation >= 0.7
+                    ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
+                    : detail.robotContext.confirmation >= 0.4
+                      ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40'
+                      : 'bg-gray-500/20 text-gray-400 border-gray-500/40'
+                }`}>
+                  {detail.robotContext.confirmation >= 0.7 ? '✓ Подтверждено' :
+                   detail.robotContext.confirmation >= 0.4 ? '△ Частично' : '✗ Нет данных'}
+                </span>
+              </div>
+
+              {/* Robot volume + AlgoPack metrics */}
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { label: 'Робот %', value: `${(detail.robotContext.robotVolumePct * 100).toFixed(0)}%`, color: detail.robotContext.robotVolumePct > 0.6 ? 'text-cyan-400' : detail.robotContext.robotVolumePct > 0.3 ? 'text-yellow-400' : 'text-[var(--terminal-muted)]' },
+                  { label: 'Стена', value: detail.robotContext.wallScore.toFixed(0), color: detail.robotContext.wallScore > 50 ? 'text-orange-400' : 'text-[var(--terminal-text-dim)]' },
+                  { label: 'Накопл.', value: detail.robotContext.accumScore.toFixed(0), color: detail.robotContext.accumScore > 50 ? 'text-cyan-400' : 'text-[var(--terminal-text-dim)]' },
+                  { label: 'Cancel%', value: `${(detail.robotContext.cancelRatio * 100).toFixed(0)}%`, color: detail.robotContext.cancelRatio > 0.5 ? 'text-red-400' : 'text-[var(--terminal-text-dim)]' },
+                ].map((m) => (
+                  <div key={m.label} className="bg-[var(--terminal-bg)]/50 rounded px-1.5 py-1 border border-[var(--terminal-border)]/30 text-center">
+                    <div className="text-[8px] font-mono text-[var(--terminal-muted)]">{m.label}</div>
+                    <div className={`text-[10px] font-mono font-bold ${m.color}`}>{m.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Robot direction + imbalance */}
+              <div className="flex items-center gap-2 text-[10px] font-mono">
+                <span className="text-[var(--terminal-muted)]">Дисбаланс:</span>
+                <span className={
+                  detail.robotContext.robotImbalance > 0.2 ? 'text-green-400 font-bold' :
+                  detail.robotContext.robotImbalance < -0.2 ? 'text-red-400 font-bold' : 'text-[var(--terminal-muted)]'
+                }>
+                  {detail.robotContext.robotImbalance > 0.2 ? `▲ BUY ${(detail.robotContext.robotImbalance * 100).toFixed(0)}%` :
+                   detail.robotContext.robotImbalance < -0.2 ? `▼ SELL ${(Math.abs(detail.robotContext.robotImbalance) * 100).toFixed(0)}%` :
+                   '— нейтрально'}
+                </span>
+                {detail.robotContext.accumDirection !== 'NEUTRAL' && (
+                  <span className="text-[var(--terminal-muted)]">|</span>
+                )}
+                {detail.robotContext.accumDirection !== 'NEUTRAL' && (
+                  <span className={detail.robotContext.accumDirection === 'LONG' ? 'text-green-400' : 'text-red-400'}>
+                    Накопл. {detail.robotContext.accumDirection}
+                  </span>
+                )}
+                {detail.robotContext.hasSpoofing && (
+                  <>
+                    <span className="text-[var(--terminal-muted)]">|</span>
+                    <span className="text-red-400 font-bold">⚠ СПОУФИНГ</span>
+                  </>
+                )}
+              </div>
+
+              {/* Detected robot patterns */}
+              {detail.robotContext.robotPatterns.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[8px] font-mono text-[var(--terminal-muted)]">Обнаруженные паттерны</div>
+                  {detail.robotContext.robotPatterns.slice(0, 4).map((p) => (
+                    <div key={p.pattern} className="flex items-center gap-1.5 text-[9px] font-mono">
+                      <span className={`w-2 h-2 rounded-full ${
+                        p.direction === 'BUY' ? 'bg-green-400' :
+                        p.direction === 'SELL' ? 'bg-red-400' : 'bg-yellow-400'
+                      }`} />
+                      <span className="text-[var(--terminal-text)] font-bold">{p.patternRu}</span>
+                      <span className="text-[var(--terminal-muted)]">×{p.count}</span>
+                      <span className="text-[var(--terminal-muted)]">{p.totalLots} лот</span>
+                      <span className="text-[var(--terminal-muted)]">({p.level})</span>
+                      {p.avgConfidence > 0.6 && (
+                        <span className="text-cyan-400 font-bold">{(p.avgConfidence * 100).toFixed(0)}%</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Detector ↔ Robot match */}
+              {detail.robotContext.matchedPattern && (
+                <div className={`rounded px-2.5 py-1.5 border ${
+                  detail.robotContext.confirmation >= 0.5
+                    ? 'bg-cyan-500/5 border-cyan-500/20'
+                    : 'bg-gray-500/5 border-gray-500/20'
+                }`}>
+                  <div className="text-[9px] font-mono text-[var(--terminal-muted)]">
+                    Детектор ↔ Робот-паттерн
+                  </div>
+                  <div className="text-[10px] font-mono">
+                    <span className="text-[var(--terminal-text)] font-bold">{detail.robotContext.matchedDetector}</span>
+                    <span className="text-[var(--terminal-muted)]"> ↔ </span>
+                    <span className={detail.robotContext.confirmation >= 0.5 ? 'text-cyan-400 font-bold' : 'text-[var(--terminal-text-dim)]'}>
+                      {detail.robotContext.matchedPattern}
+                    </span>
+                    <span className="text-[var(--terminal-muted)] ml-1">
+                      (confirmation: {detail.robotContext.confirmation.toFixed(2)})
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Burst summary */}
+              {detail.robotContext.burstCount > 0 && (
+                <div className="text-[8px] font-mono text-[var(--terminal-muted)]">
+                  Burst: {detail.robotContext.burstCount} всплесков, {detail.robotContext.burstTotalLots} лот |
+                  Средн. робот: {detail.robotContext.avgRobotOrderSize > 0 ? `${(detail.robotContext.avgRobotOrderSize / 1000).toFixed(0)}K₽` : '—'} |
+                  Средн. человек: {detail.robotContext.avgHumanOrderSize > 0 ? `${(detail.robotContext.avgHumanOrderSize / 1000).toFixed(0)}K₽` : '—'}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Detector Scores */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">

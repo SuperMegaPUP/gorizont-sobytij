@@ -83,6 +83,35 @@ export interface ScannerTicker {
     hallucinations: string[];
     hasHallucination: boolean;
   };
+  // Robot Context (Спринт 3)
+  robotContext?: {
+    ticker: string;
+    robotVolumePct: number;
+    robotPatterns: Array<{
+      pattern: string;
+      patternRu: string;
+      level: string;
+      count: number;
+      totalLots: number;
+      direction: string;
+      avgConfidence: number;
+    }>;
+    robotImbalance: number;
+    avgRobotOrderSize: number;
+    avgHumanOrderSize: number;
+    wallScore: number;
+    accumScore: number;
+    cancelRatio: number;
+    disb: number;
+    accumDirection: string;
+    hasSpoofing: boolean;
+    confirmation: number;
+    matchedPattern: string;
+    matchedDetector: string;
+    burstCount: number;
+    burstTotalLots: number;
+    source: string;
+  };
 }
 
 export interface RadarDot {

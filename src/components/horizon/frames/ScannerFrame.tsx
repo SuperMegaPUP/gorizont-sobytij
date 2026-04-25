@@ -14,9 +14,10 @@ type FilterMode = 'all' | 'alert' | 'bear' | 'bull';
 interface ConvergenceCellProps {
   taContext?: ScannerTicker['taContext'];
   convergenceScore?: ScannerTicker['convergenceScore'];
+  robotContext?: ScannerTicker['robotContext'];
 }
 
-function ConvergenceCell({ taContext, convergenceScore }: ConvergenceCellProps) {
+function ConvergenceCell({ taContext, convergenceScore, robotContext }: ConvergenceCellProps) {
   if (!taContext) {
     return <span className="text-[var(--terminal-muted)]">—</span>;
   }
@@ -47,6 +48,11 @@ function ConvergenceCell({ taContext, convergenceScore }: ConvergenceCellProps) 
     <span className="text-yellow-400 ml-0.5" title={taContext.divergenceNote}>⚡</span>
   ) : null;
 
+  // Robot confirmation indicator (🤖)
+  const robotMark = robotContext && robotContext.confirmation >= 0.5 ? (
+    <span className="text-cyan-400" title={`Робот-подтверждение: ${robotContext.confirmation.toFixed(2)} | ${robotContext.matchedDetector} ↔ ${robotContext.matchedPattern} | Робот%: ${(robotContext.robotVolumePct * 100).toFixed(0)}%`}>🤖</span>
+  ) : null;
+
   // ATR zone indicator
   const atrMark = indicators.atrZone === 'COMPRESSED'
     ? <span className="text-blue-400" title="ATR: сжатие перед прорывом">⊕</span>
@@ -65,6 +71,7 @@ function ConvergenceCell({ taContext, convergenceScore }: ConvergenceCellProps) 
     <span className={`inline-flex items-center gap-0.5 px-0.5 rounded-sm ${cfg.bg} ${cfg.color}`} title={convergenceScore?.summary || taContext.divergenceNote || `${signal} | RSI=${indicators.rsi} CMF=${indicators.cmf} ATR%=${(indicators.atrPercentile * 100).toFixed(0)}`}>
       <span>{cfg.label}</span>
       {convBadge}
+      {robotMark}
       {divergenceMark}
       {atrMark}
       {rsiLabel}
@@ -364,7 +371,7 @@ export function HorizonScannerFrame() {
                       <DirectionArrow direction={ticker.direction} confidence={ticker.confidence} />
                     </td>
                     <td className="px-1.5 py-0.5">
-                      <ConvergenceCell taContext={ticker.taContext} convergenceScore={ticker.convergenceScore} />
+                      <ConvergenceCell taContext={ticker.taContext} convergenceScore={ticker.convergenceScore} robotContext={ticker.robotContext} />
                     </td>
                     <td className="px-1.5 py-0.5 text-[var(--terminal-text-dim)] truncate max-w-[120px]" title={ticker.keySignal}>
                       {ticker.keySignal}
