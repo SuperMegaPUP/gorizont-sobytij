@@ -120,7 +120,11 @@ interface SettingsState {
   resetToDefaults: () => void;
 }
 
-function loadFromStorage(): { fontFamily: string; fontSize: number } {
+/**
+ * Read persisted settings from localStorage.
+ * Returns defaults if window is unavailable (SSR) or if nothing is saved.
+ */
+function readStorageValues(): { fontFamily: string; fontSize: number } {
   if (typeof window === 'undefined') {
     return { fontFamily: DEFAULT_FONT_FAMILY, fontSize: FONT_SIZE_DEFAULT };
   }
@@ -138,36 +142,40 @@ function loadFromStorage(): { fontFamily: string; fontSize: number } {
   }
 }
 
-export const useSettingsStore = create<SettingsState>((set) => {
-  const initial = loadFromStorage();
+/*
+ * IMPORTANT: The store ALWAYS initializes with default values (no localStorage read).
+ * This ensures that the first server-side render and the first client render produce
+ * identical output, preventing React hydration error #418.
+ *
+ * After hydration, `initSettingsFromStorage()` is called in a useEffect, which safely
+ * loads the persisted values and updates both the store state and the DOM.
+ */
+export const useSettingsStore = create<SettingsState>((set) => ({
+  fontFamily: DEFAULT_FONT_FAMILY,
+  fontSize: FONT_SIZE_DEFAULT,
 
-  return {
-    fontFamily: initial.fontFamily,
-    fontSize: initial.fontSize,
+  setFontFamily: (family: string) => {
+    set({ fontFamily: family });
+    try { localStorage.setItem(STORAGE_KEY_FONT, family); } catch { /* ignore */ }
+    applySettingsToDOM(family, undefined);
+  },
 
-    setFontFamily: (family: string) => {
-      set({ fontFamily: family });
-      try { localStorage.setItem(STORAGE_KEY_FONT, family); } catch { /* ignore */ }
-      applySettingsToDOM(family, undefined);
-    },
+  setFontSize: (size: number) => {
+    const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size));
+    set({ fontSize: clamped });
+    try { localStorage.setItem(STORAGE_KEY_SIZE, String(clamped)); } catch { /* ignore */ }
+    applySettingsToDOM(undefined, clamped);
+  },
 
-    setFontSize: (size: number) => {
-      const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size));
-      set({ fontSize: clamped });
-      try { localStorage.setItem(STORAGE_KEY_SIZE, String(clamped)); } catch { /* ignore */ }
-      applySettingsToDOM(undefined, clamped);
-    },
-
-    resetToDefaults: () => {
-      set({ fontFamily: DEFAULT_FONT_FAMILY, fontSize: FONT_SIZE_DEFAULT });
-      try {
-        localStorage.setItem(STORAGE_KEY_FONT, DEFAULT_FONT_FAMILY);
-        localStorage.setItem(STORAGE_KEY_SIZE, String(FONT_SIZE_DEFAULT));
-      } catch { /* ignore */ }
-      applySettingsToDOM(DEFAULT_FONT_FAMILY, FONT_SIZE_DEFAULT);
-    },
-  };
-});
+  resetToDefaults: () => {
+    set({ fontFamily: DEFAULT_FONT_FAMILY, fontSize: FONT_SIZE_DEFAULT });
+    try {
+      localStorage.setItem(STORAGE_KEY_FONT, DEFAULT_FONT_FAMILY);
+      localStorage.setItem(STORAGE_KEY_SIZE, String(FONT_SIZE_DEFAULT));
+    } catch { /* ignore */ }
+    applySettingsToDOM(DEFAULT_FONT_FAMILY, FONT_SIZE_DEFAULT);
+  },
+}));
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    APPLY SETTINGS TO DOM — set CSS custom properties on <html>
@@ -189,9 +197,14 @@ export function applySettingsToDOM(fontFamily?: string, fontSize?: number) {
 }
 
 /**
- * Call once on app mount to apply persisted settings to DOM.
+ * Call once on app mount (in useEffect) to apply persisted settings.
+ * Updates BOTH the store state and DOM CSS vars so the UI reflects
+ * the user's saved preferences after hydration completes safely.
  */
 export function initSettingsFromStorage() {
-  const { fontFamily, fontSize } = loadFromStorage();
+  const { fontFamily, fontSize } = readStorageValues();
+  // Update store state (triggers re-render with persisted values)
+  useSettingsStore.setState({ fontFamily, fontSize });
+  // Update CSS custom properties on <html>
   applySettingsToDOM(fontFamily, fontSize);
 }
