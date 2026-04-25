@@ -144,7 +144,7 @@ export function calculateConvergenceScore(
   if (divergenceBonus) summary += ', +1 скрытая активность';
   if (atrBonus) summary += ', +1 ATR-сжатие';
   if (robotBonus) summary += ', +1 роботы';
-  if (spoofingPenalty) summary += ', −2 СПОУФИНГ';
+  if (spoofingPenalty) summary += ', −2 СПУФИНГ';
   if (cancelPenalty) summary += ', −1 cancel>80%';
   summary += ` = ${score}/10`;
 

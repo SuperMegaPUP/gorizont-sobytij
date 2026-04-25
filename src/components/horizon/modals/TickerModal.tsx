@@ -96,9 +96,10 @@ export function TickerModal() {
           <div className="ml-auto flex items-center gap-2">
             <span className={`text-xs font-mono font-bold ${
               detail.action === 'URGENT' ? 'text-red-400' :
+              detail.action === 'ALERT' && detail.convergenceScore?.spoofingPenalty && detail.convergenceScore.score <= 2 ? 'text-red-500' :
               detail.action === 'ALERT' ? 'text-orange-400' : 'text-[var(--terminal-muted)]'
             }`}>
-              {detail.action === 'URGENT' ? '🚨 СРОЧНО' : detail.action === 'ALERT' ? '⚠️ ВНИМАНИЕ' : '👁️ НАБЛЮДЕНИЕ'}
+              {detail.action === 'URGENT' ? '🚨 СРОЧНО' : detail.action === 'ALERT' && detail.convergenceScore?.spoofingPenalty && detail.convergenceScore.score <= 2 ? '🚫 МАНИПУЛЯЦИЯ' : detail.action === 'ALERT' ? '⚠️ ВНИМАНИЕ' : '👁️ НАБЛЮДЕНИЕ'}
             </span>
             <button
               onClick={() => selectTicker(null)}
@@ -387,7 +388,7 @@ export function TickerModal() {
                 {detail.robotContext.hasSpoofing && (
                   <>
                     <span className="text-[var(--terminal-muted)]">|</span>
-                    <span className="text-red-400 font-bold">⚠ СПОУФИНГ</span>
+                    <span className="text-red-400 font-bold">⚠ СПУФИНГ</span>
                   </>
                 )}
               </div>

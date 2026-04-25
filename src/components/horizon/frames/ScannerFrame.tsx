@@ -55,7 +55,7 @@ function ConvergenceCell({ taContext, convergenceScore, robotContext }: Converge
 
   // Spoofing penalty indicator (🚫)
   const spoofingMark = robotContext?.hasSpoofing ? (
-    <span className="text-red-400" title={`СПОУФИНГ! Cancel%: ${(robotContext.cancelRatio * 100).toFixed(0)}% → −2 конвергенция`}>🚫</span>
+    <span className="text-red-400" title={`СПУФИНГ! Cancel%: ${(robotContext.cancelRatio * 100).toFixed(0)}% → −2 конвергенция`}>🚫</span>
   ) : null;
 
   // Cancel penalty indicator
