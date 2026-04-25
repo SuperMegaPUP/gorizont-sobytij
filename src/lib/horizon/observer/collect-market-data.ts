@@ -40,7 +40,11 @@ async function moexFetch(path: string): Promise<any> {
     });
     const ct = res.headers.get('content-type') || '';
     if (res.ok && ct.includes('json')) return await res.json();
-  } catch { /* fallback */ }
+    // ISS вернул HTML или ошибку — логируем для диагностики
+    console.log(`[moexFetch] ISS non-JSON: ${res.status} ${ct} for ${path.slice(0, 80)}`);
+  } catch (e: any) {
+    console.log(`[moexFetch] ISS error: ${e.message} for ${path.slice(0, 80)}`);
+  }
 
   // 2. APIM с авторизацией
   const jwt = getJWT();
@@ -55,9 +59,15 @@ async function moexFetch(path: string): Promise<any> {
     cache: 'no-store' as RequestCache,
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) throw new Error(`APIM ${res.status} for ${path}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`APIM ${res.status} for ${path.slice(0, 80)}: ${body.slice(0, 200)}`);
+  }
   const ct = res.headers.get('content-type') || '';
-  if (!ct.includes('json')) throw new Error(`APIM non-JSON: ${ct}`);
+  if (!ct.includes('json')) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`APIM non-JSON: ${ct} for ${path.slice(0, 80)}: ${body.slice(0, 200)}`);
+  }
   return res.json();
 }
 

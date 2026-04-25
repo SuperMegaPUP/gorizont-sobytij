@@ -138,6 +138,82 @@ export async function GET(request: NextRequest) {
 
   try {
     switch (action) {
+      // DEBUG: raw MOEX API response — показывает что реально вернул APIM
+      case 'debug-orderbook': {
+        const path = `/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/orderbook.json?depth=10`;
+        let source = 'none';
+        let raw: any = null;
+        let error: string | null = null;
+
+        // 1. ISS public
+        try {
+          const res = await fetch(`${ISS_BASE}${path}`, {
+            headers: { 'Accept': 'application/json', 'User-Agent': 'horizon-debug/1.0' },
+            cache: 'no-store' as RequestCache,
+            signal: AbortSignal.timeout(8000),
+          });
+          const ct = res.headers.get('content-type') || '';
+          if (res.ok && ct.includes('json')) {
+            raw = await res.json();
+            source = 'ISS';
+          } else {
+            source = `ISS-${res.status}-${ct}`;
+          }
+        } catch (e: any) {
+          source = `ISS-error: ${e.message}`;
+        }
+
+        // 2. APIM with JWT
+        if (!raw) {
+          const jwt = getJWT();
+          if (jwt) {
+            try {
+              const res = await fetch(`${APIM_BASE}${path}`, {
+                headers: {
+                  'Authorization': `Bearer ${jwt}`,
+                  'Accept': 'application/json',
+                  'User-Agent': 'horizon-debug/1.0',
+                },
+                cache: 'no-store' as RequestCache,
+                signal: AbortSignal.timeout(10000),
+              });
+              if (res.ok) {
+                const ct = res.headers.get('content-type') || '';
+                if (ct.includes('json')) {
+                  raw = await res.json();
+                  source = 'APIM';
+                } else {
+                  source = `APIM-non-JSON: ${ct}`;
+                }
+              } else {
+                const body = await res.text().catch(() => '');
+                error = `APIM ${res.status}: ${body.slice(0, 300)}`;
+                source = 'APIM-error';
+              }
+            } catch (e: any) {
+              error = e.message;
+              source = 'APIM-exception';
+            }
+          } else {
+            source = 'no-MOEX_JWT';
+          }
+        }
+
+        // Analyze orderbook structure
+        const analysis: Record<string, any> = {
+          source,
+          ticker,
+          hasOrderbookKey: raw?.orderbook !== undefined,
+          orderbookKeys: raw?.orderbook ? Object.keys(raw.orderbook) : [],
+          bidCount: raw?.orderbook?.bid?.length ?? raw?.orderbook?.bids?.length ?? 'N/A',
+          askCount: raw?.orderbook?.ask?.length ?? raw?.orderbook?.asks?.length ?? 'N/A',
+          topKey: raw ? Object.keys(raw) : [],
+          error,
+        };
+
+        return NextResponse.json({ analysis, raw: raw ? JSON.stringify(raw).slice(0, 2000) : null });
+      }
+
       case 'orderbook': {
         const depth = Math.min(Number(searchParams.get('depth') || 50), 50);
         const ob = await getOrderbook(ticker, depth);
