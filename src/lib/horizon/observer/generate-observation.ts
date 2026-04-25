@@ -12,8 +12,10 @@ import { collectMarketData } from './collect-market-data';
 import { runAllDetectors, calcBSCI } from '../detectors/registry';
 import type { BSCIResult } from '../detectors/registry';
 import type { DetectorResult } from '../detectors/types';
+import { crossSectionNormalizeSingle } from '../detectors/cross-section-normalize';
 import { saveObservation, type ObservationInput, type SaveResult } from '../bsci/save-observation';
 import prisma from '@/lib/db';
+import redis from '@/lib/redis';
 
 // ─── Slot Definitions ───────────────────────────────────────────────────────
 
@@ -184,7 +186,20 @@ export async function generateObservation(
     }
 
     // 4. Запускаем все 10 детекторов
-    const detectorScores = runAllDetectors(detectorInput);
+    let detectorScores = runAllDetectors(detectorInput);
+
+    // 4.5 Кросс-секционная нормализация (если есть кэшированные статистики из батча)
+    try {
+      const cachedStatsRaw = await redis.get('horizon:cross-section:stats');
+      if (cachedStatsRaw) {
+        const cachedStats = JSON.parse(cachedStatsRaw) as Record<string, { mean: number; std: number }>;
+        detectorScores = crossSectionNormalizeSingle(detectorScores, cachedStats);
+        console.log(`[generate-observation] Applied cross-section normalization for ${ticker}`);
+      }
+    } catch (e: any) {
+      console.warn(`[generate-observation] Cross-section norm failed for ${ticker}:`, e.message);
+      // Продолжаем с raw scores — не критично
+    }
 
     // 5. Вычисляем BSCI
     const bsciResult = calcBSCI(detectorScores, weights);

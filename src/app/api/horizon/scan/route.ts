@@ -14,6 +14,8 @@ import prisma from '@/lib/db';
 import redis from '@/lib/redis';
 import { collectMarketData, fetchTop100Tickers } from '@/lib/horizon/observer/collect-market-data';
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
+import type { DetectorResult } from '@/lib/horizon/detectors/types';
+import { crossSectionNormalize, computeCrossSectionStats } from '@/lib/horizon/detectors/cross-section-normalize';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
@@ -161,6 +163,9 @@ export interface TickerScanResult {
   moexTurnover?: number;  // VALTODAY от MOEX (реальный оборот за день в рублях)
   type: 'FUTURE' | 'STOCK';
   error?: string;
+  // Internal fields for cross-section normalization (stripped before API response)
+  _rawDetectorResults?: DetectorResult[];
+  _weights?: Record<string, number>;
 }
 
 // Фьючерсные тикеры (реальные фьючерсы на срочном рынке)
@@ -259,6 +264,9 @@ export async function scanTicker(
       turnover,
       moexTurnover,
       type: tickerType,
+      // Internal: for cross-section normalization
+      _rawDetectorResults: detectorScores,
+      _weights: weights,
     };
   } catch (error: any) {
     console.error(`[horizon/scan] Error scanning ${ticker}:`, error.message);
@@ -281,14 +289,105 @@ export async function scanTicker(
       moexTurnover,
       type: tickerType,
       error: error.message,
+      _rawDetectorResults: undefined,
+      _weights: undefined,
     };
   }
+}
+
+// ─── Cross-Section Normalization ──────────────────────────────────────────
+
+/**
+ * Применяет кросс-секционную нормализацию к результатам сканирования.
+ * Z-score по батчу тикеров для каждого детектора → растягивает BSCI.
+ *
+ * ПОСЛЕ нормализации пересчитывает BSCI и заново применяет scanner rules.
+ */
+async function applyCrossSectionNorm(results: TickerScanResult[]): Promise<TickerScanResult[]> {
+  // Собираем только результаты с raw detector results (без ошибок)
+  const validResults = results.filter(r => r._rawDetectorResults && r._rawDetectorResults.length > 0);
+
+  if (validResults.length <= 1) {
+    console.log('[cross-section] Skipping: only 0-1 valid results');
+    return results;
+  }
+
+  // 1. Собираем все raw detector scores для нормализации
+  const allRawScores = validResults.map(r => r._rawDetectorResults!);
+
+  // 2. Кросс-секционная нормализация
+  const normalizedScores = crossSectionNormalize(allRawScores);
+
+  // 3. Пересчитываем BSCI и обновляем результаты
+  let normalizedCount = 0;
+  for (let i = 0; i < validResults.length; i++) {
+    const result = validResults[i];
+    const normalized = normalizedScores[i];
+    const weights = result._weights!;
+
+    // Пересчитываем BSCI из нормализованных скоров
+    const bsciResult = calcBSCI(normalized, weights);
+
+    // Обновляем detector scores map
+    const scoresMap: Record<string, number> = {};
+    for (const ds of normalized) {
+      scoresMap[ds.detector] = ds.score;
+    }
+
+    // Пересчитываем scanner rules с новыми BSCI/scores
+    const scannerResult: ScannerResult = applyScannerRules({
+      bsci: bsciResult.bsci,
+      prevBsci: result.prevBsci,
+      alertLevel: bsciResult.alertLevel,
+      direction: bsciResult.direction,
+      detectorScores: scoresMap,
+      ofi: result.ofi,
+      cumDelta: result.cumDelta,
+      vpin: result.vpin,
+      turnover: result.turnover,
+      prevTurnover: result.turnover,
+    });
+
+    // Обновляем результат
+    result.bsci = bsciResult.bsci;
+    result.alertLevel = bsciResult.alertLevel;
+    result.direction = bsciResult.direction;
+    result.detectorScores = scoresMap;
+    result.keySignal = scannerResult.signal;
+    result.action = scannerResult.action;
+    result.quickStatus = scannerResult.quickStatus;
+    normalizedCount++;
+  }
+
+  console.log(`[cross-section] Normalized ${normalizedCount}/${results.length} tickers. BSCI range: ${validResults.map(r => r.bsci).sort((a,b) => a-b).map(v => v.toFixed(2)).join(' → ')}`);
+
+  // Сохраняем статистики в Redis для одиночных наблюдений (generate-observation)
+  try {
+    const stats = computeCrossSectionStats(allRawScores);
+    await redis.setex(
+      'horizon:cross-section:stats',
+      7200, // 2 часа TTL
+      JSON.stringify(stats),
+    );
+    console.log('[cross-section] Stats saved to Redis for single-ticker normalization');
+  } catch (e: any) {
+    console.warn('[cross-section] Failed to save stats to Redis:', e.message);
+  }
+
+  return results;
+}
+
+/**
+ * Удаляет внутренние поля (_rawDetectorResults, _weights) перед отправкой клиенту
+ */
+function stripInternalFields(results: TickerScanResult[]): any[] {
+  return results.map(({ _rawDetectorResults, _weights, ...rest }) => rest);
 }
 
 // ─── Batch Scanner Helper ────────────────────────────────────────────────
 
 /**
- * Сканирует список тикеров батчами
+ * Сканирует список тикеров батчами с кросс-секционной нормализацией
  * @param tickers — список тикеров для сканирования
  * @param batchSize — размер батча (параллельные запросы)
  * @param delayMs — задержка между батчами (мс)
@@ -317,6 +416,9 @@ export async function scanBatch(
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
+
+  // ── Cross-section normalization: ПОСЛЕ всех детекторов, ПЕРЕД возвратом ──
+  await applyCrossSectionNorm(results);
 
   return results;
 }
@@ -394,12 +496,21 @@ export async function POST(request: NextRequest) {
           moexTurnover: (tickersToScan[i] as any).moexTurnover,
           type: FUTURES_TICKERS.has(tickersToScan[i].ticker) ? 'FUTURE' as const : 'STOCK' as const,
           error: r.reason?.message || 'Unknown error',
+          _rawDetectorResults: undefined,
+          _weights: undefined,
         };
       });
+
+      // ── Cross-section normalization для core 9 ──
+      await applyCrossSectionNorm(scannerData);
     } else {
       // TOP-100: batched scanning (20 at a time, 300ms delay)
+      // scanBatch уже включает cross-section normalization
       scannerData = await scanBatch(tickersToScan, 20, 300);
     }
+
+    // Strip internal fields before saving/sending
+    const cleanData = stripInternalFields(scannerData);
 
     // Save to Redis
     const redisKey = scanMode === 'top100' ? 'horizon:scanner:top100' : 'horizon:scanner:latest';
@@ -409,7 +520,7 @@ export async function POST(request: NextRequest) {
       await redis.setex(
         redisKey,
         redisTTL,
-        JSON.stringify(scannerData),
+        JSON.stringify(cleanData),
       );
     } catch (redisErr: any) {
       console.warn(`[/api/horizon/scan] Redis save failed (${redisKey}):`, redisErr.message);
@@ -417,9 +528,9 @@ export async function POST(request: NextRequest) {
 
     // Batch insert into bsci_log
     try {
-      const logEntries = scannerData
-        .filter((d) => d.bsci > 0) // Only log tickers with actual data
-        .map((d) => ({
+      const logEntries = cleanData
+        .filter((d: any) => d.bsci > 0) // Only log tickers with actual data
+        .map((d: any) => ({
           ticker: d.ticker,
           bsci: d.bsci,
           alertLevel: d.alertLevel,
@@ -443,8 +554,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       mode: scanMode,
-      count: scannerData.length,
-      data: scannerData,
+      count: cleanData.length,
+      data: cleanData,
       elapsed,
       ts: Date.now(),
     });
