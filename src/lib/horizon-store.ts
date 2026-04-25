@@ -41,6 +41,28 @@ export interface ScannerTicker {
   turnover: number;
   moexTurnover?: number;  // VALTODAY от MOEX
   type: 'FUTURE' | 'STOCK';
+  taContext?: {
+    signal: 'STRONG_BULL' | 'BULL' | 'NEUTRAL' | 'BEAR' | 'STRONG_BEAR';
+    divergence: boolean;
+    divergenceNote: string;
+    bsciDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    taDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    convergenceStrength: number;
+    indicators: {
+      rsi: number;
+      rsiZone: string;
+      cmf: number;
+      cmfZone: string;
+      crsi: number;
+      crsiZone: string;
+      atr: number;
+      atrPercentile: number;
+      atrZone: string;
+      vwap: number;
+      vwapDeviation: number;
+      vwapZone: string;
+    };
+  };
 }
 
 export interface RadarDot {

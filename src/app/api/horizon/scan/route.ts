@@ -16,6 +16,7 @@ import { collectMarketData, fetchTop100Tickers } from '@/lib/horizon/observer/co
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import type { DetectorResult } from '@/lib/horizon/detectors/types';
 import { crossSectionNormalize, computeCrossSectionStats } from '@/lib/horizon/detectors/cross-section-normalize';
+import { calculateTAIndicators, calculateSignalConvergence, type SignalConvergence } from '@/lib/horizon/context/ta-context';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
@@ -163,6 +164,8 @@ export interface TickerScanResult {
   moexTurnover?: number;  // VALTODAY от MOEX (реальный оборот за день в рублях)
   type: 'FUTURE' | 'STOCK';
   error?: string;
+  // TA Context layer (НЕ входит в BSCI!)
+  taContext?: SignalConvergence;
   // Internal fields for cross-section normalization (stripped before API response)
   _rawDetectorResults?: DetectorResult[];
   _weights?: Record<string, number>;
@@ -246,6 +249,23 @@ export async function scanTicker(
       0,
     );
 
+    // 11. TA Context layer (НЕ входит в BSCI — только контекст!)
+    let taContext: SignalConvergence | undefined;
+    try {
+      const taIndicators = calculateTAIndicators(
+        detectorInput.candles,
+        detectorInput.trades,
+        detectorInput.orderbook,
+      );
+      taContext = calculateSignalConvergence(
+        bsciResult.direction,
+        bsciResult.bsci,
+        taIndicators,
+      );
+    } catch (taErr: any) {
+      console.warn(`[horizon/scan] TA context failed for ${ticker}:`, taErr.message);
+    }
+
     return {
       ticker,
       name,
@@ -264,6 +284,7 @@ export async function scanTicker(
       turnover,
       moexTurnover,
       type: tickerType,
+      taContext,
       // Internal: for cross-section normalization
       _rawDetectorResults: detectorScores,
       _weights: weights,
@@ -289,6 +310,7 @@ export async function scanTicker(
       moexTurnover,
       type: tickerType,
       error: error.message,
+      taContext: undefined,
       _rawDetectorResults: undefined,
       _weights: undefined,
     };
@@ -496,6 +518,7 @@ export async function POST(request: NextRequest) {
           moexTurnover: (tickersToScan[i] as any).moexTurnover,
           type: FUTURES_TICKERS.has(tickersToScan[i].ticker) ? 'FUTURE' as const : 'STOCK' as const,
           error: r.reason?.message || 'Unknown error',
+          taContext: undefined,
           _rawDetectorResults: undefined,
           _weights: undefined,
         };

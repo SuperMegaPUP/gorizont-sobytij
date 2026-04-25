@@ -9,6 +9,61 @@ import { DetectorDots } from '../scanner/DetectorDots';
 
 type FilterMode = 'all' | 'alert' | 'bear' | 'bull';
 
+// ─── Convergence Cell Component ────────────────────────────────────────────
+
+interface ConvergenceCellProps {
+  taContext?: ScannerTicker['taContext'];
+}
+
+function ConvergenceCell({ taContext }: ConvergenceCellProps) {
+  if (!taContext) {
+    return <span className="text-[var(--terminal-muted)]">—</span>;
+  }
+
+  const { signal, divergence, indicators } = taContext;
+
+  // Signal label + color
+  const signalConfig: Record<string, { label: string; color: string; bg: string }> = {
+    STRONG_BULL: { label: '▲▲', color: 'text-green-400', bg: 'bg-green-500/10' },
+    BULL:       { label: '▲',  color: 'text-green-400/70', bg: 'bg-green-500/5' },
+    NEUTRAL:    { label: '—',  color: 'text-[var(--terminal-muted)]', bg: '' },
+    BEAR:       { label: '▼',  color: 'text-red-400/70', bg: 'bg-red-500/5' },
+    STRONG_BEAR: { label: '▼▼', color: 'text-red-400', bg: 'bg-red-500/10' },
+  };
+
+  const cfg = signalConfig[signal] || signalConfig.NEUTRAL;
+
+  // Divergence flash
+  const divergenceMark = divergence ? (
+    <span className="text-yellow-400 ml-0.5" title={taContext.divergenceNote}>⚡</span>
+  ) : null;
+
+  // ATR zone indicator
+  const atrMark = indicators.atrZone === 'COMPRESSED'
+    ? <span className="text-blue-400" title="ATR: сжатие перед прорывом">⊕</span>
+    : indicators.atrZone === 'EXPANDED'
+      ? <span className="text-orange-400" title="ATR: расширенная волатильность">⊗</span>
+      : null;
+
+  // RSI zone
+  const rsiLabel = indicators.rsiZone === 'OVERSOLD'
+    ? <span className="text-green-400" title={`RSI ${indicators.rsi}`}>OS</span>
+    : indicators.rsiZone === 'OVERBOUGHT'
+      ? <span className="text-red-400" title={`RSI ${indicators.rsi}`}>OB</span>
+      : null;
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 px-0.5 rounded-sm ${cfg.bg} ${cfg.color}`} title={taContext.divergenceNote || `${signal} | RSI=${indicators.rsi} CMF=${indicators.cmf} ATR%=${(indicators.atrPercentile * 100).toFixed(0)}`}>
+      <span>{cfg.label}</span>
+      {divergenceMark}
+      {atrMark}
+      {rsiLabel}
+    </span>
+  );
+}
+
+// ─── Main Scanner Frame ─────────────────────────────────────────────────────
+
 export function HorizonScannerFrame() {
   const scannerData = useHorizonStore((s) => s.scannerData);
   const scannerSortBy = useHorizonStore((s) => s.scannerSortBy);
@@ -236,6 +291,7 @@ export function HorizonScannerFrame() {
                 <th className="text-left px-1.5 py-0.5 font-normal">BSCI</th>
                 <th className="text-left px-1.5 py-0.5 font-normal">Детекторы</th>
                 <th className="text-center px-1 py-0.5 font-normal">Напр.</th>
+                <th className="text-left px-1.5 py-0.5 font-normal">Конверг.</th>
                 <th className="text-left px-1.5 py-0.5 font-normal">Ключ.сигнал</th>
                 <th className="text-center px-1 py-0.5 font-normal">Действие</th>
               </tr>
@@ -253,6 +309,8 @@ export function HorizonScannerFrame() {
 
                 // Rank badge for TOP 100
                 const isTop3 = globalIdx <= 3 && scannerMode === 'top100';
+                // Divergence flag — subtle highlight
+                const hasDivergence = ticker.taContext?.divergence === true;
 
                 return (
                   <tr
@@ -260,7 +318,8 @@ export function HorizonScannerFrame() {
                     onClick={() => selectTicker(ticker.ticker)}
                     className={`border-b border-[var(--terminal-border)]/30 hover:bg-[var(--terminal-surface-hover)]/50 cursor-pointer transition-colors ${
                       isTop3 ? 'bg-yellow-500/5' : ''
-                    }`}
+                    } ${hasDivergence ? 'border-l-2 border-l-yellow-500/60' : ''}`}
+                    title={hasDivergence ? ticker.taContext?.divergenceNote : undefined}
                   >
                     <td className="px-1.5 py-0.5 text-[var(--terminal-muted)]">
                       {isTop3 ? (
@@ -293,6 +352,9 @@ export function HorizonScannerFrame() {
                     </td>
                     <td className="px-1 py-0.5 text-center">
                       <DirectionArrow direction={ticker.direction} confidence={ticker.confidence} />
+                    </td>
+                    <td className="px-1.5 py-0.5">
+                      <ConvergenceCell taContext={ticker.taContext} />
                     </td>
                     <td className="px-1.5 py-0.5 text-[var(--terminal-text-dim)] truncate max-w-[120px]" title={ticker.keySignal}>
                       {ticker.keySignal}
