@@ -16,7 +16,7 @@ import { collectMarketData, fetchTop100Tickers } from '@/lib/horizon/observer/co
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import type { DetectorResult } from '@/lib/horizon/detectors/types';
 import { crossSectionNormalize, computeCrossSectionStats } from '@/lib/horizon/detectors/cross-section-normalize';
-import { calculateTAIndicators, calculateSignalConvergence, type SignalConvergence } from '@/lib/horizon/context/ta-context';
+import { calculateTAIndicators, calculateSignalConvergence, type SignalConvergence } from '@/lib/horizon/ta-context';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
