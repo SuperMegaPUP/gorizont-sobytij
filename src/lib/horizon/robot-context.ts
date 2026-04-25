@@ -345,10 +345,35 @@ function estimateRobotVolumePct(
  *   volume > 30% no match       → 0.25 (слабое)
  *   volume < 30%                → 0.1 (роботов мало)
  */
+export interface AlgoPackConfirmation {
+  wallScore: number;
+  accumScore: number;
+  accumDirection: 'LONG' | 'SHORT' | 'NEUTRAL';
+  hasSpoofing: boolean;
+  cancelRatio: number;
+}
+
+// Мэппинг детекторов на AlgoPack-индикаторы
+// Когда burst detection не нашёл паттернов (мало сделок),
+// AlgoPack всё ещё видит стены и накопления
+const DETECTOR_ALGOPACK_MAP: Record<string, ('wall' | 'accum')[]> = {
+  ATTRACTOR:   ['accum', 'wall'],   // Цена у уровня + накопление + стена = аттрактор
+  ACCRETOR:    ['accum'],           // Накопление через мелкие заявки
+  GRAVITON:    ['wall', 'accum'],   // Концентрация объёма = гравитация
+  DARKMATTER:  ['wall'],            // Скрытая ликвидность = стена
+  PREDATOR:   [],                   // Агрессивная стратегия — не видно в AlgoPack
+  HAWKING:    [],                   // VPIN-based — не видно в AlgoPack
+  CIPHER:     [],                   // Алгоритмический паттерн — burst only
+  WAVEFUNCTION: [],                 // Циклический — burst only
+  DECOHERENCE: [],                  // Распад корреляции — burst only
+  ENTANGLE:   [],                   // Кросс-тикер — burst only
+};
+
 export function computeRobotConfirmation(
   topDetectorName: string,
   robotVolumePct: number,
   robotPatterns: RobotPatternInfo[],
+  algopack?: AlgoPackConfirmation,
 ): { confirmation: number; matchedPattern: string; matchedDetector: string } {
 
   // Ищем мэтч между детектором и обнаруженными паттернами
@@ -357,6 +382,7 @@ export function computeRobotConfirmation(
   let matchedDetector = '';
   let typeMatch = false;
   let partialMatch = false;  // косвенный мэтч через обратный маппинг
+  let algopackMatch = false; // мэтч через AlgoPack (стена/накопление)
 
   // 1. Прямой мэтч: топ-детектор → ожидаемый робот-паттерн
   for (const rp of robotPatterns) {
@@ -380,16 +406,35 @@ export function computeRobotConfirmation(
     }
   }
 
-  // 3. Если нет мэтча вообще, но роботов много — отмечаем детектор
-  if (!typeMatch && !partialMatch && robotPatterns.length > 0) {
+  // 3. AlgoPack мэтч: стена/накопление подтверждает детектор
+  //    Ключевое исправление: когда burst detection не нашёл паттернов
+  //    (мало сделок, нет данных), AlgoPack всё ещё видит стены и накопления
+  if (!typeMatch && !partialMatch && algopack) {
+    const expectedAlgoIndicators = DETECTOR_ALGOPACK_MAP[topDetectorName] || [];
+    if (expectedAlgoIndicators.includes('wall') && algopack.wallScore > 20) {
+      algopackMatch = true;
+      matchedDetector = topDetectorName;
+      matchedPattern = `wall:${algopack.wallScore}`;
+    }
+    if (expectedAlgoIndicators.includes('accum') && algopack.accumScore > 0) {
+      algopackMatch = true;
+      matchedDetector = topDetectorName;
+      matchedPattern = matchedPattern
+        ? `${matchedPattern}+accum:${algopack.accumScore}`
+        : `accum:${algopack.accumScore}`;
+    }
+  }
+
+  // 4. Если нет мэтча вообще, но роботов много — отмечаем детектор
+  if (!typeMatch && !partialMatch && !algopackMatch && robotPatterns.length > 0) {
     matchedDetector = topDetectorName;
     matchedPattern = robotPatterns[0]?.pattern || '';
   }
 
   // Вычисляем confirmation:
-  //   typeMatch    = робот-паттерн подтверждает именно этот детектор
-  //   partialMatch = робот-паттерн подтверждает другой детектор (но роботы есть)
-  //   neither      = роботы есть, но паттерн неизвестен
+  //   typeMatch     = робот-паттерн подтверждает именно этот детектор
+  //   partialMatch  = робот-паттерн подтверждает другой детектор (но роботы есть)
+  //   algopackMatch = AlgoPack подтверждает детектор (стена/накопление)
   let confirmation: number;
   if (typeMatch && robotVolumePct > 0.6) {
     confirmation = 1.0;   // полное подтверждение: много роботов + тип мэтчится
@@ -400,11 +445,15 @@ export function computeRobotConfirmation(
   } else if (partialMatch && robotVolumePct > 0.6) {
     confirmation = 0.6;   // косвенный мэтч + много роботов
   } else if (partialMatch && robotVolumePct > 0.3) {
-    confirmation = 0.45;  // косвенный мэтч + средне роботов
+    confirmation = 0.45;  // косвенный, средне роботов
+  } else if (algopackMatch && robotVolumePct > 0.3) {
+    confirmation = 0.5;   // AlgoPack подтверждает + роботов достаточно
+  } else if (algopackMatch) {
+    confirmation = 0.35;  // AlgoPack подтверждает, но роботов мало
   } else if (robotVolumePct > 0.6) {
     confirmation = 0.4;   // роботов много, но тип не мэтчится
   } else if (robotVolumePct > 0.3) {
-    confirmation = 0.25;  // роботов средне, тип не мэтчится
+    confirmation = 0.25;  // слабое
   } else {
     confirmation = 0.1;   // роботов мало
   }
@@ -507,6 +556,13 @@ export async function calculateRobotContext(
     topDetectorName,
     robotVolumePct,
     robotPatterns,
+    {
+      wallScore: algopackData.wallScore,
+      accumScore: algopackData.accumScore,
+      accumDirection: algopackData.accumDirection,
+      hasSpoofing: algopackData.hasSpoofing,
+      cancelRatio: algopackData.cancelRatio,
+    },
   );
 
   return {
