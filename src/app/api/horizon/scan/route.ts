@@ -179,6 +179,7 @@ export interface TickerScanResult {
   // Internal fields for cross-section normalization (stripped before API response)
   _rawDetectorResults?: DetectorResult[];
   _weights?: Record<string, number>;
+  _topDetector?: string;  // DEBUG
 }
 
 // Фьючерсные тикеры (реальные фьючерсы на срочном рынке)
