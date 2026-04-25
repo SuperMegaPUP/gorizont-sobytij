@@ -6,6 +6,7 @@ import { useDashboardStore } from '@/lib/store';
 import { useLayoutStore, type DashboardTab } from '@/lib/layout-store';
 import { getMoscowTime } from '@/lib/helpers';
 import { ThemeSwitcher } from './ThemeSwitcher';
+import { SettingsPanel } from './SettingsPanel';
 import { AIHintModal } from '@/components/AIHintModal';
 
 export function Header({ onHelpClick }: { onHelpClick: () => void }) {
@@ -95,6 +96,7 @@ export function Header({ onHelpClick }: { onHelpClick: () => void }) {
           )}
         </div>
         <ThemeSwitcher />
+        <SettingsPanel />
         <div className="flex items-center gap-2" suppressHydrationWarning>
           {connected ? (
             <div className="flex items-center gap-1.5">

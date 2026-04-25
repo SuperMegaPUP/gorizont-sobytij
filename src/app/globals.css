@@ -7,8 +7,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--app-font-family, var(--font-geist-sans));
+  --font-mono: var(--app-font-family, var(--font-geist-mono));
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -102,6 +102,11 @@
   --t-pulse-warning: #f59e0b;
   --t-anomaly-border-dim: rgba(245, 158, 11, 0.5);
   --t-anomaly-border-bright: #f59e0b;
+
+  /* ── Font settings vars ── */
+  --app-font-family: 'Geist Sans', 'Noto Sans SC', sans-serif;
+  --app-font-size: 14px;
+  --app-font-scale: 1;
 
   /* ── Chart colors (duration bars, strategy charts, pattern tags) ── */
   --t-chart-hft: #e11d48;
@@ -1241,3 +1246,29 @@
 .frame-tooltip-icon:hover {
   color: var(--tt-accent, var(--terminal-accent));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   FONT SETTINGS — Applied from --app-font-family and --app-font-size CSS vars.
+   These are set dynamically by settings-store.ts via applySettingsToDOM().
+   All pixel text sizes are converted to proportional `em` units relative to
+   body font-size. This way, changing --app-font-size scales ALL text
+   proportionally without touching layout (widths, heights, paddings).
+   ═══════════════════════════════════════════════════════════════════════════════ */
+body {
+  font-family: var(--app-font-family);
+  font-size: var(--app-font-size);
+  transition: font-family 0.2s ease, font-size 0.2s ease;
+}
+
+/* ── Pixel text sizes → em (relative to body font-size, base 14px) ──
+   When --app-font-size = 14px: em values reproduce the original pixel sizes exactly.
+   When --app-font-size = 28px: everything doubles, but layout stays intact.
+   ─────────────────────────────────────────────────────────────────────── */
+.text-\[4px\]  { font-size: calc(var(--app-font-size, 14px) * 4  / 14); }
+.text-\[5px\]  { font-size: calc(var(--app-font-size, 14px) * 5  / 14); }
+.text-\[6px\]  { font-size: calc(var(--app-font-size, 14px) * 6  / 14); }
+.text-\[7px\]  { font-size: calc(var(--app-font-size, 14px) * 7  / 14); }
+.text-\[8px\]  { font-size: calc(var(--app-font-size, 14px) * 8  / 14); }
+.text-\[9px\]  { font-size: calc(var(--app-font-size, 14px) * 9  / 14); }
+.text-\[10px\] { font-size: calc(var(--app-font-size, 14px) * 10 / 14); }
+.text-\[11px\] { font-size: calc(var(--app-font-size, 14px) * 11 / 14); }
