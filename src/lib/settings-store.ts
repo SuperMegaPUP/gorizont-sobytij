@@ -182,10 +182,9 @@ export function applySettingsToDOM(fontFamily?: string, fontSize?: number) {
   }
   if (fontSize !== undefined) {
     root.style.setProperty('--app-font-size', `${fontSize}px`);
-    // Zoom-based scaling: scale the entire UI proportionally to the font size
+    // Set scale factor so CSS can compute relative font sizes
     const scale = fontSize / FONT_SIZE_BASE;
     root.style.setProperty('--app-font-scale', String(scale));
-    document.body.style.zoom = String(scale);
   }
 }
 
@@ -195,9 +194,4 @@ export function applySettingsToDOM(fontFamily?: string, fontSize?: number) {
 export function initSettingsFromStorage() {
   const { fontFamily, fontSize } = loadFromStorage();
   applySettingsToDOM(fontFamily, fontSize);
-  // Apply zoom on initial load
-  if (typeof document !== 'undefined') {
-    const scale = fontSize / FONT_SIZE_BASE;
-    document.body.style.zoom = String(scale);
-  }
 }

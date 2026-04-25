@@ -1249,12 +1249,30 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
    FONT SETTINGS — Applied from --app-font-family and --app-font-size CSS vars.
    These are set by SettingsPanel (settings-store.ts) and persisted in localStorage.
+
+   STRATEGY: All pixel-based text-[Npx] Tailwind utilities are overridden to use
+   `em` units relative to body font-size. This way, changing --app-font-size
+   scales ONLY the text, not the layout (paddings, borders, grid dimensions).
    ═══════════════════════════════════════════════════════════════════════════════ */
 body {
   font-family: var(--app-font-family);
   font-size: var(--app-font-size);
   transition: font-family 0.2s ease, font-size 0.2s ease;
 }
+
+/* ── Pixel text sizes → em (relative to body font-size, base 14px) ──
+   When --app-font-size = 14px: em values reproduce the original pixel sizes exactly.
+   When user increases to e.g. 18px: all text scales by 18/14 ≈ 1.29x,
+   but layout (paddings, borders, grid cells) stays unchanged.                  */
+
+.text-\[4px\]  { font-size: calc(var(--app-font-size, 14px) * 4  / 14); }
+.text-\[5px\]  { font-size: calc(var(--app-font-size, 14px) * 5  / 14); }
+.text-\[6px\]  { font-size: calc(var(--app-font-size, 14px) * 6  / 14); }
+.text-\[7px\]  { font-size: calc(var(--app-font-size, 14px) * 7  / 14); }
+.text-\[8px\]  { font-size: calc(var(--app-font-size, 14px) * 8  / 14); }
+.text-\[9px\]  { font-size: calc(var(--app-font-size, 14px) * 9  / 14); }
+.text-\[10px\] { font-size: calc(var(--app-font-size, 14px) * 10 / 14); }
+.text-\[11px\] { font-size: calc(var(--app-font-size, 14px) * 11 / 14); }
 
 /* Range input styling for SettingsPanel */
 input[type="range"] {
