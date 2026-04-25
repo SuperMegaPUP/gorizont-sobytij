@@ -1,6 +1,6 @@
 # ДЕТЕКТОРЫ: 10 Black Star детекторов аномалий
 
-> Спецификация v4 — ФИНАЛЬНЫЕ ФОРМУЛЫ (заморожены)
+> Спецификация v4.1 — ФИНАЛЬНЫЕ ФОРМУЛЫ (заморожены)
 
 ## Типы
 
@@ -184,13 +184,16 @@ interface DetectorInput {
 4. CONSUME — кит выкупает (цена возвращается, CumDelta +)
 5. FALSE_BREAKOUT — новостной пробой (цена не возвращается, CumDelta -)
 
-Условие CONSUME vs FALSE_BREAKOUT (после ATTACK в течение window_confirm 3-5 мин):
+Условие CONSUME vs FALSE_BREAKOUT (v4.1 — градиент вместо бинарного порога):
 - price_reversion = (current_price - attack_extreme) / (pre_attack_price - attack_extreme)
 - delta_flip = sign(cumDelta_current) ≠ sign(cumDelta_during_attack)
-- price_reversion >= 0.5 && delta_flip → CONSUME (настоящий stop-hunt)
-- price_reversion < 0.5 || !delta_flip → FALSE_BREAKOUT (новостной пробой)
-- Только CONSUME генерирует сигнал LONG/SHORT
-- FALSE_BREAKOUT → сигнал AWAIT
+- price_reversion >= 0.7 && delta_flip → CONSUME (полная уверенность, confidence_modifier = 1.0)
+- price_reversion >= 0.4 && < 0.7 && delta_flip → CONSUME с пониженным confidence (confidence_modifier = price_reversion)
+- price_reversion >= 0.4 && !delta_flip → CONSUME с низким confidence (confidence_modifier = price_reversion * 0.5)
+- price_reversion < 0.4 → FALSE_BREAKOUT (новостной пробой)
+- confidence_modifier применяется к итоговой формуле confidence:
+  final_confidence = confidence_formula_result * confidence_modifier
+- В UI: "Stop-hunt (60% уверенности)" вместо бинарного да/нет
 
 НОВОЕ: estimated_stops(level) для signal_generator:
 1) volume_cluster_density(level) = sum(volume within ±2 ticks) / (avg_volume_per_tick_range + ε)

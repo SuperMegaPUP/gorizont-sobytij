@@ -65,19 +65,19 @@
 - **Кэширование**: Redis TTL 30min
 
 ### Формула уверенности в сканере упрощённая
-- **Статус**: ЗАПЛАНИРОВАН ПЕРЕСМОТР (Спринт 4)
+- **Статус**: ЗАПЛАНИРОВАН ПЕРЕСМОТР (Спринт 4, Фаза 2)
 - **Сейчас**: max confidence из detectorScores
-- **Будет**: BSCI(25) + conv(25) + RSI/CRSI(20) + роботы(15) + дивергенция(15)
+- **Будет**: BSCI(bsci_weight) + conv(25) + RSI/CRSI(20) + роботы(15) + дивергенция(15), где bsci_weight = условный (20/25/30)
 
-### Детекторы требуют доработки по спецификации v4
-- **DARKMATTER** (П1): нет expected_entropy, нет iceberg consecutive
-- **DECOHERENCE** (П1): неопределённый «паттерн» → символьный поток
-- **HAWKING** (П1): noise_ratio некорректный, нет минимума N≥50
-- **BSCI** (П1): η=0.1 вместо 0.03, min_w=0.02 вместо 0.04
+### Детекторы требуют доработки по спецификации v4.1
+- **DARKMATTER** (П1, Спринт 4 Фаза 1): нет expected_entropy, нет iceberg consecutive
+- **DECOHERENCE** (П1, Спринт 4 Фаза 1): неопределённый «паттерн» → символьный поток
+- **HAWKING** (П1, Спринт 4 Фаза 1): noise_ratio некорректный, нет минимума N≥50
+- **BSCI** (П1, Спринт 4 Фаза 1): η=0.1 вместо 0.03, min_w=0.02 вместо 0.04
 - **GRAVITON** (П2): экспоненциальная модель → центры масс + walls
 - **ACCRETOR** (П2): угловые сектора → DBSCAN
 - **CIPHER** (П2): нет z-score перед PCA, нет condition number check
 - **ATTRACTOR** (П2): галлюцинации на мёртвых тикерах → stickiness по spread + volume_profile
 - **ENTANGLE** (П2): нет ADF-теста стационарности
-- **PREDATOR** (П2): нет FALSE_BREAKOUT, нет estimated_stops
+- **PREDATOR** (П2): нет FALSE_BREAKOUT градиента, нет estimated_stops
 - **WAVEFUNCTION** (П2): нет ресэмплинга, нет log-weights → PF вырождается

@@ -121,10 +121,10 @@ export async function saveObservation(input: ObservationInput): Promise<SaveResu
 
 /**
  * Адаптивное обновление весов BSCI после верификации
- * η = 0.1 (learning rate)
+ * η = 0.03 (learning rate, снижено с 0.1 в v4.1 — медленнее адаптация, стабильнее)
  * Новое weight = weight + η × (1 - weight) если верный сигнал
  * Новое weight = weight - η × weight если неверный сигнал
- * Нормализация: сумма весов = 1, минимум 0.02
+ * Нормализация: сумма весов = 1, минимум 0.04 (повышено с 0.02 в v4.1 — быстрее восстановление «мёртвых» детекторов)
  */
 export async function updateWeightsAfterVerification(
   observationId: string,
@@ -140,7 +140,7 @@ export async function updateWeightsAfterVerification(
     throw new Error(`Observation ${observationId} not found`);
   }
 
-  const eta = 0.1; // learning rate
+  const eta = 0.03; // learning rate (v4.1: снижено с 0.1 для стабильности)
   const updatedWeights: Record<string, number> = {};
 
   for (const score of observation.detectorScores) {
@@ -174,14 +174,14 @@ export async function updateWeightsAfterVerification(
     await prisma.bsciWeight.update({
       where: { detector: score.detector },
       data: {
-        weight: Math.max(0.02, newWeight), // минимальный вес 0.02
+        weight: Math.max(0.04, newWeight), // минимальный вес 0.04 (v4.1: повышено с 0.02)
         accuracy,
         totalSignals,
         correctSignals,
       },
     });
 
-    updatedWeights[score.detector] = Math.max(0.02, newWeight);
+    updatedWeights[score.detector] = Math.max(0.04, newWeight);
   }
 
   // Нормализация: сумма весов = 1
@@ -190,7 +190,7 @@ export async function updateWeightsAfterVerification(
 
   if (totalWeight > 0) {
     for (const w of allWeights) {
-      const normalized = Math.max(0.02, w.weight / totalWeight);
+      const normalized = Math.max(0.04, w.weight / totalWeight);
       await prisma.bsciWeight.update({
         where: { detector: w.detector },
         data: { weight: normalized },

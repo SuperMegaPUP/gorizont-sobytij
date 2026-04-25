@@ -223,7 +223,16 @@ describe('Observer edge cases', () => {
   });
 
   test('high VPIN → HAWKING detects toxicity', () => {
+    // v4.1: HAWKING теперь требует 50+ сделок с timestamp для ACF+PSD анализа
+    const periodicTrades = Array.from({ length: 60 }, (_, i) => ({
+      price: 100 + Math.sin(i / 3) * 0.5,
+      quantity: 50,
+      direction: i % 2 === 0 ? 'B' : 'S',
+      timestamp: Date.now() - (60 - i) * 200,
+    }));
     const input = makeDetectorInput({
+      trades: periodicTrades,
+      recentTrades: periodicTrades.slice(-20),
       vpin: { vpin: 0.85, toxicity: 'extreme', buckets: 50, avgBuyVolume: 500, avgSellVolume: 100 },
       candles: Array.from({ length: 50 }, (_, i) => ({
         open: 100,

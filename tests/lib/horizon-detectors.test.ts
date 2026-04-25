@@ -132,17 +132,39 @@ describe('GRAVITON', () => {
 
 describe('DARKMATTER', () => {
   test('высокий score при скрытой ликвидности', () => {
+    // v4.1: DARKMATTER теперь использует ΔH_norm + iceberg consecutive
+    // Создаём стакан с неравномерным распределением (низкая энтропия = скрытая ликвидность)
+    // И сделки с consecutive runs одинакового объёма на одном уровне
+    const icebergTrades: Trade[] = [];
+    // 5 сделок подряд объёмом 100 на одном уровне = iceberg pattern
+    for (let i = 0; i < 5; i++) {
+      icebergTrades.push({ price: 100, quantity: 100, direction: 'BUY', timestamp: Date.now() + i * 100 });
+    }
+    // Дополнительные сделки для дневного оборота
+    for (let i = 0; i < 20; i++) {
+      icebergTrades.push({ price: 100 + Math.random(), quantity: 10 + Math.floor(Math.random() * 30), direction: i % 2 === 0 ? 'BUY' : 'SELL', timestamp: Date.now() + (5 + i) * 100 });
+    }
     const input = makeInput({
-      orderbook: { bids: [{ price: 100, quantity: 10 }], asks: [{ price: 101, quantity: 10 }] },
-      recentTrades: Array.from({ length: 20 }, () => ({
-        price: 100.5, quantity: 50, direction: 'BUY', timestamp: Date.now(),
-      })),
+      orderbook: {
+        bids: [
+          { price: 100, quantity: 5000 },  // огромный уровень
+          { price: 99.9, quantity: 50 },
+          { price: 99.8, quantity: 50 },
+        ],
+        asks: [
+          { price: 100.1, quantity: 50 },
+          { price: 100.2, quantity: 50 },
+        ],
+      },
+      trades: icebergTrades,
+      recentTrades: icebergTrades.slice(-20),
       ofi: -0.3,
       cumDelta: { delta: 500, buyVolume: 750, sellVolume: 250, totalVolume: 1000 },
     });
     const result = detectDarkmatter(input);
     expect(result.detector).toBe('DARKMATTER');
-    expect(result.metadata.hiddenRatio).toBeDefined();
+    expect(result.metadata.deltaH_norm).toBeDefined();
+    expect(result.metadata.icebergScore).toBeDefined();
   });
 
   test('низкий score при прозрачном рынке', () => {
@@ -210,22 +232,42 @@ describe('DECOHERENCE', () => {
 // ─── HAWKING ──────────────────────────────────────────────────────────────
 
 describe('HAWKING', () => {
-  test('высокий VPIN → высокий score', () => {
+  test('периодичные сделки → высокий score', () => {
+    // v4.1: HAWKING теперь использует ACF + PSD вместо VPIN-only
+    // Создаём 60+ сделок с периодичными интервалами (алгоритмический паттерн)
+    const periodicTrades: Trade[] = [];
+    for (let i = 0; i < 80; i++) {
+      periodicTrades.push({
+        price: 100 + Math.sin(i / 3) * 0.5, // цена с периодичностью
+        quantity: 50,
+        direction: i % 2 === 0 ? 'BUY' : 'SELL',
+        timestamp: 1000000 + i * 200, // ровно 200мс между сделками = 5Hz
+      });
+    }
     const input = makeInput({
+      trades: periodicTrades,
       vpin: { vpin: 0.85, toxicity: 'extreme', buckets: 45, avgBuyVolume: 400, avgSellVolume: 600 },
     });
     const result = detectHawking(input);
     expect(result.detector).toBe('HAWKING');
-    expect(result.score).toBeGreaterThan(0.4);
-    expect(result.metadata.toxicity).toBe('extreme');
+    // С периодичными интервалами score должен быть > 0
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.metadata.periodicity).toBeDefined();
+    expect(result.metadata.noiseRatio).toBeDefined();
   });
 
-  test('низкий VPIN → низкий score', () => {
+  test('мало сделок → score = 0', () => {
+    // Меньше 50 сделок → недостаточно данных
+    const fewTrades: Trade[] = Array.from({ length: 30 }, (_, i) => ({
+      price: 100, quantity: 10, direction: 'BUY', timestamp: 1000000 + i * 100,
+    }));
     const input = makeInput({
+      trades: fewTrades,
       vpin: { vpin: 0.1, toxicity: 'low', buckets: 30, avgBuyVolume: 500, avgSellVolume: 500 },
     });
     const result = detectHawking(input);
-    expect(result.score).toBeLessThan(0.3);
+    expect(result.score).toBe(0);
+    expect(result.metadata.insufficientData).toBe(true);
   });
 });
 

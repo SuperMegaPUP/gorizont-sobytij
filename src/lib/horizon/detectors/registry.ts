@@ -40,7 +40,7 @@ export function runDetector(name: DetectorName, input: DetectorInput): DetectorR
 
 // ─── BSCI Composite Index ──────────────────────────────────────────────────
 // BSCI = Σ(w_i × score_i) / Σ(w_i)
-// Веса адаптивные, сумма = 1, минимальный 0.02
+// Веса адаптивные, сумма = 1, минимальный 0.04 (v4.1)
 
 export interface BSCIResult {
   bsci: number;                          // 0..1

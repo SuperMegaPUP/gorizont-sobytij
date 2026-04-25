@@ -1,6 +1,6 @@
 # АРХИТЕКТУРА: Горизонт Событий
 
-> Спецификация v4
+> Спецификация v4.1
 
 ## Пайплайн сканирования
 
@@ -15,12 +15,12 @@ collectMarketData(ticker)
    └── Market snapshot (mid, spread, RVI)
    │
    ▼
-zScoreNormalize(features, window=100)  ← v4: сквозная нормализация (П2)
+zScoreNormalize(features, window=100)  ← v4.1: сквозная нормализация (П2)
    ├── volume, trade_size, interval → нормализованы
    └── Критично для CIPHER, HAWKING, ACCRETOR
    │
    ▼
-runAllDetectors(detectorInput)  ← v4: финальные формулы
+runAllDetectors(detectorInput)  ← v4.1: финальные формулы
    ├── GRAVITON     → центры масс + walls + 80% cutoff (П2)
    ├── DARKMATTER   → ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME (П1)
    ├── ACCRETOR     → DBSCAN + ATR-нормализация (П2)
@@ -39,7 +39,7 @@ Cross-Section Normalization (Z-score по батчу)
    └── crossSectionNormalizeSingle() → для одиночных наблюдений vs кэш
    │
    ▼
-calcBSCI(normalizedScores, weights)  ← v4: η=0.03, min_w=0.04
+calcBSCI(normalizedScores, weights)  ← v4.1: η=0.03, min_w=0.04
    ├── BSCI = Σ(w_i × score_i) / Σ(w_i)
    ├── Alert Level: GREEN / YELLOW / ORANGE / RED
    ├── Direction: BULLISH / BEARISH / NEUTRAL
@@ -103,7 +103,7 @@ applyScannerRules(scannerInput)
    └── PostgreSQL: bsci_log — батч-инсерт
 ```
 
-## Signal Generator Pipeline (Sprint 4)
+## Signal Generator Pipeline (Sprint 4, Фаза 2 — ПОСЛЕ П1)
 
 ```
 TickerScanResult (из сканера)
@@ -111,6 +111,7 @@ TickerScanResult (из сканера)
    ▼
 signal-generator.ts
    ├── Проверка порогов: BSCI≥0.55 AND conv≥7 AND topDet≥0.75
+   ├── Дедупликация: findActiveSignal(ticker, direction)
    ├── Если НЕ проходит → НЕТ сигнала (тишина)
    │
    ▼ (если проходит)
@@ -121,39 +122,47 @@ signal-generator.ts
    ├── stopLoss = nearest S/R ± 0.5×ATR
    └── T1/T2/T3 через ATR
    │
-   ▼
-confidence = BSCI(25) + conv(25) + RSI/CRSI(20) + роботы(15) + дивергенция(15)
+   ▼ (v4.1: условное взвешивание BSCI)
+   bsci_weight = convergence >= 8 ? 20 : convergence < 5 ? 30 : 25
+   confidence = BSCI(bsci_weight) + conv(25) + RSI/CRSI(20) + роботы(15) + дивергенция(15)
    │
    ▼
 TradeSignal {
    type: LONG/SHORT/AWAIT/BREAKOUT,
    state: ACTIVE,
    wavefunction_state: ACCUMULATE/DISTRIBUTE/HOLD,
-   TTL: 4 часа,
+   TTL: calculateTTL(createdAt) — динамический по сессии МОЕКС,
+   correlatedWith: [...],
    exitConditions: [...]
 }
    │
    ▼
 Сохранение:
-   ├── Redis: horizon:signals:active (TTL 4h)
+   ├── Redis: horizon:signals:active (TTL = dynamic)
    ├── PostgreSQL: signals — постоянное хранение
-   └── SignalSnapshot при каждом скане (6/день)
+   └── SignalSnapshot при каждой P&L проверке (~100/день)
 ```
 
-## Виртуальный P&L (Sprint 4)
+## Виртуальный P&L (Sprint 4, Фаза 3)
 
 ```
 Cron каждые 5 минут → checkActiveSignals()
    ├── Запрос текущей цены тикера
    ├── LONG: max(price)>=target → WIN; min(price)<=stop → LOSS; иначе EXPIRED
    ├── SHORT — зеркально
+   ├── Дедупликация: обновить существующий вместо создания нового
    │
    ▼
 Закрытие сигнала:
    ├── state → CLOSED
-   ├── close_reason: TARGET | STOP | EXPIRED
+   ├── close_reason: TARGET | STOP | EXPIRED | DIRECTION_CHANGE
    ├── close_price, pnl_ticks
    └── result: WIN | LOSS | EXPIRED
+   │
+   ▼
+SignalSnapshot (v4.1 — при каждой P&L проверке):
+   ├── { timestamp, price, bsci, convergence, topDetector, topDetectorScore, pnl_unrealized, wavefunction_state }
+   └── ~100 записей/день/тикер
    │
    ▼
 SignalFeedbackStore → обратная связь:
@@ -195,7 +204,7 @@ Cron/Manual → generateObservation(ticker, slot?)
 | `horizon:cross-section:stats` | JSON | 2h | Z-score stats per detector |
 | `horizon:observe:{ticker}` | JSON | 30m | Last observation per ticker |
 | `horizon:algopack:{ticker}` | JSON | 5m | AlgoPack data per ticker |
-| `horizon:signals:active` | JSON | 4h | Active trade signals (Sprint 4) |
+| `horizon:signals:active` | JSON | dynamic | Active trade signals (Sprint 4, TTL = calculateTTL) |
 
 ### PostgreSQL (постоянное хранение)
 
