@@ -39,6 +39,8 @@ export interface ScannerTicker {
   vpin: number;
   cumDelta: number;
   turnover: number;
+  moexTurnover?: number;  // VALTODAY от MOEX
+  type: 'FUTURE' | 'STOCK';
 }
 
 export interface RadarDot {
@@ -47,9 +49,11 @@ export interface RadarDot {
   alertLevel: string;
   direction: string;
   turnover: number;
+  moexTurnover?: number;
   dotSize: number;
   cumDelta: number;
   vpin: number;
+  type: 'FUTURE' | 'STOCK';
 }
 
 export interface HeatmapCell {

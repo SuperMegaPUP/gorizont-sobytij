@@ -4,8 +4,10 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Radar } from 'lucide-react';
 import { useHorizonStore } from '@/lib/horizon-store';
 
-// ─── Core 9 futures short codes ────────────────────────────────────────────
-const CORE_TICKERS = new Set(['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN']);
+// ─── BSCI Quadrant Thresholds ──────────────────────────────────────────────
+// Пороги BSCI для разделения квадрантов и линий на радаре
+const BSCI_QUADRANT_THRESHOLD = [0.2, 0.4, 0.7] as const;
+const BSCI_THRESHOLD_COLORS = ['#facc15', '#fb923c', '#f87171'] as const; // YELLOW, ORANGE, RED
 
 // ─── Alert Colors ──────────────────────────────────────────────────────────
 const ALERT_COLORS: Record<string, string> = {
@@ -24,9 +26,11 @@ const ALERT_GLOW: Record<string, string> = {
 interface TooltipInfo {
   ticker: string;
   bsci: number;
+  vpin: number;
+  cumDelta: number;
   alertLevel: string;
   direction: string;
-  isCore: boolean;
+  isFuture: boolean;
   x: number;
   y: number;
 }
@@ -44,7 +48,8 @@ interface ComputedDot {
   r: number;
   color: string;
   glow: string;
-  isCore: boolean;
+  isFuture: boolean;
+  type: 'FUTURE' | 'STOCK';
 }
 
 // Simple hash for deterministic jitter
@@ -95,25 +100,26 @@ export function HorizonRadarFrame() {
     const chartW = dims.w - padX * 2;
     const chartH = dims.h - padY * 2;
 
-    // Normalize cumDelta and vpin to 0..1
+    // Symmetric CumDelta scale: 0 is always at center
     const cumDeltas = radarData.map((d) => d.cumDelta);
-    const vpins = radarData.map((d) => d.vpin);
-    const minCD = Math.min(...cumDeltas);
-    const maxCD = Math.max(...cumDeltas);
-    const minVP = Math.min(...vpins);
-    const maxVP = Math.max(...vpins);
-    const rangeCD = maxCD - minCD || 1;
-    const rangeVP = maxVP - minVP || 1;
+    const absMaxCD = Math.max(...cumDeltas.map(Math.abs), 1);
+
+    // BSCI is already 0..1 — use as-is for Y-axis
+    // Y: 0 (bottom) → 1 (top), BSCI goes up
 
     // First pass: compute base positions
     const positions = radarData.map((d) => {
-      const isCore = CORE_TICKERS.has(d.ticker);
-      // BSCI-based radius: core futures get +2 boost for visibility
-      const bsciFactor = 3 + d.bsci * 15 + (isCore ? 2 : 0);
+      const isFuture = d.type === 'FUTURE';
+      // BSCI-based radius: futures get +2 boost for visibility
+      const bsciFactor = 3 + d.bsci * 15 + (isFuture ? 2 : 0);
       const r = Math.max(4, Math.min(22, bsciFactor));
 
-      const baseCx = padX + ((d.cumDelta - minCD) / rangeCD) * chartW;
-      const baseCy = padY + (1 - (d.vpin - minVP) / rangeVP) * chartH;
+      // X: CumDelta symmetric — 0 at center
+      const normalizedCD = (d.cumDelta / absMaxCD + 1) / 2; // -1..1 → 0..1, 0→0.5
+      const baseCx = padX + normalizedCD * chartW;
+
+      // Y: BSCI — higher BSCI = higher on chart
+      const baseCy = padY + (1 - d.bsci) * chartH;
 
       return {
         ...d,
@@ -122,12 +128,11 @@ export function HorizonRadarFrame() {
         r,
         color: ALERT_COLORS[d.alertLevel] || ALERT_COLORS.GREEN,
         glow: ALERT_GLOW[d.alertLevel] || ALERT_GLOW.GREEN,
-        isCore,
+        isFuture,
       };
     });
 
     // Second pass: resolve overlaps with deterministic jitter
-    // Use imperative loop (not .map) to safely reference previously-resolved dots
     const resolved: ComputedDot[] = [];
     for (let i = 0; i < positions.length; i++) {
       const dot = positions[i];
@@ -163,14 +168,13 @@ export function HorizonRadarFrame() {
   }, [radarData, dims]);
 
   const centerX = dims.w / 2;
-  const centerY = dims.h / 2;
 
-  // Count by alert level
+  // Count by alert level and type
   const alertCounts = useMemo(() => {
-    const counts = { RED: 0, ORANGE: 0, YELLOW: 0, GREEN: 0, core: 0, stocks: 0 };
+    const counts = { RED: 0, ORANGE: 0, YELLOW: 0, GREEN: 0, futures: 0, stocks: 0 };
     for (const d of dots) {
       counts[d.alertLevel] = (counts[d.alertLevel] || 0) + 1;
-      if (d.isCore) counts.core++;
+      if (d.isFuture) counts.futures++;
       else counts.stocks++;
     }
     return counts;
@@ -178,8 +182,20 @@ export function HorizonRadarFrame() {
 
   // Which dots get labels
   const shouldShowLabel = (dot: ComputedDot) => {
-    return dot.isCore || dot.bsci > 0.25 || dot.r > 8;
+    return dot.isFuture || dot.bsci > 0.2 || dot.r > 8;
   };
+
+  // BSCI threshold Y positions
+  const padY = 25;
+  const chartH = dims.h - padY * 2;
+  const thresholdLines = BSCI_QUADRANT_THRESHOLD.map((thresh, i) => ({
+    y: padY + (1 - thresh) * chartH,
+    color: BSCI_THRESHOLD_COLORS[i],
+    label: String(thresh),
+  }));
+
+  // CumDelta = 0 line Y position (center of chart)
+  const cumDeltaZeroX = dims.w / 2;
 
   return (
     <div className="flex flex-col h-full">
@@ -210,7 +226,7 @@ export function HorizonRadarFrame() {
             </span>
           )}
           <span className="text-[5px] font-mono text-cyan-400">
-            {alertCounts.core}F + {alertCounts.stocks}S
+            {alertCounts.futures}F + {alertCounts.stocks}S
           </span>
         </div>
       </div>
@@ -223,52 +239,68 @@ export function HorizonRadarFrame() {
           </div>
         ) : (
         <svg ref={svgRef} width="100%" height="100%" className="block">
-          {/* Quadrant backgrounds */}
-          <rect x={0} y={0} width={centerX} height={centerY}
-            fill="rgba(74,222,128,0.03)" /> {/* Top-left: Low VPIN, Neg Delta (Bull accumulation) */}
-          <rect x={centerX} y={0} width={centerX} height={centerY}
-            fill="rgba(248,113,113,0.03)" /> {/* Top-right: Low VPIN, Pos Delta (Bull run) */}
-          <rect x={0} y={centerY} width={centerX} height={centerY}
-            fill="rgba(250,204,21,0.03)" /> {/* Bottom-left: High VPIN, Neg Delta (Bear distribution) */}
-          <rect x={centerX} y={centerY} width={centerX} height={centerY}
-            fill="rgba(251,146,60,0.03)" /> {/* Bottom-right: High VPIN, Pos Delta (Anomalous) */}
+          {/* Quadrant backgrounds based on BSCI threshold (0.4) as primary divider */}
+          {/* Top: BSCI > 0.4 (high anomaly zone) */}
+          <rect x={0} y={0} width={dims.w} height={padY + (1 - 0.4) * chartH}
+            fill="rgba(248,113,113,0.03)" />
+          {/* Bottom: BSCI < 0.4 (calm zone) */}
+          <rect x={0} y={padY + (1 - 0.4) * chartH} width={dims.w} height={dims.h}
+            fill="rgba(74,222,128,0.02)" />
 
-          {/* Crosshair lines at center */}
+          {/* BSCI threshold dashed lines */}
+          {thresholdLines.map((line, i) => (
+            <g key={`thresh-${i}`}>
+              <line
+                x1={0} y1={line.y} x2={dims.w} y2={line.y}
+                stroke={line.color} strokeWidth={0.5} strokeDasharray="6,4"
+                opacity={0.5}
+              />
+              <text
+                x={dims.w - 4} y={line.y - 2}
+                textAnchor="end" dominantBaseline="auto"
+                fill={line.color} fontSize={5} fontFamily="monospace" opacity={0.7}
+              >
+                BSCI {line.label}
+              </text>
+            </g>
+          ))}
+
+          {/* CumDelta = 0 vertical line (center) */}
           <line
-            x1={centerX} y1={0} x2={centerX} y2={dims.h}
+            x1={cumDeltaZeroX} y1={0} x2={cumDeltaZeroX} y2={dims.h}
             stroke="var(--terminal-border)" strokeWidth={0.5} strokeDasharray="4,4"
           />
-          <line
-            x1={0} y1={centerY} x2={dims.w} y2={centerY}
-            stroke="var(--terminal-border)" strokeWidth={0.5} strokeDasharray="4,4"
-          />
 
-          {/* Quadrant labels */}
-          <text x={centerX / 2} y={14} textAnchor="middle"
+          {/* Quadrant labels (based on BSCI threshold 0.4 as divider) */}
+          {/* Top-left: High BSCI + Neg CumDelta = АККУМУЛЯЦИЯ */}
+          <text x={cumDeltaZeroX / 2} y={14} textAnchor="middle"
             fill="var(--terminal-muted)" fontSize={6} fontFamily="monospace" opacity={0.6}>
-            АККУМУЛ. ▲
+            АККУМУЛ.
           </text>
-          <text x={centerX + centerX / 2} y={14} textAnchor="middle"
+          {/* Top-right: High BSCI + Pos CumDelta = БЫЧИЙ */}
+          <text x={cumDeltaZeroX + cumDeltaZeroX / 2} y={14} textAnchor="middle"
             fill="var(--terminal-muted)" fontSize={6} fontFamily="monospace" opacity={0.6}>
-            БЫЧИЙ ▲
+            БЫЧИЙ
           </text>
-          <text x={centerX / 2} y={dims.h - 6} textAnchor="middle"
+          {/* Bottom-left: Low BSCI + Neg CumDelta = МЕДВЕЖИЙ */}
+          <text x={cumDeltaZeroX / 2} y={dims.h - 6} textAnchor="middle"
             fill="var(--terminal-muted)" fontSize={6} fontFamily="monospace" opacity={0.6}>
-            МЕДВЕЖИЙ ▼
+            МЕДВЕЖИЙ
           </text>
-          <text x={centerX + centerX / 2} y={dims.h - 6} textAnchor="middle"
+          {/* Bottom-right: Low BSCI + Pos CumDelta = АНОМАЛИЯ */}
+          <text x={cumDeltaZeroX + cumDeltaZeroX / 2} y={dims.h - 6} textAnchor="middle"
             fill="var(--terminal-muted)" fontSize={6} fontFamily="monospace" opacity={0.6}>
-            АНОМАЛИЯ ⚡
+            АНОМАЛИЯ
           </text>
 
           {/* Axis labels */}
-          <text x={dims.w - 6} y={centerY - 4} textAnchor="end"
+          <text x={dims.w - 6} y={dims.h / 2 - 4} textAnchor="end"
             fill="var(--terminal-muted)" fontSize={6} fontFamily="monospace" opacity={0.8}>
-            CumDelta →
+            CumDelta &rarr;
           </text>
-          <text x={4} y={centerY - 4} textAnchor="start"
+          <text x={4} y={padY + 4} textAnchor="start"
             fill="var(--terminal-muted)" fontSize={6} fontFamily="monospace" opacity={0.8}>
-            VPIN ↑
+            BSCI
           </text>
 
           {/* Dots — render GREEN first (back), RED last (front) */}
@@ -284,9 +316,11 @@ export function HorizonRadarFrame() {
                 onMouseEnter={() => setTooltip({
                   ticker: dot.ticker,
                   bsci: dot.bsci,
+                  vpin: dot.vpin,
+                  cumDelta: dot.cumDelta,
                   alertLevel: dot.alertLevel,
                   direction: dot.direction,
-                  isCore: dot.isCore,
+                  isFuture: dot.isFuture,
                   x: dot.cx,
                   y: dot.cy,
                 })}
@@ -299,18 +333,29 @@ export function HorizonRadarFrame() {
                 <circle
                   cx={dot.cx} cy={dot.cy} r={dot.r}
                   fill={dot.color} opacity={0.85}
-                  stroke={dot.isCore ? 'rgba(0,220,255,0.6)' : 'none'}
-                  strokeWidth={dot.isCore ? 1.5 : 0}
+                  stroke={dot.isFuture ? 'rgba(0,220,255,0.6)' : 'none'}
+                  strokeWidth={dot.isFuture ? 1.5 : 0}
                 />
+                {/* Pulsation for high-BSCI outliers (>0.7) */}
+                {dot.bsci > 0.7 && (
+                  <circle
+                    cx={dot.cx} cy={dot.cy} r={dot.r}
+                    fill="none" stroke={dot.color} strokeWidth={1}
+                    opacity={0.6}
+                  >
+                    <animate attributeName="r" from={dot.r} to={dot.r + 6} dur="1.5s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" from={0.6} to={0} dur="1.5s" repeatCount="indefinite" />
+                  </circle>
+                )}
                 {/* Label */}
                 {shouldShowLabel(dot) && (
                   <text
                     x={dot.cx} y={dot.cy - dot.r - 3}
                     textAnchor="middle" dominantBaseline="auto"
-                    fill={dot.isCore ? '#22d3ee' : 'var(--terminal-text)'}
-                    fontSize={dot.isCore ? 7 : 6}
+                    fill={dot.isFuture ? '#22d3ee' : 'var(--terminal-text)'}
+                    fontSize={dot.isFuture ? 7 : 6}
                     fontFamily="monospace"
-                    fontWeight={dot.isCore ? 'bold' : 'normal'}
+                    fontWeight={dot.isFuture ? 'bold' : 'normal'}
                   >
                     {dot.ticker.slice(0, 5)}
                   </text>
@@ -325,17 +370,17 @@ export function HorizonRadarFrame() {
           <div
             className="absolute pointer-events-none z-10 bg-[var(--terminal-surface)] border border-[var(--terminal-border)] rounded px-2 py-1.5 shadow-lg"
             style={{
-              left: Math.min(tooltip.x + 12, dims.w - 140),
-              top: Math.max(tooltip.y - 50, 4),
+              left: Math.min(tooltip.x + 12, dims.w - 160),
+              top: Math.max(tooltip.y - 60, 4),
             }}
           >
             <div className="flex items-center gap-1">
               <span className="text-[7px] font-mono text-[var(--terminal-text)] font-bold">{tooltip.ticker}</span>
-              {tooltip.isCore && (
+              {tooltip.isFuture && (
                 <span className="text-[5px] font-mono px-1 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-400">ФЬЮЧ</span>
               )}
             </div>
-            <div className="text-[6px] font-mono text-[var(--terminal-muted)]">
+            <div className="text-[6px] font-mono text-[var(--terminal-muted)] mt-0.5">
               BSCI: <span className={
                 tooltip.alertLevel === 'RED' ? 'text-red-400' :
                 tooltip.alertLevel === 'ORANGE' ? 'text-orange-400' :
@@ -343,9 +388,13 @@ export function HorizonRadarFrame() {
               }>
                 {tooltip.bsci.toFixed(3)}
               </span>
-              {' | '}
+            </div>
+            <div className="text-[6px] font-mono text-[var(--terminal-muted)]">
+              VPIN: {tooltip.vpin.toFixed(3)} | CumDelta: {tooltip.cumDelta.toFixed(3)}
+            </div>
+            <div className="text-[6px] font-mono text-[var(--terminal-muted)]">
               <span className={tooltip.direction === 'BULLISH' ? 'text-green-400' : tooltip.direction === 'BEARISH' ? 'text-red-400' : 'text-[var(--terminal-muted)]'}>
-                {tooltip.direction === 'BULLISH' ? '▲' : tooltip.direction === 'BEARISH' ? '▼' : '●'}
+                {tooltip.direction === 'BULLISH' ? '▲ БЫЧИЙ' : tooltip.direction === 'BEARISH' ? '▼ МЕДВЕЖИЙ' : '● НЕЙТРАЛ'}
               </span>
             </div>
           </div>
@@ -367,6 +416,19 @@ export function HorizonRadarFrame() {
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[var(--terminal-text)]/50" />
           <span className="text-[5px] font-mono text-[var(--terminal-muted)]">Акция</span>
+        </div>
+        <span className="text-[var(--terminal-border)] mx-0.5">|</span>
+        <div className="flex items-center gap-1">
+          <div className="w-4 h-0 border-t border-dashed border-yellow-400/50" />
+          <span className="text-[5px] font-mono text-[var(--terminal-muted)]">0.2</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-4 h-0 border-t border-dashed border-orange-400/50" />
+          <span className="text-[5px] font-mono text-[var(--terminal-muted)]">0.4</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-4 h-0 border-t border-dashed border-red-400/50" />
+          <span className="text-[5px] font-mono text-[var(--terminal-muted)]">0.7</span>
         </div>
         <span className="text-[var(--terminal-border)] mx-0.5">|</span>
         {[

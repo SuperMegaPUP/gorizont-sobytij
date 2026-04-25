@@ -20,8 +20,10 @@ export async function GET(_request: NextRequest) {
 
     if (raw) {
       const data = JSON.parse(raw);
-      // Sort by BSCI descending for TOP display
-      const sorted = (data as TickerScanResult[]).sort((a: TickerScanResult, b: TickerScanResult) => b.bsci - a.bsci);
+      // Sort by moexTurnover (VALTODAY) descending — TOP-100 = по обороту!
+      const sorted = (data as TickerScanResult[]).sort((a: TickerScanResult, b: TickerScanResult) =>
+        (b.moexTurnover || b.turnover || 0) - (a.moexTurnover || a.turnover || 0)
+      );
       return NextResponse.json({
         success: true,
         count: sorted.length,
@@ -67,7 +69,13 @@ export async function POST(_request: NextRequest) {
     console.log(`[/api/horizon/top100] Scanning ${tickersToScan.length} tickers (dynamic from MOEX)`);
 
     // 3. Scan in batches: 20 at a time, 300ms delay (~15-30s total)
-    const scannerData = await scanBatch(tickersToScan, 20, 300);
+    // Pass moexTurnover through to scanBatch
+    const tickersWithTurnover = tickersToScan.map(t => ({
+      ticker: t.ticker,
+      name: t.name,
+      moexTurnover: t.turnover,
+    }));
+    const scannerData = await scanBatch(tickersWithTurnover, 20, 300);
 
     // 4. Filter out tickers with no real data (BSCI ~0.04 = only ENTANGLE, no orderbook)
     const realData = scannerData.filter((t) => {
@@ -76,8 +84,10 @@ export async function POST(_request: NextRequest) {
       return t.bsci > 0.05 || activeDetectors >= 3;
     });
 
-    // 5. Sort by BSCI descending
-    const sorted = realData.sort((a, b) => b.bsci - a.bsci);
+    // 5. Sort by moexTurnover (VALTODAY) descending — TOP-100 = по обороту!
+    const sorted = realData.sort((a, b) =>
+      (b.moexTurnover || b.turnover || 0) - (a.moexTurnover || a.turnover || 0)
+    );
 
     // 6. Save to Redis (30 min TTL)
     try {

@@ -158,13 +158,19 @@ export interface TickerScanResult {
   cumDelta: number;
   ofi: number;
   turnover: number;
+  moexTurnover?: number;  // VALTODAY от MOEX (реальный оборот за день в рублях)
+  type: 'FUTURE' | 'STOCK';
   error?: string;
 }
 
+// Фьючерсные тикеры (реальные фьючерсы на срочном рынке)
+const FUTURES_TICKERS = new Set(['Si', 'RI', 'BR']);
+
 export async function scanTicker(
-  tickerInfo: { ticker: string; name: string },
+  tickerInfo: { ticker: string; name: string; moexTurnover?: number },
 ): Promise<TickerScanResult> {
-  const { ticker, name } = tickerInfo;
+  const { ticker, name, moexTurnover } = tickerInfo;
+  const tickerType = FUTURES_TICKERS.has(ticker) ? 'FUTURE' as const : 'STOCK' as const;
 
   try {
     // 1. Collect market data (with auto-resolution)
@@ -251,6 +257,8 @@ export async function scanTicker(
       cumDelta: detectorInput.cumDelta.delta,
       ofi: detectorInput.ofi,
       turnover,
+      moexTurnover,
+      type: tickerType,
     };
   } catch (error: any) {
     console.error(`[horizon/scan] Error scanning ${ticker}:`, error.message);
@@ -270,6 +278,8 @@ export async function scanTicker(
       cumDelta: 0,
       ofi: 0,
       turnover: 0,
+      moexTurnover,
+      type: tickerType,
       error: error.message,
     };
   }
@@ -284,7 +294,7 @@ export async function scanTicker(
  * @param delayMs — задержка между батчами (мс)
  */
 export async function scanBatch(
-  tickers: readonly { ticker: string; name: string }[],
+  tickers: readonly { ticker: string; name: string; moexTurnover?: number }[],
   batchSize: number = 5,
   delayMs: number = 2000,
 ): Promise<TickerScanResult[]> {
@@ -313,11 +323,11 @@ export async function scanBatch(
 
 // ─── Dynamic TOP-100 Helper ────────────────────────────────────────────────
 
-async function getTop100Tickers(): Promise<{ ticker: string; name: string }[]> {
+async function getTop100Tickers(): Promise<{ ticker: string; name: string; moexTurnover?: number }[]> {
   try {
     const dynamic = await fetchTop100Tickers();
     if (dynamic.length >= 20) {
-      return dynamic.map(t => ({ ticker: t.ticker, name: t.name }));
+      return dynamic.map(t => ({ ticker: t.ticker, name: t.name, moexTurnover: t.turnover }));
     }
   } catch (e: any) {
     console.warn('[/api/horizon/scan] Dynamic TOP-100 fetch failed:', e.message);
@@ -381,6 +391,8 @@ export async function POST(request: NextRequest) {
           cumDelta: 0,
           ofi: 0,
           turnover: 0,
+          moexTurnover: (tickersToScan[i] as any).moexTurnover,
+          type: FUTURES_TICKERS.has(tickersToScan[i].ticker) ? 'FUTURE' as const : 'STOCK' as const,
           error: r.reason?.message || 'Unknown error',
         };
       });

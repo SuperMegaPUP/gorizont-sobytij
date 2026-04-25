@@ -83,7 +83,12 @@ export function HorizonScannerFrame() {
         case 'bsci': return b.bsci - a.bsci;
         case 'vpin': return b.vpin - a.vpin;
         case 'delta': return b.cumDelta - a.cumDelta;
-        case 'turnover': return b.turnover - a.turnover;
+        case 'turnover': {
+          // TOP-100: use moexTurnover (VALTODAY) if available, else fallback to turnover
+          const aVal = (a as any).moexTurnover || a.turnover;
+          const bVal = (b as any).moexTurnover || b.turnover;
+          return bVal - aVal;
+        }
         default: return b.bsci - a.bsci;
       }
     });

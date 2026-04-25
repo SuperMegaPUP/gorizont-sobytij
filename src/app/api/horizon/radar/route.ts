@@ -1,14 +1,17 @@
 // ─── /api/horizon/radar — GET: Radar Dot Data ─────────────────────────────
 // Reads from BOTH horizon:scanner:latest (core 9) AND horizon:scanner:top100
 // Combines, deduplicates by ticker, and calculates radar dot data
-// Each ticker → dot with position (cumDelta, vpin), size (bsci * sqrt(turnover)), color (alertLevel)
+// Each ticker → dot with position (cumDelta, bsci), size (bsci-proportional), color (alertLevel)
 //
-// v2: Combined data source (core + top100), no auto-trigger scan on radar GET
+// v3: Y-axis = BSCI, type field (FUTURE/STOCK), moexTurnover preserved
 
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import redis from '@/lib/redis';
+
+// BSCI пороги для квадрантов радара
+export const BSCI_QUADRANT_THRESHOLD = [0.2, 0.4, 0.7] as const;
 
 export interface RadarDot {
   ticker: string;
@@ -16,9 +19,11 @@ export interface RadarDot {
   alertLevel: string;
   direction: string;
   turnover: number;
+  moexTurnover?: number;
   dotSize: number;
   cumDelta: number;
   vpin: number;
+  type: 'FUTURE' | 'STOCK';
 }
 
 export async function GET(request: NextRequest) {
@@ -55,7 +60,6 @@ export async function GET(request: NextRequest) {
     }
 
     // 3. Deduplicate by ticker (resolve shortCode ↔ moexTicker duplicates)
-    // Core scanner uses short codes (SR, GZ), TOP-100 uses MOEX codes (SBER, GAZP)
     const SHORT_TO_MOEX: Record<string, string> = {
       'SR': 'SBER', 'GZ': 'GAZP', 'GK': 'GMKN', 'LK': 'LKOH',
       'RN': 'ROSN', 'MX': 'MOEX', 'Si': 'Si', 'RI': 'RI', 'BR': 'BR',
@@ -98,15 +102,13 @@ export async function GET(request: NextRequest) {
     });
 
     // 4.5 Smart filtering for radar clarity
-    // Always include: YELLOW+ alerts (BSCI > 0.2), core 9, top-15 by BSCI
-    // This prevents the "80 dots mess" problem
-    const coreSet = new Set(['MX', 'Si', 'RI', 'BR', 'GZ', 'GK', 'SR', 'LK', 'RN',
-      'MOEX', 'SBER', 'GAZP', 'GMKN', 'LKOH', 'ROSN']); // + MOEX equivalents
+    // Always include: YELLOW+ alerts (BSCI > 0.2), futures, top-15 by BSCI
     const alertData = realData.filter((d: any) => {
       const norm = normalizeTicker(d.ticker);
-      return (d.bsci || 0) > 0.2 || coreSet.has(d.ticker) || coreSet.has(norm);
+      const isFuture = d.type === 'FUTURE';
+      return (d.bsci || 0) > 0.2 || isFuture || norm in MOEX_TO_SHORT;
     });
-    // Add top-15 by BSCI (in case they're not in alert/core sets)
+    // Add top-15 by BSCI (in case they're not in alert/futures sets)
     const byBsci = [...realData].sort((a: any, b: any) => (b.bsci || 0) - (a.bsci || 0));
     const top15 = byBsci.slice(0, 15);
     const radarSource = new Map<string, any>();
@@ -117,23 +119,20 @@ export async function GET(request: NextRequest) {
     const radarInput = Array.from(radarSource.values());
 
     // 5. Calculate radar dots (from filtered radarInput)
-    const maxTurnover = Math.max(
-      ...radarInput.map((d: any) => d.turnover || 0),
-      1,
-    );
-
     const cumDeltas = radarInput.map((d: any) => d.cumDelta || 0);
-    const vpins = radarInput.map((d: any) => d.vpin || 0);
+    const bscis = radarInput.map((d: any) => d.bsci || 0);
 
+    // Symmetric CumDelta scale: 0 is always at center
     const cumDeltaMax = Math.max(...cumDeltas.map(Math.abs), 1);
-    const vpinMax = Math.max(...vpins, 1);
+    // BSCI is already 0..1, no normalization needed — but we ensure range
+    const bsciMax = Math.max(...bscis, 1);
 
     const radarData: RadarDot[] = radarInput.map((d: any) => {
-      const turnoverRatio = (d.turnover || 0) / maxTurnover;
-      const dotSize = (d.bsci || 0) * Math.sqrt(turnoverRatio);
-
       // Use MOEX ticker as display name (more recognizable: SBER vs SR)
       const displayTicker = MOEX_TO_SHORT[d.ticker] ? d.ticker : normalizeTicker(d.ticker);
+
+      // Determine type: use d.type from scanner if available, otherwise check
+      const tickerType: 'FUTURE' | 'STOCK' = d.type === 'FUTURE' ? 'FUTURE' : 'STOCK';
 
       return {
         ticker: displayTicker,
@@ -141,9 +140,11 @@ export async function GET(request: NextRequest) {
         alertLevel: d.alertLevel || 'GREEN',
         direction: d.direction || 'NEUTRAL',
         turnover: d.turnover || 0,
-        dotSize: Math.round(dotSize * 1000) / 1000,
+        moexTurnover: d.moexTurnover,
+        dotSize: Math.round((d.bsci || 0) * 1000) / 1000,
         cumDelta: Math.round(((d.cumDelta || 0) / cumDeltaMax) * 1000) / 1000,
-        vpin: Math.round(((d.vpin || 0) / vpinMax) * 1000) / 1000,
+        vpin: Math.round(((d.vpin || 0)) * 1000) / 1000,  // raw VPIN for tooltip
+        type: tickerType,
       };
     });
 
@@ -154,6 +155,7 @@ export async function GET(request: NextRequest) {
       success: true,
       count: radarData.length,
       source,
+      bsciThresholds: BSCI_QUADRANT_THRESHOLD,
       data: radarData,
       ts: Date.now(),
     });
