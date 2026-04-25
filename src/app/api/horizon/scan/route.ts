@@ -313,6 +313,10 @@ export async function scanTicker(
           topDetector,
           totalTradeVolumeLots,
         );
+        // DEBUG: log robot confirmation for top tickers
+        if (robotContext.confirmation < 0.4 && robotContext.source !== 'none') {
+          console.log(`[horizon/scan] ${ticker}: topDetector=${topDetector}, confirmation=${robotContext.confirmation}, source=${robotContext.source}, wall=${robotContext.wallScore}, accum=${robotContext.accumScore}, matched=${robotContext.matchedDetector}↔${robotContext.matchedPattern}`);
+        }
       } catch (robotErr: any) {
         console.warn(`[horizon/scan] Robot context failed for ${ticker}:`, robotErr.message);
       }
