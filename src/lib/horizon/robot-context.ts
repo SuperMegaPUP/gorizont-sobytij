@@ -369,6 +369,28 @@ const DETECTOR_ALGOPACK_MAP: Record<string, ('wall' | 'accum')[]> = {
   ENTANGLE:   [],                   // Кросс-тикер — burst only
 };
 
+/**
+ * Пытается мэтчить детектор с AlgoPack данными.
+ * Возвращает { detector, pattern } если мэтч найден, иначе null.
+ */
+function tryAlgoPackMatch(
+  detectorName: string,
+  algopack: AlgoPackConfirmation,
+): { detector: string; pattern: string } | null {
+  const expectedAlgoIndicators = DETECTOR_ALGOPACK_MAP[detectorName] || [];
+  if (expectedAlgoIndicators.length === 0) return null;
+
+  let pattern = '';
+  if (expectedAlgoIndicators.includes('wall') && algopack.wallScore > 20) {
+    pattern = `wall:${algopack.wallScore}`;
+  }
+  if (expectedAlgoIndicators.includes('accum') && algopack.accumScore > 0) {
+    pattern = pattern ? `${pattern}+accum:${algopack.accumScore}` : `accum:${algopack.accumScore}`;
+  }
+
+  return pattern ? { detector: detectorName, pattern } : null;
+}
+
 export function computeRobotConfirmation(
   topDetectorName: string,
   robotVolumePct: number,
@@ -409,19 +431,24 @@ export function computeRobotConfirmation(
   // 3. AlgoPack мэтч: стена/накопление подтверждает детектор
   //    Ключевое исправление: когда burst detection не нашёл паттернов
   //    (мало сделок, нет данных), AlgoPack всё ещё видит стены и накопления
+  //    Проверяем ВСЕ детекторы с AlgoPack маппингом, не только топовый,
+  //    потому что топовый может не иметь AlgoPack мэтча (например WAVEFUNCTION)
   if (!typeMatch && !partialMatch && algopack) {
-    const expectedAlgoIndicators = DETECTOR_ALGOPACK_MAP[topDetectorName] || [];
-    if (expectedAlgoIndicators.includes('wall') && algopack.wallScore > 20) {
-      algopackMatch = true;
-      matchedDetector = topDetectorName;
-      matchedPattern = `wall:${algopack.wallScore}`;
+    // Сначала пробуем топовый детектор
+    let found = tryAlgoPackMatch(topDetectorName, algopack);
+    if (!found) {
+      // Если топовый не мэтчит, пробуем все детекторы с AlgoPack маппингом
+      for (const detName of Object.keys(DETECTOR_ALGOPACK_MAP)) {
+        const indicators = DETECTOR_ALGOPACK_MAP[detName];
+        if (indicators.length === 0) continue;
+        found = tryAlgoPackMatch(detName, algopack);
+        if (found) break;
+      }
     }
-    if (expectedAlgoIndicators.includes('accum') && algopack.accumScore > 0) {
+    if (found) {
       algopackMatch = true;
-      matchedDetector = topDetectorName;
-      matchedPattern = matchedPattern
-        ? `${matchedPattern}+accum:${algopack.accumScore}`
-        : `accum:${algopack.accumScore}`;
+      matchedDetector = found.detector;
+      matchedPattern = found.pattern;
     }
   }
 
