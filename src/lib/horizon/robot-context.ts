@@ -99,16 +99,16 @@ export interface RobotPatternInfo {
 // ─── Мэппинг Детектор ↔ Робот-паттерн ───────────────────────────────────────
 
 const DETECTOR_PATTERN_MAP: Record<string, string[]> = {
-  CIPHER:     ['periodic', 'fixed_volume', 'layered'],
-  ACCRETOR:   ['slow_grinder', 'absorber'],
-  DARKMATTER: ['iceberg'],
-  PREDATOR:   ['aggressive', 'momentum', 'sweeper'],
-  HAWKING:    ['scalper', 'market_maker', 'ping_pong'],
-  // GRAVITON — нет прямого мэтча (гравитация = дисбаланс стакана)
-  // DECOHERENCE — нет прямого мэтча (spread anomaly)
-  // ENTANGLE — нет прямого мэтча (cross-ticker)
-  // WAVEFUNCTION — нет прямого мэтча (wave/oscillation)
-  // ATTRACTOR — нет прямого мэтча (price attraction to levels)
+  CIPHER:      ['periodic', 'fixed_volume', 'layered'],
+  ACCRETOR:    ['slow_grinder', 'absorber'],
+  DARKMATTER:  ['iceberg'],
+  PREDATOR:    ['aggressive', 'momentum', 'sweeper'],
+  HAWKING:     ['scalper', 'market_maker', 'ping_pong'],
+  ATTRACTOR:   ['slow_grinder', 'absorber', 'iceberg'],
+  WAVEFUNCTION: ['periodic', 'ping_pong', 'market_maker'],
+  GRAVITON:    ['market_maker', 'absorber', 'iceberg'],
+  DECOHERENCE: ['aggressive', 'momentum', 'scalper'],
+  ENTANGLE:    ['ping_pong', 'periodic', 'market_maker'],
 };
 
 // Обратный маппинг: паттерн → детектор
@@ -336,11 +336,14 @@ function estimateRobotVolumePct(
  *   3. Если паттерн найден → confirmation = f(volume, typeMatch)
  *
  * Шкала:
- *   volume > 60% + typeMatch → 1.0 (полное подтверждение)
- *   volume > 30% + typeMatch → 0.7 (сильное подтверждение)
- *   volume > 60% no match    → 0.5 (роботы есть, но не тот тип)
- *   volume > 30% no match    → 0.3 (слабое подтверждение)
- *   volume < 30%             → 0.1 (роботов мало)
+ *   volume > 60% + typeMatch    → 1.0 (полное подтверждение)
+ *   volume > 30% + typeMatch    → 0.7 (сильное подтверждение)
+ *   typeMatch + volume < 30%    → 0.5 (мэтч есть, роботов мало)
+ *   volume > 60% + partialMatch → 0.6 (косвенный мэтч)
+ *   volume > 30% + partialMatch → 0.45 (косвенный, средне роботов)
+ *   volume > 60% no match       → 0.4 (роботы есть, но не тот тип)
+ *   volume > 30% no match       → 0.25 (слабое)
+ *   volume < 30%                → 0.1 (роботов мало)
  */
 export function computeRobotConfirmation(
   topDetectorName: string,
@@ -353,7 +356,9 @@ export function computeRobotConfirmation(
   let matchedPattern = '';
   let matchedDetector = '';
   let typeMatch = false;
+  let partialMatch = false;  // косвенный мэтч через обратный маппинг
 
+  // 1. Прямой мэтч: топ-детектор → ожидаемый робот-паттерн
   for (const rp of robotPatterns) {
     if (expectedPatterns.includes(rp.pattern)) {
       matchedPattern = rp.pattern;
@@ -363,29 +368,45 @@ export function computeRobotConfirmation(
     }
   }
 
-  // Если нет прямого мэтча, но роботы есть — проверяем обратный маппинг
+  // 2. Косвенный мэтч: обнаруженный паттерн → другой детектор
+  //    (роботы есть, но подтверждают не топ-детектор, а другой)
   if (!typeMatch && robotPatterns.length > 0) {
     const topPattern = robotPatterns[0]; // уже отсортированы по объёму
     const mappedDetector = PATTERN_DETECTOR_MAP[topPattern.pattern];
     if (mappedDetector) {
       matchedPattern = topPattern.pattern;
       matchedDetector = mappedDetector;
-      // Это "косвенный" мэтч — роботы есть, но подтверждают другой детектор
+      partialMatch = true;
     }
   }
 
-  // Вычисляем confirmation
+  // 3. Если нет мэтча вообще, но роботов много — отмечаем детектор
+  if (!typeMatch && !partialMatch && robotPatterns.length > 0) {
+    matchedDetector = topDetectorName;
+    matchedPattern = robotPatterns[0]?.pattern || '';
+  }
+
+  // Вычисляем confirmation:
+  //   typeMatch    = робот-паттерн подтверждает именно этот детектор
+  //   partialMatch = робот-паттерн подтверждает другой детектор (но роботы есть)
+  //   neither      = роботы есть, но паттерн неизвестен
   let confirmation: number;
-  if (robotVolumePct > 0.6 && typeMatch) {
-    confirmation = 1.0;
-  } else if (robotVolumePct > 0.3 && typeMatch) {
-    confirmation = 0.7;
+  if (typeMatch && robotVolumePct > 0.6) {
+    confirmation = 1.0;   // полное подтверждение: много роботов + тип мэтчится
+  } else if (typeMatch && robotVolumePct > 0.3) {
+    confirmation = 0.7;   // сильное подтверждение
+  } else if (typeMatch) {
+    confirmation = 0.5;   // мэтч есть, но роботов мало
+  } else if (partialMatch && robotVolumePct > 0.6) {
+    confirmation = 0.6;   // косвенный мэтч + много роботов
+  } else if (partialMatch && robotVolumePct > 0.3) {
+    confirmation = 0.45;  // косвенный мэтч + средне роботов
   } else if (robotVolumePct > 0.6) {
-    confirmation = 0.5;
+    confirmation = 0.4;   // роботов много, но тип не мэтчится
   } else if (robotVolumePct > 0.3) {
-    confirmation = 0.3;
+    confirmation = 0.25;  // роботов средне, тип не мэтчится
   } else {
-    confirmation = 0.1;
+    confirmation = 0.1;   // роботов мало
   }
 
   return { confirmation, matchedPattern, matchedDetector };
@@ -547,9 +568,11 @@ export function findTopDetector(detectorScores: Record<string, number>): string 
 
 /**
  * Быстрая проверка: даёт ли RobotContext бонус к convergence/10.
- * Условие: confirmation ≥ 0.5 (роботы есть И тип мэтчится)
+ * Условие: confirmation ≥ 0.4
+ *   0.4+ = роботы есть и подтверждены (прямой или косвенный мэтч)
+ *   <0.4 = роботов мало или паттерн неизвестен
  */
 export function isRobotConfirmed(robotContext: RobotContext | null | undefined): boolean {
   if (!robotContext) return false;
-  return robotContext.confirmation >= 0.5;
+  return robotContext.confirmation >= 0.4;
 }

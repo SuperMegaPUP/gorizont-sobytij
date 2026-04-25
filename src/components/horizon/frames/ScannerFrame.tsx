@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { ScanSearch, List, Trophy } from 'lucide-react';
-import { useHorizonStore, type ScannerMode } from '@/lib/horizon-store';
+import { useHorizonStore, type ScannerMode, type ScannerTicker } from '@/lib/horizon-store';
 import { getBsciEmoji, getBsciColor } from '../shared/BSCIColor';
 import { DirectionArrow } from '../shared/DirectionArrow';
 import { DetectorDots } from '../scanner/DetectorDots';
@@ -49,8 +49,18 @@ function ConvergenceCell({ taContext, convergenceScore, robotContext }: Converge
   ) : null;
 
   // Robot confirmation indicator (🤖)
-  const robotMark = robotContext && robotContext.confirmation >= 0.5 ? (
+  const robotMark = robotContext && robotContext.confirmation >= 0.4 ? (
     <span className="text-cyan-400" title={`Робот-подтверждение: ${robotContext.confirmation.toFixed(2)} | ${robotContext.matchedDetector} ↔ ${robotContext.matchedPattern} | Робот%: ${(robotContext.robotVolumePct * 100).toFixed(0)}%`}>🤖</span>
+  ) : null;
+
+  // Spoofing penalty indicator (🚫)
+  const spoofingMark = robotContext?.hasSpoofing ? (
+    <span className="text-red-400" title={`СПОУФИНГ! Cancel%: ${(robotContext.cancelRatio * 100).toFixed(0)}% → −2 конвергенция`}>🚫</span>
+  ) : null;
+
+  // Cancel penalty indicator
+  const cancelMark = robotContext && robotContext.cancelRatio > 0.8 && !robotContext.hasSpoofing ? (
+    <span className="text-orange-400" title={`Cancel ${(robotContext.cancelRatio * 100).toFixed(0)}% > 80% → −1 конвергенция`}>⚠</span>
   ) : null;
 
   // ATR zone indicator
@@ -72,6 +82,8 @@ function ConvergenceCell({ taContext, convergenceScore, robotContext }: Converge
       <span>{cfg.label}</span>
       {convBadge}
       {robotMark}
+      {spoofingMark}
+      {cancelMark}
       {divergenceMark}
       {atrMark}
       {rsiLabel}

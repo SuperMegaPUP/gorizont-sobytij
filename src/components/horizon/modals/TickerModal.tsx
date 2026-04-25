@@ -346,7 +346,7 @@ export function TickerModal() {
                       : 'bg-gray-500/20 text-gray-400 border-gray-500/40'
                 }`}>
                   {detail.robotContext.confirmation >= 0.7 ? '✓ Подтверждено' :
-                   detail.robotContext.confirmation >= 0.4 ? '△ Частично' : '✗ Нет данных'}
+                   detail.robotContext.confirmation >= 0.4 ? '△ Частично' : '✗ Слабо'}
                 </span>
               </div>
 
@@ -417,7 +417,7 @@ export function TickerModal() {
               {/* Detector ↔ Robot match */}
               {detail.robotContext.matchedPattern && (
                 <div className={`rounded px-2.5 py-1.5 border ${
-                  detail.robotContext.confirmation >= 0.5
+                  detail.robotContext.confirmation >= 0.4
                     ? 'bg-cyan-500/5 border-cyan-500/20'
                     : 'bg-gray-500/5 border-gray-500/20'
                 }`}>
@@ -427,7 +427,7 @@ export function TickerModal() {
                   <div className="text-[10px] font-mono">
                     <span className="text-[var(--terminal-text)] font-bold">{detail.robotContext.matchedDetector}</span>
                     <span className="text-[var(--terminal-muted)]"> ↔ </span>
-                    <span className={detail.robotContext.confirmation >= 0.5 ? 'text-cyan-400 font-bold' : 'text-[var(--terminal-text-dim)]'}>
+                    <span className={detail.robotContext.confirmation >= 0.4 ? 'text-cyan-400 font-bold' : 'text-[var(--terminal-text-dim)]'}>
                       {detail.robotContext.matchedPattern}
                     </span>
                     <span className="text-[var(--terminal-muted)] ml-1">

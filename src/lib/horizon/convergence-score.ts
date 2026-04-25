@@ -28,6 +28,10 @@ export interface ConvergenceScoreResult {
   atrBonus: boolean;
   /** Место для робот-бонуса (Спринт 3) */
   robotBonus: boolean;
+  /** Штраф за спуфинг (−2 балла) */
+  spoofingPenalty: boolean;
+  /** Штраф за высокий cancel ratio (−1 балл) */
+  cancelPenalty: boolean;
   /** Человекочитаемое резюме */
   summary: string;
 }
@@ -59,6 +63,8 @@ export function calculateConvergenceScore(
   hasDivergence: boolean = false,
   atrCompressed: boolean = false,
   robotConfirmed: boolean = false,
+  hasSpoofing: boolean = false,
+  cancelRatio: number = 0,
 ): ConvergenceScoreResult {
   const details: ConvergenceDetail[] = [];
   let totalPoints = 0;
@@ -92,6 +98,8 @@ export function calculateConvergenceScore(
   let divergenceBonus = false;
   let atrBonus = false;
   let robotBonus = false;
+  let spoofingPenalty = false;
+  let cancelPenalty = false;
 
   // +1 за дивергенцию (кит виден, ТА нет → скрытая активность = ЦЕННОСТЬ)
   if (hasDivergence && bsciScore >= 0.55) {
@@ -111,8 +119,22 @@ export function calculateConvergenceScore(
     robotBonus = true;
   }
 
-  // Ограничиваем максимум 10
-  const score = Math.min(10, totalPoints);
+  // ─── Штрафы за манипуляцию ───────────────────────────────────────────────
+  // Спуфинг: стены ФАЛЬШИВЫЕ → BSCI бычий + спуфинг = сигнал НАОБОРОТ медвежий
+  // −2 балла за спуфинг (cancelRatio > 70% → ордера отменяются, стена фейк)
+  if (hasSpoofing) {
+    totalPoints -= 2;
+    spoofingPenalty = true;
+  }
+
+  // −1 балл за высокий cancel ratio (>80%)
+  if (cancelRatio > 0.8) {
+    totalPoints -= 1;
+    cancelPenalty = true;
+  }
+
+  // Ограничиваем 0-10 (не может быть отрицательным!)
+  const score = Math.max(0, Math.min(10, totalPoints));
 
   // Резюме
   const aligned = details.filter(d => d.alignment === 'ALIGNED').length;
@@ -122,6 +144,8 @@ export function calculateConvergenceScore(
   if (divergenceBonus) summary += ', +1 скрытая активность';
   if (atrBonus) summary += ', +1 ATR-сжатие';
   if (robotBonus) summary += ', +1 роботы';
+  if (spoofingPenalty) summary += ', −2 СПОУФИНГ';
+  if (cancelPenalty) summary += ', −1 cancel>80%';
   summary += ` = ${score}/10`;
 
   return {
@@ -130,6 +154,8 @@ export function calculateConvergenceScore(
     divergenceBonus,
     atrBonus,
     robotBonus,
+    spoofingPenalty,
+    cancelPenalty,
     summary,
   };
 }

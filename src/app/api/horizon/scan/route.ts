@@ -325,6 +325,8 @@ export async function scanTicker(
         taContext.divergence,                   // бонус за дивергенцию
         taIndicators.atrZone === 'COMPRESSED',   // бонус за ATR-сжатие
         isRobotConfirmed(robotContext),           // робот-подтверждение (Спринт 3)!
+        robotContext?.hasSpoofing ?? false,       // штраф за спуфинг (−2)
+        robotContext?.cancelRatio ?? 0,           // штраф за cancel>80% (−1)
       );
     } catch (taErr: any) {
       console.warn(`[horizon/scan] TA context failed for ${ticker}:`, taErr.message);
