@@ -285,6 +285,7 @@ export async function scanTicker(
     let taContext: SignalConvergence | undefined;
     let convergenceScore: ConvergenceScoreResult | undefined;
     let robotContext: RobotContext | undefined;
+    const topDetector = findTopDetector(scoresMap);
     try {
       const taIndicators = calculateTAIndicators(
         detectorInput.candles,
@@ -298,7 +299,6 @@ export async function scanTicker(
       );
 
       // 11.3 Robot Context (Спринт 3) — до convergence score!
-      const topDetector = findTopDetector(scoresMap);
       const totalTradeVolumeLots = detectorInput.trades.reduce(
         (sum, t) => sum + t.quantity, 0,
       );
