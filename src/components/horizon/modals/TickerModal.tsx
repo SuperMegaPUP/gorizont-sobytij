@@ -148,6 +148,188 @@ export function TickerModal() {
             ))}
           </div>
 
+          {/* ═══ КОНВЕРГЕНЦИЯ ═══ */}
+          {detail.taContext && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono text-[var(--terminal-muted)]">
+                  Конвергенция (детекторы vs ТА)
+                </span>
+                {/* Convergence Score badge */}
+                {detail.convergenceScore && (
+                  <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded border ${
+                    detail.convergenceScore.score >= 7
+                      ? 'bg-green-500/20 text-green-400 border-green-500/40'
+                      : detail.convergenceScore.score >= 4
+                        ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40'
+                        : 'bg-red-500/20 text-red-400 border-red-500/40'
+                  }`}>
+                    {detail.convergenceScore.score}/10
+                  </span>
+                )}
+              </div>
+
+              {/* Convergence Bar */}
+              {detail.convergenceScore && (
+                <div className="space-y-1">
+                  <div className="w-full h-2.5 bg-[var(--terminal-border)] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${
+                        detail.convergenceScore.score >= 7 ? 'bg-green-500' :
+                        detail.convergenceScore.score >= 4 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${(detail.convergenceScore.score / 10) * 100}%` }}
+                    />
+                  </div>
+                  <div className="text-[8px] font-mono text-[var(--terminal-muted)]">
+                    {detail.convergenceScore.summary}
+                  </div>
+                </div>
+              )}
+
+              {/* Direction comparison */}
+              <div className="flex items-center gap-2 text-[10px] font-mono">
+                <span className="text-[var(--terminal-muted)]">BSCI:</span>
+                <span className={
+                  detail.taContext.bsciDirection === 'BULLISH' ? 'text-green-400 font-bold' :
+                  detail.taContext.bsciDirection === 'BEARISH' ? 'text-red-400 font-bold' : 'text-[var(--terminal-muted)]'
+                }>
+                  {detail.taContext.bsciDirection === 'BULLISH' ? '▲ БЫЧИЙ' :
+                   detail.taContext.bsciDirection === 'BEARISH' ? '▼ МЕДВЕЖИЙ' : '— НЕЙТРАЛ'}
+                </span>
+                <span className="text-[var(--terminal-border)]">vs</span>
+                <span className="text-[var(--terminal-muted)]">ТА:</span>
+                <span className={
+                  detail.taContext.taDirection === 'BULLISH' ? 'text-green-400 font-bold' :
+                  detail.taContext.taDirection === 'BEARISH' ? 'text-red-400 font-bold' : 'text-[var(--terminal-muted)]'
+                }>
+                  {detail.taContext.taDirection === 'BULLISH' ? '▲ БЫЧИЙ' :
+                   detail.taContext.taDirection === 'BEARISH' ? '▼ МЕДВЕЖИЙ' : '— НЕЙТРАЛ'}
+                </span>
+                {/* Divergence alert */}
+                {detail.taContext.divergence && (
+                  <span className="bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded border border-yellow-500/40 font-bold">
+                    ⚡ ДИВЕРГЕНЦИЯ
+                  </span>
+                )}
+              </div>
+
+              {/* Divergence note */}
+              {detail.taContext.divergence && (
+                <div className="bg-yellow-500/5 border border-yellow-500/20 rounded px-2.5 py-1.5">
+                  <div className="text-[9px] font-mono text-yellow-400 font-bold">Скрытая активность</div>
+                  <div className="text-[9px] font-mono text-[var(--terminal-text-dim)]">
+                    {detail.taContext.divergenceNote}
+                  </div>
+                </div>
+              )}
+
+              {/* TA Indicators grid */}
+              <div className="grid grid-cols-5 gap-1.5">
+                {[
+                  {
+                    label: 'RSI',
+                    value: detail.taContext.indicators.rsi.toFixed(1),
+                    zone: detail.taContext.indicators.rsiZone,
+                    color: detail.taContext.indicators.rsiZone === 'OVERSOLD' ? 'text-green-400'
+                         : detail.taContext.indicators.rsiZone === 'OVERBOUGHT' ? 'text-red-400'
+                         : 'text-[var(--terminal-text-dim)]',
+                    badge: detail.taContext.indicators.rsiZone === 'OVERSOLD' ? 'OS'
+                         : detail.taContext.indicators.rsiZone === 'OVERBOUGHT' ? 'OB' : '',
+                  },
+                  {
+                    label: 'CMF',
+                    value: detail.taContext.indicators.cmf.toFixed(3),
+                    zone: detail.taContext.indicators.cmfZone,
+                    color: detail.taContext.indicators.cmfZone === 'POSITIVE' ? 'text-green-400'
+                         : detail.taContext.indicators.cmfZone === 'NEGATIVE' ? 'text-red-400'
+                         : 'text-[var(--terminal-text-dim)]',
+                    badge: detail.taContext.indicators.cmfZone === 'POSITIVE' ? '+' :
+                           detail.taContext.indicators.cmfZone === 'NEGATIVE' ? '−' : '',
+                  },
+                  {
+                    label: 'CRSI',
+                    value: detail.taContext.indicators.crsi.toFixed(1),
+                    zone: detail.taContext.indicators.crsiZone,
+                    color: detail.taContext.indicators.crsiZone === 'OVERSOLD' ? 'text-green-400'
+                         : detail.taContext.indicators.crsiZone === 'OVERBOUGHT' ? 'text-red-400'
+                         : 'text-[var(--terminal-text-dim)]',
+                    badge: detail.taContext.indicators.crsiZone === 'OVERSOLD' ? 'OS'
+                         : detail.taContext.indicators.crsiZone === 'OVERBOUGHT' ? 'OB' : '',
+                  },
+                  {
+                    label: 'ATR',
+                    value: `${(detail.taContext.indicators.atrPercentile * 100).toFixed(0)}%`,
+                    zone: detail.taContext.indicators.atrZone,
+                    color: detail.taContext.indicators.atrZone === 'COMPRESSED' ? 'text-blue-400'
+                         : detail.taContext.indicators.atrZone === 'EXPANDED' ? 'text-orange-400'
+                         : 'text-[var(--terminal-text-dim)]',
+                    badge: detail.taContext.indicators.atrZone === 'COMPRESSED' ? '⊕' :
+                           detail.taContext.indicators.atrZone === 'EXPANDED' ? '⊗' : '',
+                  },
+                  {
+                    label: 'VWAP',
+                    value: `${(detail.taContext.indicators.vwapDeviation * 100).toFixed(2)}%`,
+                    zone: detail.taContext.indicators.vwapZone,
+                    color: detail.taContext.indicators.vwapZone === 'ABOVE' ? 'text-green-400'
+                         : detail.taContext.indicators.vwapZone === 'BELOW' ? 'text-red-400'
+                         : 'text-[var(--terminal-text-dim)]',
+                    badge: detail.taContext.indicators.vwapZone === 'ABOVE' ? '▲' :
+                           detail.taContext.indicators.vwapZone === 'BELOW' ? '▼' : '≈',
+                  },
+                ].map((ind) => (
+                  <div key={ind.label} className="bg-[var(--terminal-bg)]/50 rounded px-1.5 py-1 border border-[var(--terminal-border)]/30 text-center">
+                    <div className="text-[8px] font-mono text-[var(--terminal-muted)]">{ind.label}</div>
+                    <div className={`text-[10px] font-mono font-bold ${ind.color}`}>
+                      {ind.value}
+                      {ind.badge && <span className="ml-0.5 text-[7px]">{ind.badge}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Convergence Score Details (collapsible) */}
+              {detail.convergenceScore && detail.convergenceScore.details.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[8px] font-mono text-[var(--terminal-muted)]">Детализация конвергенции</div>
+                  {detail.convergenceScore.details.map((d) => (
+                    <div key={d.indicator} className="flex items-center gap-1.5 text-[9px] font-mono">
+                      <span className={`w-4 text-center font-bold ${
+                        d.alignment === 'ALIGNED' ? 'text-green-400' :
+                        d.alignment === 'DIVERGENT' ? 'text-red-400' : 'text-[var(--terminal-muted)]'
+                      }`}>
+                        {d.alignment === 'ALIGNED' ? '✅' : d.alignment === 'DIVERGENT' ? '⚠️' : '—'}
+                      </span>
+                      <span className="text-[var(--terminal-text)] font-bold w-8">{d.indicator}</span>
+                      <span className="text-[var(--terminal-muted)]">{d.points}/{d.maxPoints}</span>
+                      <span className="text-[var(--terminal-text-dim)] flex-1 truncate">{d.note}</span>
+                    </div>
+                  ))}
+                  {/* Bonuses */}
+                  {(detail.convergenceScore.divergenceBonus || detail.convergenceScore.atrBonus || detail.convergenceScore.robotBonus) && (
+                    <div className="flex items-center gap-2 text-[8px] font-mono text-[var(--terminal-muted)] pt-0.5">
+                      {detail.convergenceScore.divergenceBonus && <span className="text-yellow-400">+1 дивергенция</span>}
+                      {detail.convergenceScore.atrBonus && <span className="text-blue-400">+1 ATR-сжатие</span>}
+                      {detail.convergenceScore.robotBonus && <span className="text-cyan-400">+1 роботы</span>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Level-0: Hallucination warning */}
+              {detail.consistencyCheck?.hasHallucination && (
+                <div className="bg-red-500/5 border border-red-500/20 rounded px-2.5 py-1.5">
+                  <div className="text-[9px] font-mono text-red-400 font-bold">
+                    🐛 Галлюцинация детектора
+                  </div>
+                  <div className="text-[9px] font-mono text-[var(--terminal-text-dim)]">
+                    {detail.consistencyCheck.hallucinations.join(', ')} — высокий score без подтверждающих данных. Вес понижен.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Detector Scores */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">

@@ -17,6 +17,8 @@ import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import type { DetectorResult } from '@/lib/horizon/detectors/types';
 import { crossSectionNormalize, computeCrossSectionStats } from '@/lib/horizon/detectors/cross-section-normalize';
 import { calculateTAIndicators, calculateSignalConvergence, type SignalConvergence } from '@/lib/horizon/ta-context';
+import { checkInternalConsistency, type InternalConsistencyResult } from '@/lib/horizon/context/internal-consistency';
+import { calculateConvergenceScore, type ConvergenceScoreResult } from '@/lib/horizon/context/convergence-score';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
@@ -166,6 +168,10 @@ export interface TickerScanResult {
   error?: string;
   // TA Context layer (НЕ входит в BSCI!)
   taContext?: SignalConvergence;
+  // Convergence score 0-10
+  convergenceScore?: ConvergenceScoreResult;
+  // Level-0 internal consistency
+  consistencyCheck?: InternalConsistencyResult;
   // Internal fields for cross-section normalization (stripped before API response)
   _rawDetectorResults?: DetectorResult[];
   _weights?: Record<string, number>;
@@ -202,8 +208,29 @@ export async function scanTicker(
     // 3. Run all 10 detectors
     const detectorScores = runAllDetectors(detectorInput);
 
-    // 4. Calculate BSCI
-    const bsciResult = calcBSCI(detectorScores, weights);
+    // 3.5 Level-0: Internal Consistency Check
+    // Проверяем галлюцинации детекторов на пустых данных
+    const turnover3_5 = detectorInput.trades.reduce(
+      (sum, t) => sum + t.price * t.quantity,
+      0,
+    );
+    const consistencyCheck = checkInternalConsistency(
+      detectorScores,
+      detectorInput.cumDelta.delta,
+      detectorInput.vpin.vpin,
+      turnover3_5,
+      weights,
+    );
+    // Используем скорректированные веса если есть галлюцинации
+    const effectiveWeights = consistencyCheck.hasHallucination
+      ? consistencyCheck.adjustedWeights
+      : weights;
+    if (consistencyCheck.hasHallucination) {
+      console.log(`[horizon/scan] Level-0: ${ticker} has hallucinations: ${consistencyCheck.hallucinations.join(', ')}`);
+    }
+
+    // 4. Calculate BSCI (with consistency-adjusted weights)
+    const bsciResult = calcBSCI(detectorScores, effectiveWeights);
 
     // 5. Build detector scores map
     const scoresMap: Record<string, number> = {};
@@ -251,6 +278,7 @@ export async function scanTicker(
 
     // 11. TA Context layer (НЕ входит в BSCI — только контекст!)
     let taContext: SignalConvergence | undefined;
+    let convergenceScore: ConvergenceScoreResult | undefined;
     try {
       const taIndicators = calculateTAIndicators(
         detectorInput.candles,
@@ -261,6 +289,16 @@ export async function scanTicker(
         bsciResult.direction,
         bsciResult.bsci,
         taIndicators,
+      );
+
+      // 11.5 Convergence Score 0-10
+      convergenceScore = calculateConvergenceScore(
+        bsciResult.direction,
+        bsciResult.bsci,
+        taIndicators,
+        taContext.divergence,               // бонус за дивергенцию
+        taIndicators.atrZone === 'COMPRESSED', // бонус за ATR-сжатие
+        false,                                // робот-подтверждение (Спринт 3)
       );
     } catch (taErr: any) {
       console.warn(`[horizon/scan] TA context failed for ${ticker}:`, taErr.message);
@@ -285,6 +323,8 @@ export async function scanTicker(
       moexTurnover,
       type: tickerType,
       taContext,
+      convergenceScore,
+      consistencyCheck,
       // Internal: for cross-section normalization
       _rawDetectorResults: detectorScores,
       _weights: weights,
@@ -311,6 +351,8 @@ export async function scanTicker(
       type: tickerType,
       error: error.message,
       taContext: undefined,
+      convergenceScore: undefined,
+      consistencyCheck: undefined,
       _rawDetectorResults: undefined,
       _weights: undefined,
     };
@@ -519,6 +561,8 @@ export async function POST(request: NextRequest) {
           type: FUTURES_TICKERS.has(tickersToScan[i].ticker) ? 'FUTURE' as const : 'STOCK' as const,
           error: r.reason?.message || 'Unknown error',
           taContext: undefined,
+          convergenceScore: undefined,
+          consistencyCheck: undefined,
           _rawDetectorResults: undefined,
           _weights: undefined,
         };

@@ -13,9 +13,10 @@ type FilterMode = 'all' | 'alert' | 'bear' | 'bull';
 
 interface ConvergenceCellProps {
   taContext?: ScannerTicker['taContext'];
+  convergenceScore?: ScannerTicker['convergenceScore'];
 }
 
-function ConvergenceCell({ taContext }: ConvergenceCellProps) {
+function ConvergenceCell({ taContext, convergenceScore }: ConvergenceCellProps) {
   if (!taContext) {
     return <span className="text-[var(--terminal-muted)]">—</span>;
   }
@@ -32,6 +33,14 @@ function ConvergenceCell({ taContext }: ConvergenceCellProps) {
   };
 
   const cfg = signalConfig[signal] || signalConfig.NEUTRAL;
+
+  // Convergence score badge (X/10)
+  const convScore = convergenceScore?.score;
+  const convBadge = convScore !== undefined ? (
+    <span className={`text-[6px] font-bold ${
+      convScore >= 7 ? 'text-green-400' : convScore >= 4 ? 'text-yellow-400' : 'text-red-400'
+    }`}>{convScore}/10</span>
+  ) : null;
 
   // Divergence flash
   const divergenceMark = divergence ? (
@@ -53,8 +62,9 @@ function ConvergenceCell({ taContext }: ConvergenceCellProps) {
       : null;
 
   return (
-    <span className={`inline-flex items-center gap-0.5 px-0.5 rounded-sm ${cfg.bg} ${cfg.color}`} title={taContext.divergenceNote || `${signal} | RSI=${indicators.rsi} CMF=${indicators.cmf} ATR%=${(indicators.atrPercentile * 100).toFixed(0)}`}>
+    <span className={`inline-flex items-center gap-0.5 px-0.5 rounded-sm ${cfg.bg} ${cfg.color}`} title={convergenceScore?.summary || taContext.divergenceNote || `${signal} | RSI=${indicators.rsi} CMF=${indicators.cmf} ATR%=${(indicators.atrPercentile * 100).toFixed(0)}`}>
       <span>{cfg.label}</span>
+      {convBadge}
       {divergenceMark}
       {atrMark}
       {rsiLabel}
@@ -354,7 +364,7 @@ export function HorizonScannerFrame() {
                       <DirectionArrow direction={ticker.direction} confidence={ticker.confidence} />
                     </td>
                     <td className="px-1.5 py-0.5">
-                      <ConvergenceCell taContext={ticker.taContext} />
+                      <ConvergenceCell taContext={ticker.taContext} convergenceScore={ticker.convergenceScore} />
                     </td>
                     <td className="px-1.5 py-0.5 text-[var(--terminal-text-dim)] truncate max-w-[120px]" title={ticker.keySignal}>
                       {ticker.keySignal}

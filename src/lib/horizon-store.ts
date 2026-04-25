@@ -63,6 +63,26 @@ export interface ScannerTicker {
       vwapZone: string;
     };
   };
+  // Convergence Score 0-10
+  convergenceScore?: {
+    score: number;
+    details: Array<{
+      indicator: string;
+      points: number;
+      maxPoints: number;
+      alignment: 'ALIGNED' | 'NEUTRAL' | 'DIVERGENT';
+      note: string;
+    }>;
+    divergenceBonus: boolean;
+    atrBonus: boolean;
+    robotBonus: boolean;
+    summary: string;
+  };
+  // Level-0 Internal Consistency
+  consistencyCheck?: {
+    hallucinations: string[];
+    hasHallucination: boolean;
+  };
 }
 
 export interface RadarDot {
