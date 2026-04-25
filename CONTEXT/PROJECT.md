@@ -44,7 +44,8 @@ src/
 │   │   │   ├── bsci-history/route.ts — GET: BSCI history chart
 │   │   │   ├── indicators/route.ts   — GET: detector indicators
 │   │   │   ├── accuracy/route.ts     — GET: accuracy metrics
-│   │   │   └── moex-extended/route.ts— GET: MOEX extended data
+│   │   │   ├── moex-extended/route.ts— GET: MOEX extended data
+│   │   │   └── robot-context/route.ts— GET: Robot context per ticker
 │   │   ├── detect/route.ts           — Original detect engine
 │   │   ├── moex/route.ts             — MOEX data fetcher
 │   │   ├── algopack/route.ts         — MOEX Algopack
@@ -75,7 +76,9 @@ src/
 │   │   ├── observer/
 │   │   │   ├── collect-market-data.ts — Market data collector
 │   │   │   └── generate-observation.ts — AI Observer orchestrator
-│   │   └── ta-context.ts            — 5 TA indicators + SignalConvergence
+│   │   ├── ta-context.ts            — 5 TA indicators + SignalConvergence
+│   │   ├── convergence-score.ts     — Convergence score 0-10 + бонусы + штрафы
+│   │   └── robot-context.ts         — Robot context bridge (AlgoPack + Burst → Horizon)
 │   ├── horizon-store.ts             — Zustand: Scanner, Radar, Heatmap, TOP-100
 │   ├── settings-store.ts            — Font settings (11 options, max 45px)
 │   ├── redis.ts                     — ioredis singleton
@@ -84,7 +87,7 @@ src/
 ├── components/
 │   ├── horizon/
 │   │   ├── frames/
-│   │   │   ├── ScannerFrame.tsx     — СКАНЕР (core 9 / top 100)
+│   │   │   ├── ScannerFrame.tsx     — СКАНЕР (core 9 / top 100) + ConvergenceCell
 │   │   │   ├── RadarFrame.tsx       — РАДАР (BSCI Y-axis, CumDelta X-axis)
 │   │   │   ├── HeatmapFrame.tsx     — ТЕПЛОВАЯ КАРТА
 │   │   │   └── AIObserverFrame.tsx  — AI НАБЛЮДАТЕЛЬ
@@ -94,7 +97,7 @@ src/
 │   │   │   ├── DirectionArrow.tsx   — ▲/▼ arrow
 │   │   │   └── BSCIColor.ts         — BSCI→color mapping
 │   │   └── modals/
-│   │       ├── TickerModal.tsx      — Тикер детальная карточка
+│   │       ├── TickerModal.tsx      — Тикер детальная карточка (BSCI + конвергенция + роботы)
 │   │       └── TimeSliceModal.tsx   — Срез по времени
 │   ├── frames/
 │   │   ├── SignalsFrame.tsx         — СИГНАЛЫ (existing shell)
@@ -109,8 +112,10 @@ src/
 1. **ВСЕГДА** катить изменения и в PROD и в LAB
 2. **НИКОГДА** не трогать PROD без явного запроса пользователя
 3. Git Integration webhook сломан — деплой только через Vercel CLI
-4. LAB: `npx vercel --prod --token TOKEN --yes` (project linked)
-5. PROD: временно сменить `.vercel/project.json` projectId, задеплоить, вернуть
+4. Токен хранится в `.env` (VERCEL_TOKEN) и `CONTEXT/TOKEN`
+5. PROD: `npx vercel --prod --token $TOKEN --yes` (project linked)
+6. LAB: `npx vercel link --yes --project=robot-lab-v3 --token $TOKEN && npx vercel --prod --token $TOKEN --yes`
+7. После LAB-деплоя: вернуть link на PROD
 
 ## Шрифты
 

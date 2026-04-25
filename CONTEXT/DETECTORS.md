@@ -82,8 +82,28 @@ const ALL_DETECTORS = [
 | 9 | VPIN>0.7 + DARKMATTER>0.5 | INFORMED_TRADING | ALERT |
 | 10 | prevBsci - bsci > 0.3 | SIGNAL_FADE | WATCH |
 
+## Детектор ↔ Робот-паттерн (DETECTOR_PATTERN_MAP)
+
+Каждый детектор привязан к робот-паттернам для подтверждения сигналов:
+
+| Детектор | Робот-паттерны | AlgoPack |
+|----------|---------------|----------|
+| GRAVITON | market_maker, absorber, iceberg | wall_score |
+| DARKMATTER | iceberg, absorber | wall_score + cancel |
+| ACCRETOR | accumulator, slow_grinder | accumulation_score |
+| DECOHERENCE | aggressive, momentum, scalper | — |
+| HAWKING | scalper, hft, market_maker | — |
+| PREDATOR | aggressive, momentum, sweeper | — |
+| CIPHER | periodic, fixed_volume, layered | — |
+| ENTANGLE | ping_pong, periodic, market_maker | — |
+| WAVEFUNCTION | periodic, ping_pong, market_maker | — |
+| ATTRACTOR | slow_grinder, absorber, iceberg | wall_score + accumulation_score |
+
+Подробности → ROBOT-INTEGRATION.md
+
 ## Состояние и известные проблемы
 
 - **ACCRETOR**: До нормализации давал 0.8-0.99 для 90% тикеров (шум). После cross-section norm — дискриминирует
 - **GRAVITON**: Часто 0.00 — "мёртвый" детектор. Z-score нормализация вытягивает
 - **ATTRACTOR**: На тикерах с нулевым оборотом (SGZH) давал ложные 0.70 → решается Уровнем 0 (внутренняя консистентность)
+- **Все 10 детекторов**: Теперь имеют маппинг на робот-паттерны (Спринт 3) → см. DETECTOR_PATTERN_MAP

@@ -54,6 +54,26 @@ calculateSignalConvergence(bsciDirection, bsciScore, taIndicators)
    └── Convergence strength: 0-1
    │
    ▼
+calculateRobotContext(ticker, algopack, detectorScores, topDetector, bsci)
+   ├── AlgoPack: стены, накопления, cancel ratio, спуфинг
+   ├── Burst Detection: типы активных роботов
+   ├── computeRobotConfirmation() → confirmation: 0.1-1.0
+   ├── isRobotConfirmed() → порог 0.4
+   ├── DETECTOR_PATTERN_MAP: 10 детекторов ↔ 11 паттернов
+   ├── DETECTOR_ALGOPACK_MAP: прямые AlgoPack-индикаторы
+   └── tryAlgoPackMatch(): fallback для non-top детекторов
+   │
+   ▼
+calculateConvergenceScore(bsciDir, bsciScore, indicators, hasDivergence, atrCompressed, robotConfirmed, hasSpoofing, cancelRatio)
+   ├── База: 5 индикаторов × 0-2 балла = 0-10
+   ├── +1 дивергенция (скрытая активность)
+   ├── +1 ATR-сжатие (прорыв)
+   ├── +1 робот-подтверждение (isRobotConfirmed)
+   ├── −2 СПУФИНГ (hasSpoofing)
+   ├── −1 cancel>80% (cancelRatio > 0.8)
+   └── score = clamp(totalPoints, 0, 10)
+   │
+   ▼
 applyScannerRules(scannerInput)
    ├── 10 IF-THEN правил
    ├── Signal: PREDATOR_ACCUM, IMBALANCE_SPIKE, ...
@@ -68,6 +88,8 @@ applyScannerRules(scannerInput)
      vpin, cumDelta, ofi, turnover, moexTurnover,
      type: FUTURE|STOCK,
      taContext: SignalConvergence,
+     convergenceScore: ConvergenceScoreResult,
+     robotContext: RobotContext,
    }
    │
    ▼
@@ -75,6 +97,7 @@ applyScannerRules(scannerInput)
    ├── Redis: horizon:scanner:latest (TTL 1h) / horizon:scanner:top100 (TTL 30min)
    ├── Redis: horizon:scanner:bsci:{ticker} (TTL 1h) — prev BSCI
    ├── Redis: horizon:cross-section:stats (TTL 2h) — z-score статистики
+   ├── Redis: horizon:algopack:{ticker} (TTL 5m) — AlgoPack кэш
    └── PostgreSQL: bsci_log — батч-инсерт
 ```
 
@@ -110,6 +133,7 @@ Cron/Manual → generateObservation(ticker, slot?)
 | `horizon:scanner:bsci:{ticker}` | String | 1h | Previous BSCI per ticker |
 | `horizon:cross-section:stats` | JSON | 2h | Z-score stats {mean, std} per detector |
 | `horizon:observe:{ticker}` | JSON | 30m | Last observation per ticker |
+| `horizon:algopack:{ticker}` | JSON | 5m | AlgoPack data per ticker |
 
 ### PostgreSQL (постоянное хранение)
 
@@ -166,4 +190,28 @@ Weights:
 КЭШИРОВАНИЕ:
   Stats (mean, std) → Redis horizon:cross-section:stats (TTL 2h)
   Single-ticker normalization → crossSectionNormalizeSingle() vs кэш
+```
+
+## Convergence Score (0-10)
+
+Детальное описание → TA-CONTEXT.md
+
+```
+База: RSI + CMF + CRSI + VWAP + ATR (каждый 0-2 балла)
+Бонусы: +1 дивергенция, +1 ATR-сжатие, +1 роботы
+Штрафы: −2 спуфинг, −1 cancel>80%
+Финал: clamp(итого, 0, 10)
+```
+
+## Robot Context
+
+Детальное описание → ROBOT-INTEGRATION.md
+
+```
+AlgoPack → стены, накопления, cancel ratio, спуфинг
+Burst Detection → типы активных роботов (11 паттернов)
+DETECTOR_PATTERN_MAP → маппинг детекторов ↔ паттернов
+computeRobotConfirmation() → 0.1-1.0
+isRobotConfirmed() → порог 0.4
+Влияние на convergence: +1 роботы, −2 спуфинг, −1 cancel>80%
 ```
