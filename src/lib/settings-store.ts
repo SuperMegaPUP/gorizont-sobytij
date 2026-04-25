@@ -98,7 +98,7 @@ export const FONT_CATEGORY_LABELS: Record<FontOption['category'], string> = {
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 export const FONT_SIZE_MIN = 10;
-export const FONT_SIZE_MAX = 20;
+export const FONT_SIZE_MAX = 60;
 export const FONT_SIZE_DEFAULT = 14;
 export const FONT_SIZE_STEP = 1;
 export const FONT_SIZE_BASE = 14; // Base size for zoom scale calculation

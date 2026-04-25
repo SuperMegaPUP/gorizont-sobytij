@@ -64,9 +64,11 @@ export function HorizonRadarFrame() {
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
   const [dims, setDims] = useState({ w: 400, h: 300 });
+  const [mounted, setMounted] = useState(false);
 
   // Fetch on mount + interval
   useEffect(() => {
+    setMounted(true);
     fetchRadar();
     const interval = setInterval(fetchRadar, 30000);
     return () => clearInterval(interval);
@@ -215,6 +217,11 @@ export function HorizonRadarFrame() {
 
       {/* SVG Canvas */}
       <div className="flex-1 relative overflow-hidden">
+        {!mounted ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[7px] text-[var(--terminal-muted)] font-mono">
+            Загрузка...
+          </div>
+        ) : (
         <svg ref={svgRef} width="100%" height="100%" className="block">
           {/* Quadrant backgrounds */}
           <rect x={0} y={0} width={centerX} height={centerY}
@@ -311,6 +318,7 @@ export function HorizonRadarFrame() {
               </g>
             ))}
         </svg>
+        )}
 
         {/* Tooltip */}
         {tooltip && (
