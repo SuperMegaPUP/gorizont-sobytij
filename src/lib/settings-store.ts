@@ -101,6 +101,7 @@ export const FONT_SIZE_MIN = 10;
 export const FONT_SIZE_MAX = 20;
 export const FONT_SIZE_DEFAULT = 14;
 export const FONT_SIZE_STEP = 1;
+export const FONT_SIZE_BASE = 14; // Base size for zoom scale calculation
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    SETTINGS STORE
@@ -181,6 +182,10 @@ export function applySettingsToDOM(fontFamily?: string, fontSize?: number) {
   }
   if (fontSize !== undefined) {
     root.style.setProperty('--app-font-size', `${fontSize}px`);
+    // Zoom-based scaling: scale the entire UI proportionally to the font size
+    const scale = fontSize / FONT_SIZE_BASE;
+    root.style.setProperty('--app-font-scale', String(scale));
+    document.body.style.zoom = String(scale);
   }
 }
 
@@ -190,4 +195,9 @@ export function applySettingsToDOM(fontFamily?: string, fontSize?: number) {
 export function initSettingsFromStorage() {
   const { fontFamily, fontSize } = loadFromStorage();
   applySettingsToDOM(fontFamily, fontSize);
+  // Apply zoom on initial load
+  if (typeof document !== 'undefined') {
+    const scale = fontSize / FONT_SIZE_BASE;
+    document.body.style.zoom = String(scale);
+  }
 }

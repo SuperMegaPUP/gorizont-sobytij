@@ -491,9 +491,9 @@ export default function RobotDetectorTerminal() {
   const { theme } = useTheme();
 
   return (
-    <div className={`min-h-screen font-mono theme-${theme}`} style={{ background: 'var(--t-bg)', color: 'var(--t-text)' }}>
+    <div className={`h-screen flex flex-col overflow-hidden font-mono theme-${theme}`} style={{ background: 'var(--t-bg)', color: 'var(--t-text)' }}>
       <Header onHelpClick={() => setShowHelp(true)} />
-      <div className="h-[calc(100vh-64px)] flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         <SideZone side="left" />
         <div className="flex-1 min-w-0 overflow-hidden">
           <DashboardGrid />
