@@ -13,12 +13,13 @@
 // v3: Добавлена резолвация тикеров + TOP-100 поддержка
 
 import type { DetectorInput } from '../detectors/types';
-import type { OrderBookData } from '../calculations/ofi';
+import type { OrderBookData, OrderBookSnapshot } from '../calculations/ofi';
 import type { Trade, CumDeltaResult } from '../calculations/delta';
 import type { Candle, VPINResult } from '../calculations/vpin';
-import { calcOFI, calcWeightedOFI } from '../calculations/ofi';
+import { calcOFI, calcWeightedOFI, calcRealtimeOFIMultiLevel } from '../calculations/ofi';
 import { calcCumDelta } from '../calculations/delta';
 import { calcVPIN, sliceIntoVolumeBuckets } from '../calculations/vpin';
+import redis from '@/lib/redis';
 
 // ─── MOEX Fetch Helper ──────────────────────────────────────────────────────
 
@@ -284,17 +285,30 @@ interface FuturesOIResult {
   change: number;
 }
 
-/** Стакан 50 уровней — board-aware */
+/** Стакан 50 уровней — board-aware
+ *  MOEX ISS возвращает orderbook.bid и orderbook.ask (ЕДИНСТВЕННОЕ число!)
+ *  НЕ bids/asks — это был баг, давший OFI=0.0 у всех тикеров
+ */
 async function fetchOrderboard(config: TickerConfig): Promise<OrderbookResult | null> {
   try {
-    const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/orderbook.json?depth=50`;
+    const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/orderbook.json?iss.meta=off&iss.only=orderbook&depth=50`;
     const data = await moexFetch(path);
-    const bids = (data.orderbook?.bids || []).map((b: any[]) => ({
+
+    // MOEX ISS orderbook: bid/ask (SINGULAR), каждый уровень = [price, quantity, orders?]
+    const bids = (data.orderbook?.bid || []).map((b: any[]) => ({
       price: Number(b[0]), quantity: Number(b[1]),
     }));
-    const asks = (data.orderbook?.asks || []).map((a: any[]) => ({
+    const asks = (data.orderbook?.ask || []).map((a: any[]) => ({
       price: Number(a[0]), quantity: Number(a[1]),
     }));
+
+    if (bids.length === 0 && asks.length === 0) {
+      console.warn(`[collect-market-data] EMPTY orderbook for ${config.moexTicker} — API returned 0 levels`);
+      // Diagnostic: log raw response structure
+      const obKeys = data.orderbook ? Object.keys(data.orderbook) : 'no orderbook key';
+      console.warn(`[collect-market-data] orderbook keys: ${JSON.stringify(obKeys)}`);
+    }
+
     return { bids, asks };
   } catch (e: any) {
     console.warn(`[collect-market-data] orderbook error for ${config.moexTicker}:`, e.message);
@@ -455,9 +469,43 @@ export async function collectMarketData(
     ? tradesResult.value
     : { trades: [], recentTrades: [] };
 
+  // 3.5 Предыдущий снапшот стакана из Redis (для Real-time OFI)
+  let orderbookPrev: OrderBookSnapshot | undefined;
+  let realtimeOFI: number | undefined;
+  const obSnapshotKey = `horizon:ob-snapshot:${ticker}`;
+
+  try {
+    const prevJson = await redis.get(obSnapshotKey);
+    if (prevJson) {
+      orderbookPrev = JSON.parse(prevJson) as OrderBookSnapshot;
+    }
+  } catch { /* ignore Redis errors */ }
+
   // 4. Индикаторы
   const ofi = calcOFI(orderbook);
   const weightedOFI = calcWeightedOFI(orderbook);
+
+  // 4.5 Real-time OFI (Cont et al. 2014) — multi-level по 10 уровням
+  if (orderbookPrev && orderbook.bids.length > 0 && orderbook.asks.length > 0) {
+    const currentSnapshot: OrderBookSnapshot = {
+      bids: orderbook.bids.map(l => ({ price: l.price, volume: l.quantity })),
+      asks: orderbook.asks.map(l => ({ price: l.price, volume: l.quantity })),
+      timestamp: Date.now(),
+    };
+    realtimeOFI = calcRealtimeOFIMultiLevel(currentSnapshot, orderbookPrev, 10);
+  }
+
+  // Сохраняем текущий снапшот в Redis для следующего скана
+  if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
+    try {
+      const currentSnapshot: OrderBookSnapshot = {
+        bids: orderbook.bids.map(l => ({ price: l.price, volume: l.quantity })),
+        asks: orderbook.asks.map(l => ({ price: l.price, volume: l.quantity })),
+        timestamp: Date.now(),
+      };
+      await redis.setex(obSnapshotKey, 300, JSON.stringify(currentSnapshot)); // 5 мин TTL
+    } catch { /* ignore Redis errors */ }
+  }
   const cumDelta: CumDeltaResult = calcCumDelta(trades);
 
   // 5. VPIN (через candles из trades)
@@ -499,10 +547,12 @@ export async function collectMarketData(
   const detectorInput: DetectorInput = {
     ticker,
     orderbook,
+    orderbookPrev,
     trades,
     recentTrades,
     ofi,
     weightedOFI,
+    realtimeOFI,
     cumDelta,
     vpin,
     prices,
@@ -530,7 +580,7 @@ export async function collectMarketData(
     ts: Date.now(),
   };
 
-  console.log(`[collect-market-data] Done: ${trades.length} trades, ${orderbook.bids.length} bids, ${orderbook.asks.length} asks, VPIN=${vpin.vpin.toFixed(3)}, OFI=${ofi.toFixed(3)}`);
+  console.log(`[collect-market-data] Done: ${trades.length} trades, ${orderbook.bids.length} bids, ${orderbook.asks.length} asks, VPIN=${vpin.vpin.toFixed(3)}, OFI=${ofi.toFixed(3)}, rtOFI=${realtimeOFI?.toFixed(1) || 'N/A'}`);
 
   return { detectorInput, marketSnapshot, tickerConfig: config };
 }

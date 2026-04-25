@@ -16,6 +16,12 @@
 
 ## Средние
 
+### ~~OFI = 0.0 у ВСЕХ тикеров~~ (ИСПРАВЛЕНО)
+- **Статус**: ИСПРАВЛЕН
+- **Причина**: MOEX ISS API возвращает `orderbook.bid`/`orderbook.ask` (ЕДИНСТВЕННОЕ число), а код использовал `orderbook.bids`/`orderbook.asks` (множественное) → `undefined` → `[]` → OFI=0
+- **Дополнительно**: Добавлен Real-time OFI (Cont et al. 2014) через Redis-кеш предыдущего снапшота стакана
+- **Файлы**: `collect-market-data.ts`, `moex-extended/route.ts`, `detectors/types.ts`, `scan/route.ts`
+
 ### ACCRETOR шум (до нормализации)
 - **Статус**: ИСПРАВЛЕН кросс-секционной нормализацией
 - **Было**: 0.8-0.99 у 90% тикеров → BSCI сжимался в 0.08-0.40

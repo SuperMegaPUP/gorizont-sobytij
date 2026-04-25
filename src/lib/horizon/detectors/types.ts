@@ -41,6 +41,7 @@ export interface DetectorInput {
   // Индикаторы (предрассчитанные)
   ofi: number;             // Простой OFI
   weightedOFI: number;     // Взвешенный OFI
+  realtimeOFI?: number;    // Real-time OFI (Cont et al. 2014) — нужен orderbookPrev
   cumDelta: CumDeltaResult;
   vpin: VPINResult;
 

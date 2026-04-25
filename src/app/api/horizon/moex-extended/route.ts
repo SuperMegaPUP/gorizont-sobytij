@@ -77,17 +77,20 @@ function parseIssGrid(raw: any): Record<string, any>[] {
   });
 }
 
-/** Стакан 50 уровней */
+/** Стакан 50 уровней
+ *  MOEX ISS: orderbook.bid/ask (ЕДИНСТВЕННОЕ число!)
+ */
 async function getOrderbook(ticker: string, depth: number = 50) {
-  const path = `/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/orderbook.json?depth=${depth}`;
+  const path = `/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/orderbook.json?iss.meta=off&iss.only=orderbook&depth=${depth}`;
   const data = await moexFetch(path);
 
-  const bids = (data.orderbook?.bids || []).map((b: any[]) => ({
+  // MOEX ISS orderbook: bid/ask (SINGULAR), каждый уровень = [price, quantity, orders?]
+  const bids = (data.orderbook?.bid || []).map((b: any[]) => ({
     price: Number(b[0]),
     quantity: Number(b[1]),
   }));
 
-  const asks = (data.orderbook?.asks || []).map((a: any[]) => ({
+  const asks = (data.orderbook?.ask || []).map((a: any[]) => ({
     price: Number(a[0]),
     quantity: Number(a[1]),
   }));
