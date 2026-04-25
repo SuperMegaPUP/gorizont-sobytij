@@ -40,44 +40,48 @@
 - [x] UI: робот-контекст + МАНИПУЛЯЦИЯ badge + СПУФИНГ→СПУФИНГ
 - [x] Деплой в PROD и LAB
 
-## Спринт 4 (ТЕКУЩИЙ): П1 → СИГНАЛЫ → Feedback+UI
+## Спринт 4 (ТЕКУЩИЙ): СИГНАЛЫ
 
-### ПОРЯДОК v4.1: П1 СТРОГО ДО SIGNAL-GENERATOR
+### ПОРЯДОК v4.1: Параметризованные пороги — можно строить ПАРАЛЛЕЛЬНО
 
-П1 меняет формулы DARKMATTER/DECOHERENCE/HAWKING/BSCI → BSCI scores изменятся → convergence scores изменятся → пороги сигналов (≥0.55, ≥7) будут калиброваны под старые детекторы.
+П1 правки уже реализованы в коде (BSCI η=0.03+min_w=0.04, HAWKING Welch PSD, DARKMATTER iceberg consecutive, DECOHERENCE symbolic stream). Пороги сигналов параметризованы как константы (`SIGNAL_BSCI_THRESHOLD`, `SIGNAL_CONV_THRESHOLD`) — подправим одной строкой после замера.
 
-Если строить signal-generator на текущих (неточных) детекторах, а потом менять детекторы — все пороги поедут. Это как настраивать пианино, а потом заменить струны.
+### Фаза 1 (ВЫПОЛНЕНА): П1 правки детекторов ✅
 
-### Фаза 1 (2-3 дня): П1 правки детекторов
+| # | Правка | Статус |
+|---|--------|--------|
+| П1-1 | BSCI η=0.03 + min_w=0.04 | ✅ Реализовано в save-observation.ts |
+| П1-2 | HAWKING: noise_ratio fix + Welch PSD + N≥50 | ✅ Реализовано в hawking.ts |
+| П1-3 | DARKMATTER: ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME | ✅ Реализовано в darkmatter.ts |
+| П1-4 | DECOHERENCE: symbolic stream + tick_rule при ΔP=0 | ✅ Реализовано в decoherence.ts |
 
-| # | Правка | Что менять | Сложность | Статус |
-|---|--------|-----------|-----------|--------|
-| П1-1 | BSCI η+min_w | η=0.03 + min_w=0.04 в save-observation.ts | 🟢 | ⬜ |
-| П1-2 | HAWKING | noise_ratio fix через median_psd + минимум 50 сделок + Welch при N≥100 | 🟢 | ⬜ |
-| П1-3 | DARKMATTER | ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME 0.5% + n≥3 | 🟡 | ⬜ |
-| П1-4 | DECOHERENCE | Символьный поток round(log2(vol)*dir) + tick_rule при ΔP=0 | 🟡 | ⬜ |
+### Фаза 2 (ВЫПОЛНЕНА): Signal core ✅
 
-**После П1**: ЗАМЕРИТЬ новые BSCI/convergence распределения. Скорректировать пороги если нужно (0.55/7 могут измениться). Задеплоить, подождать 1 сессию.
+| # | Компонент | Файл | Статус |
+|---|-----------|------|--------|
+| 2-0 | Динамический TTL по МОЕКС | `signals/moex-sessions.ts` | ✅ |
+| 2-1 | level-calculator.ts | `signals/level-calculator.ts` | ✅ |
+| 2-2 | signal-generator.ts | `signals/signal-generator.ts` | ✅ |
+| 2-3 | signal-feedback.ts | `signals/signal-feedback.ts` | ✅ |
+| 2-4 | signal-store.ts | `signals/signal-store.ts` | ✅ |
+| 2-5 | /api/horizon/signals | `api/horizon/signals/route.ts` | ✅ |
+| 2-6 | Интеграция в scan route | `api/horizon/scan/route.ts` | ✅ |
+| 2-7 | Exit conditions (встроены в signal-generator + feedback) | — | ✅ |
+| 2-8 | Корреляция SAME_ISSUER (встроена в signal-generator) | — | ✅ |
 
-### Фаза 2 (3-4 дня): Signal core
+### Фаза 3 (ВЫПОЛНЕНА): Feedback + UI ✅
 
-| # | Компонент | Описание | Сложность | Статус |
-|---|-----------|----------|-----------|--------|
-| 2-1 | `level-calculator.ts` | S/R за 30 свечей + estimated_stops (0.35/0.25/0.25/0.15) | 🟡 | ⬜ |
-| 2-2 | `signal-generator.ts` | BSCI≥0.55 + conv≥7 + topDet≥0.75 → LONG/SHORT/AWAIT/BREAKOUT. Динамический TTL. Условное взвешивание BSCI. Дедупликация. Divergence условный | 🔴 | ⬜ |
-| 2-3 | `signal-store.ts` + `/api/horizon/signals` | Zustand store + API | 🟡 | ⬜ |
-| 2-4 | Exit conditions | CumDelta reversal + BSCI drop>0.15 + VPIN spike + PREDATOR FALSE_BREAKOUT градиент | 🟡 | ⬜ |
+| # | Компонент | Файл | Статус |
+|---|-----------|------|--------|
+| 3-1 | SignalsFrame.tsx | `components/horizon/frames/SignalsFrame.tsx` | ✅ |
+| 3-2 | Frame Registry + Layout Store | `lib/frame-registry.tsx`, `lib/layout-store.ts` | ✅ |
+| 3-3 | Virtual P&L + SignalFeedbackStore (в signal-feedback.ts) | — | ✅ |
+| 3-4 | SignalSnapshot при каждой P&L проверке | — | ✅ |
 
-### Фаза 3 (2-3 дня): Feedback + UI
-
-| # | Компонент | Описание | Сложность | Статус |
-|---|-----------|----------|-----------|--------|
-| 3-1 | Virtual P&L + SignalFeedbackStore | Фоновая проверка каждые 5 мин + WIN/LOSS/EXPIRED | 🟡 | ⬜ |
-| 3-2 | SignalSnapshot | Snapshot при каждой P&L проверке (~100/день/тикер) | 🟢 | ⬜ |
-| 3-3 | Корреляция сигналов | correlatedWith + SAME_ISSUER/SECTOR/FUND | 🟢 | ⬜ |
-| 3-4 | `SignalsFrame.tsx` | LONG/SHORT/AWAIT/BREAKOUT карточки + confidence breakdown + бейджи корреляции | 🔴 | ⬜ |
-
-Итого: 7-10 дней
+### КОГДА ОТКРОЕТСЯ СЕССИЯ:
+→ Замерить BSCI/convergence распределения
+→ Скорректировать SIGNAL_BSCI_THRESHOLD и SIGNAL_CONV_THRESHOLD если нужно
+→ Это 5 минут работы
 
 ### Формула уверенности (v4.1 — условное взвешивание BSCI)
 

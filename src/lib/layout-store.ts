@@ -44,7 +44,8 @@ export type FrameKey =
   | 'horizonScanner'
   | 'horizonRadar'
   | 'horizonObserver'
-  | 'horizonHeatmap';
+  | 'horizonHeatmap'
+  | 'horizonSignals';
 
 // ─── Dashboard tab — switch between main dashboard and horizon ──────────────
 export type DashboardTab = 'main' | 'horizon';
@@ -54,6 +55,7 @@ export const HORIZON_FRAME_KEYS: FrameKey[] = [
   'horizonRadar',
   'horizonObserver',
   'horizonHeatmap',
+  'horizonSignals',
 ];
 
 export const ALL_FRAME_KEYS: FrameKey[] = [
@@ -78,6 +80,7 @@ export const ALL_FRAME_KEYS: FrameKey[] = [
   'horizonRadar',
   'horizonObserver',
   'horizonHeatmap',
+  'horizonSignals',
 ];
 
 export const MAIN_FRAME_KEYS: FrameKey[] = ALL_FRAME_KEYS.filter(

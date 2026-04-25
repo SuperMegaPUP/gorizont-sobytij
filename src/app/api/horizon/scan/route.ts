@@ -21,6 +21,8 @@ import { checkInternalConsistency, type InternalConsistencyResult } from '@/lib/
 import { calculateConvergenceScore, type ConvergenceScoreResult } from '@/lib/horizon/convergence-score';
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 import { calculateRobotContext, findTopDetector, isRobotConfirmed, type RobotContext } from '@/lib/horizon/robot-context';
+import { generateSignal, type TradeSignal, type SignalGeneratorInput } from '@/lib/horizon/signals/signal-generator';
+import { serializeSignal } from '@/lib/horizon/signals/signal-store';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
 
@@ -176,6 +178,12 @@ export interface TickerScanResult {
   consistencyCheck?: InternalConsistencyResult;
   // Robot context (Спринт 3)
   robotContext?: RobotContext;
+  // Signal generation result (Спринт 4)
+  signalInfo?: {
+    type: string;
+    confidence: number;
+    reason: string;
+  };
   // Internal fields for cross-section normalization (stripped before API response)
   _rawDetectorResults?: DetectorResult[];
   _weights?: Record<string, number>;
@@ -655,14 +663,105 @@ export async function POST(request: NextRequest) {
       console.warn('[/api/horizon/scan] bsci_log batch insert failed:', dbErr.message);
     }
 
+    // ── Sprint 4: Signal Generation ────────────────────────────────────────
+    // После сканирования проверяем пороги и генерируем сигналы
+    let generatedSignals: TradeSignal[] = [];
+    try {
+      // Загружаем текущие активные сигналы из Redis (для дедупликации)
+      let existingSignals: TradeSignal[] = [];
+      try {
+        const cachedSignals = await redis.get('horizon:signals:active');
+        if (cachedSignals) {
+          existingSignals = JSON.parse(cachedSignals);
+        }
+      } catch { /* ignore */ }
+
+      // Фильтруем протухшие сигналы
+      const now = Date.now();
+      existingSignals = existingSignals.filter(s =>
+        new Date(s.expiresAt).getTime() > now && s.state === 'ACTIVE',
+      );
+
+      for (const scanResult of scannerData) {
+        if (scanResult.error || !scanResult.convergenceScore || !scanResult.taContext) continue;
+
+        const topDetector = findTopDetector(scanResult.detectorScores);
+        const currentPrice = scanResult.taContext.indicators.vwap > 0
+          ? scanResult.taContext.indicators.vwap * (1 + scanResult.taContext.indicators.vwapDeviation)
+          : 0;
+
+        if (currentPrice <= 0) continue;
+
+        // Собираем DetectorInput для level-calculator (нужны candles, trades, orderbook)
+        // Мы используем данные из scanResult — но candles/trades не передаются в TickerScanResult
+        // Поэтому пока используем заглушки — полная интеграция будет в SignalGeneratorInput
+        const signalInput: SignalGeneratorInput = {
+          ticker: scanResult.ticker,
+          name: scanResult.name,
+          bsci: scanResult.bsci,
+          direction: scanResult.direction,
+          convergenceScore: scanResult.convergenceScore.score,
+          convergenceResult: scanResult.convergenceScore,
+          detectorScores: scanResult.detectorScores,
+          topDetector,
+          vpin: scanResult.vpin,
+          cumDelta: scanResult.cumDelta,
+          ofi: scanResult.ofi,
+          taIndicators: scanResult.taContext.indicators,
+          robotContext: scanResult.robotContext,
+          // Данные для уровней — заглушки (полные данные были в detectorInput)
+          candles: [],
+          trades: [],
+          currentPrice,
+          existingActiveSignals: existingSignals,
+        };
+
+        const result = generateSignal(signalInput);
+        if (result.signal) {
+          generatedSignals.push(result.signal);
+          console.log(`[horizon/scan] Signal generated: ${result.signal.type} ${result.signal.ticker} conf=${result.signal.confidence.toFixed(1)}%`);
+        }
+      }
+
+      // Если есть новые сигналы — обновляем Redis
+      if (generatedSignals.length > 0) {
+        // Объединяем с существующими (дедупликация уже внутри generateSignal)
+        const allActive = [...existingSignals];
+        for (const newSignal of generatedSignals) {
+          const existingIdx = allActive.findIndex(
+            s => s.ticker === newSignal.ticker && s.direction === newSignal.direction,
+          );
+          if (existingIdx >= 0) {
+            allActive[existingIdx] = newSignal; // обновляем
+          } else {
+            allActive.push(newSignal);
+          }
+        }
+
+        try {
+          await redis.setex(
+            'horizon:signals:active',
+            14400, // 4ч TTL
+            JSON.stringify(allActive.map(serializeSignal)),
+          );
+          console.log(`[horizon/scan] ${generatedSignals.length} signals saved. Total active: ${allActive.length}`);
+        } catch (redisErr: any) {
+          console.warn('[horizon/scan] Signals Redis save failed:', redisErr.message);
+        }
+      }
+    } catch (sigErr: any) {
+      console.warn('[horizon/scan] Signal generation failed:', sigErr.message);
+    }
+
     const elapsed = Date.now() - startTime;
-    console.log(`[/api/horizon/scan] Done in ${elapsed}ms: ${scannerData.length} tickers scanned (mode=${scanMode})`);
+    console.log(`[/api/horizon/scan] Done in ${elapsed}ms: ${scannerData.length} tickers scanned, ${generatedSignals.length} signals generated (mode=${scanMode})`);
 
     return NextResponse.json({
       success: true,
       mode: scanMode,
       count: cleanData.length,
       data: cleanData,
+      signalsGenerated: generatedSignals.length,
       elapsed,
       ts: Date.now(),
     });

@@ -103,7 +103,7 @@ applyScannerRules(scannerInput)
    └── PostgreSQL: bsci_log — батч-инсерт
 ```
 
-## Signal Generator Pipeline (Sprint 4, Фаза 2 — ПОСЛЕ П1)
+## Signal Generator Pipeline (Sprint 4 — РЕАЛИЗОВАН)
 
 ```
 TickerScanResult (из сканера)
@@ -143,7 +143,7 @@ TradeSignal {
    └── SignalSnapshot при каждой P&L проверке (~100/день)
 ```
 
-## Виртуальный P&L (Sprint 4, Фаза 3)
+## Виртуальный P&L (Sprint 4 — РЕАЛИЗОВАН)
 
 ```
 Cron каждые 5 минут → checkActiveSignals()

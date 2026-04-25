@@ -44,6 +44,7 @@ import { HorizonScannerFrame } from '@/components/horizon/frames/ScannerFrame';
 import { HorizonRadarFrame } from '@/components/horizon/frames/RadarFrame';
 import { HorizonAIObserverFrame } from '@/components/horizon/frames/AIObserverFrame';
 import { HorizonHeatmapFrame } from '@/components/horizon/frames/HeatmapFrame';
+import { SignalsFrame as HorizonSignalsFrame } from '@/components/horizon/frames/SignalsFrame';
 
 // ─── Frame definition ────────────────────────────────────────────────────────
 export interface FrameDefinition {
@@ -202,6 +203,13 @@ export const FRAME_REGISTRY: FrameDefinition[] = [
     title: 'ТЕПЛОВАЯ КАРТА BSCI',
     icon: Grid3x3,
     component: HorizonHeatmapFrame,
+    removable: true,
+  },
+  {
+    key: 'horizonSignals',
+    title: 'СИГНАЛЫ: Торговые рекомендации',
+    icon: Zap,
+    component: HorizonSignalsFrame,
     removable: true,
   },
 ];

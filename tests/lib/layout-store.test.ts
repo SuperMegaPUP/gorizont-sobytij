@@ -1,5 +1,5 @@
 // ─── Layout Store Tests ──────────────────────────────────────────────────
-// LAYOUT_VERSION=19, 21 фреймов, DEFAULT_ZONE, DashboardTab
+// LAYOUT_VERSION=19, 22 фрейма, DEFAULT_ZONE, DashboardTab
 
 import {
   LAYOUT_VERSION,
@@ -15,8 +15,8 @@ describe('Layout Store', () => {
     expect(LAYOUT_VERSION).toBe(19);
   });
 
-  test('ALL_FRAME_KEYS содержит 21 фрейм', () => {
-    expect(ALL_FRAME_KEYS).toHaveLength(21);
+  test('ALL_FRAME_KEYS содержит 22 фрейма', () => {
+    expect(ALL_FRAME_KEYS).toHaveLength(22);
   });
 
   test('ALL_FRAME_KEYS содержит обязательные фреймы', () => {
@@ -25,7 +25,7 @@ describe('Layout Store', () => {
       'signals', 'institutional', 'anomalies', 'fearGreed', 'hourlyActivity',
       'smartMoney', 'oiDynamics', 'futuresOI', 'top5', 'strategies',
       'robotHistory', 'news', 'horizonScanner', 'horizonRadar',
-      'horizonObserver', 'horizonHeatmap',
+      'horizonObserver', 'horizonHeatmap', 'horizonSignals',
     ];
     for (const key of required) {
       expect(ALL_FRAME_KEYS).toContain(key);
@@ -45,12 +45,13 @@ describe('Layout Store', () => {
     expect(DEFAULT_ZONE.frameHeights).toEqual({});
   });
 
-  test('HORIZON_FRAME_KEYS содержит 4 horizon фрейма', () => {
-    expect(HORIZON_FRAME_KEYS).toHaveLength(4);
+  test('HORIZON_FRAME_KEYS содержит 5 horizon фреймов', () => {
+    expect(HORIZON_FRAME_KEYS).toHaveLength(5);
     expect(HORIZON_FRAME_KEYS).toContain('horizonScanner');
     expect(HORIZON_FRAME_KEYS).toContain('horizonRadar');
     expect(HORIZON_FRAME_KEYS).toContain('horizonObserver');
     expect(HORIZON_FRAME_KEYS).toContain('horizonHeatmap');
+    expect(HORIZON_FRAME_KEYS).toContain('horizonSignals');
   });
 
   test('MAIN_FRAME_KEYS содержит 17 основных фреймов', () => {
