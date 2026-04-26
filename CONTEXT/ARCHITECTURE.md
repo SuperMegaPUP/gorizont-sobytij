@@ -1,6 +1,6 @@
 # АРХИТЕКТУРА: Горизонт Событий
 
-> Спецификация v4.1 + HOTFIX v4.1.5 — Обновлён: 2026-04-26
+> Спецификация v5.0 — Обновлён: 2026-04-26 (Sprint 5: Trade-based OFI + П2-9 z-score)
 
 ## Пайплайн сканирования
 
@@ -17,8 +17,25 @@ collectMarketData(ticker, fastMode?)
    └── FuturesOI (пропускается в fastMode)
    │
    ▼
-zScoreNormalize(features, window=100)  ← v4.1: сквозная нормализация (П2)
-   ├── volume, trade_size, interval → нормализованы
+OFI Calculation (v5: умная логика подмены OB→Trade)
+   ├── 1. calcOFI(orderbook) — Simple OFI из стакана
+   ├── 2. calcWeightedOFI(orderbook) — Weighted OFI из стакана
+   ├── 3. calcTradeOFI(trades) — Trade-based OFI из сделок (БЕЗ стакана)
+   ├── 4. Smart fallback логика:
+   │   ├── Если стакан пустой (ДСВД) → tradeOFI
+   │   ├── Если стакан stale + trades есть → tradeOFI
+   │   ├── Если |tradeOFI|>0.001 но OB-OFI≈0 и trades≥10 → tradeOFI
+   │   └── Иначе → OB-OFI (точнее)
+   ├── 5. Real-time OFI:
+   │   ├── Если стакан актуален → Cont et al. 2014 multi-level (10 уровней)
+   │   └── Если стакан пустой → Δ(tradeOFI) между двумя окнами сделок
+   └── Результат: ofi, weightedOFI, realtimeOFI, tradeOFI, ofiSource='trades'|'orderbook'
+   │
+   ▼
+zScoreNormalize(features, window=100)  ← v5: сквозная нормализация (П2-9 ✅)
+   ├── zScorePrices — для CIPHER
+   ├── zScoreVolumes — для CIPHER, ACCRETOR
+   ├── zScoreIntervals — для CIPHER, HAWKING
    └── Критично для CIPHER, HAWKING, ACCRETOR
    │
    ▼
@@ -257,6 +274,7 @@ Cron/Manual → generateObservation(ticker, slot?)
 | `horizon:observe:{ticker}` | JSON | 30m | Last observation per ticker |
 | `horizon:algopack:{ticker}` | JSON | 5m | AlgoPack data per ticker |
 | `horizon:signals:active` | JSON | dynamic | Active trade signals (TTL = calculateTTL) |
+| `horizon:ob-snapshot:{ticker}` | JSON | 5m | Previous orderbook snapshot (для Real-time OFI Cont et al.) |
 | `horizon:excluded:{ticker}` | String | 24h | Мёртвые тикеры (все scores<0.15 на 3+ сканах) |
 
 ### PostgreSQL (постоянное хранение)

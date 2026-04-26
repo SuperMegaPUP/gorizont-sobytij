@@ -1,8 +1,7 @@
 # СПРИНТ-ПЛАН: Горизонт Событий
 
-> Обновлён: 2026-04-26 (Спецификация v4.1 + HOTFIX v4.1.5)
-> Текущий спринт: Спринт 4 — ВЫПОЛНЕН + HOTFIX v4.1.5 задеплоен
-> ВАЖНО: Калибровка порогов → при открытии сессии (понедельник 10:00 МСК)
+> Обновлён: 2026-04-26 (Sprint 5: Trade-based OFI + П2-9 z-score)
+> Текущий спринт: Спринт 5 — В ПРОЦЕССЕ (5C + П2-9 выполнены, 5A/5B/5D остаются)
 
 ## Спринт 1 (ЗАВЕРШЁН): Фундамент
 
@@ -203,24 +202,22 @@ price_reversion < 0.4 → FALSE_BREAKOUT
 | П2-6 | PREDATOR | estimated_stops формула + FALSE_BREAKOUT градиент (часть П1 уже в v4.1) |
 | П2-7 | WAVEFUNCTION | Ресэмплинг при N_eff < 0.5*n_particles + log-weights (ОБЯЗАТЕЛЬНО) |
 | П2-8 | BSCI | Мягкий daily weight decay (w = 0.99*w + 0.01/K) |
-| П2-9 | Сквозная | z-score нормализация в data pipeline для всех детекторов |
+| П2-9 | Сквозная | z-score нормализация в data pipeline для всех детекторов | ✅ РЕАЛИЗОВАНО |
 
-### 5C. Trade-based OFI (КРИТИЧЕСКИЙ — 3 детектора мёртвые без orderbook)
+### 5C. Trade-based OFI (✅ РЕАЛИЗОВАН — 3 детектора живы без orderbook)
 
-> **Проблема**: OFI (Order Flow Imbalance) сейчас считается ТОЛЬКО из orderbook.
+> **Проблема**: OFI (Order Flow Imbalance) раньше считался ТОЛЬКО из orderbook.
 > На выходных ISS возвращает HTML вместо orderbook, APIM/JWT ненадёжён.
 > Без orderbook мёртвые: GRAVITON, DARKMATTER, и сам OFI.
 > **Решение**: Trade-based OFI — вычисление OFI из потока сделок без orderbook.
 
-| # | Задача | Описание | Оценка |
+| # | Задача | Описание | Статус |
 |---|--------|----------|--------|
-| 5C-1 | Trade-based OFI алгоритм | OFI из trades: классификация buyer/seller initiated (tick rule) → imbalance = Σ(buy_vol - sell_vol) / (Σ(buy_vol + sell_vol) + ε). Окно = последние 200 сделок | 3 ч |
-| 5C-2 | Fallback логика | Если orderbook доступен → orderbook OFI (точнее). Если нет → trade-based OFI (всегда доступен). Результат: rtOFI = orderbook-based, ofi = trade-based | 2 ч |
-| 5C-3 | Интеграция в collect-market-data | Подавать trade-based OFI в детекторы когда orderbook пуст | 1 ч |
-| 5C-4 | GRAVITON + DARKMATER с trade-OFI | Проверить что детекторы работают с trade-based OFI (даже если менее точно) | 1 ч |
-| 5C-5 | UI: источник OFI | Показывать "OFI (trades)" vs "OFI (orderbook)" в карточке тикера | 30 мин |
-
-**Ссылка**: Cont, Kukanov, Stoikov (2014) — The Price Impact of Order Book Events
+| 5C-1 | Trade-based OFI алгоритм | calcTradeOFI(): BUYSELL классификация → ofi = (V_buy-V_sell)/(V_buy+V_sell). Weighted: time-decay exp(-α×age). Near-term: последние 50 сделок | ✅ |
+| 5C-2 | Smart fallback логика | OB пустой → tradeOFI; stale+trades → tradeOFI; \|tradeOFI\|>0.001 но OB-OFI≈0 и trades≥10 → tradeOFI; иначе OB-OFI. ofiSource='trades'\|'orderbook' | ✅ |
+| 5C-3 | Интеграция в collect-market-data | tradeOFI, ofiSource в DetectorInput. Детекторы автоматически используют лучший источник | ✅ |
+| 5C-4 | Trade-based rtOFI | При пустом стакане: Δ(tradeOFI) между двумя окнами сделок (prev/cur halves) | ✅ |
+| 5C-5 | UI: источник OFI | Показывать "OFI (trades)" vs "OFI (orderbook)" в карточке тикера | ⬜ |
 
 ### 5D. Валидация П2
 

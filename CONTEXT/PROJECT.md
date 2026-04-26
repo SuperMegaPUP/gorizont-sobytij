@@ -1,6 +1,6 @@
 # ПРОЕКТ: Горизонт Событий (Event Horizon)
 
-> Обновлён: 2026-04-26
+> Обновлён: 2026-04-26 (Sprint 5: Trade-based OFI + П2-9)
 
 ## Общая информация
 
@@ -72,13 +72,13 @@ src/
 │   │   │   └── save-observation.ts  — Save to PG + Redis
 │   │   ├── calculations/
 │   │   │   ├── delta.ts             — Cumulative Delta
-│   │   │   ├── ofi.ts               — Order Flow Imbalance + Real-time OFI
+│   │   │   ├── ofi.ts               — Order Flow Imbalance + Real-time OFI + Trade-based OFI
 │   │   │   ├── vpin.ts              — Volume-synchronized VPIN
 │   │   │   └── index.ts
 │   │   ├── scanner/
 │   │   │   └── rules.ts             — 10 IF-THEN scanner rules
 │   │   ├── observer/
-│   │   │   ├── collect-market-data.ts — Market data collector (+ fastMode для TOP-100)
+│   │   │   ├── collect-market-data.ts — Market data collector (+ fastMode для TOP-100 + Trade-based OFI fallback + z-score)
 │   │   │   └── generate-observation.ts — AI Observer orchestrator
 │   │   ├── signals/
 │   │   │   ├── signal-generator.ts  — Генерация сигналов (confidence + пороги + дедуп)
@@ -143,6 +143,6 @@ src/
 | Sprint 1 | ✅ ЗАВЕРШЁН | Фундамент: 10 детекторов + BSCI + Scanner + UI |
 | Sprint 2 | ✅ ЗАВЕРШЁН | TA-Context + Конвергенция |
 | Sprint 3 | ✅ ЗАВЕРШЁН | Robot Context |
-| Sprint 4 | ✅ ЗАВЕРШЁН | СИГНАЛЫ + П1 правки + bugfix'ы (калибровка порогов осталась) |
-| Sprint 5 | 🔜 ПЛАНИРУЕТСЯ | Калибровка + П2 структурные улучшения |
+| Sprint 4 | ✅ ЗАВЕРШЁН | СИГНАЛЫ + П1 правки + bugfix'ы + HOTFIX v4.1.5 (калибровка порогов осталась) |
+| Sprint 5 | 🔧 В ПРОЦЕССЕ | Калибровка + П2 + Trade-based OFI (5C частично готов, П2-9 готов) |
 | Sprint 6+ | 📋 ЗАПЛАНИРОВАН | П3 продвинутые улучшения |

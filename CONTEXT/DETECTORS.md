@@ -1,7 +1,7 @@
 # ДЕТЕКТОРЫ: 10 Black Star детекторов аномалий
 
-> Спецификация v4.1 — ФИНАЛЬНЫЕ ФОРМУЛЫ (заморожены)
-> Обновлён: 2026-04-26
+> Спецификация v5.0 — ФИНАЛЬНЫЕ ФОРМУЛЫ (заморожены)
+> Обновлён: 2026-04-26 (Sprint 5: Trade-based OFI + П2-9 z-score)
 
 ## Типы
 
@@ -25,8 +25,11 @@ interface DetectorInput {
   orderbookPrev?: OrderBookSnapshot;
   trades: Trade[];
   recentTrades: Trade[];
-  ofi: number;
-  weightedOFI: number;
+  ofi: number;                    // OFI — лучшего источника (OB или tradeOFI)
+  weightedOFI: number;            // Weighted OFI — лучшего источника
+  realtimeOFI?: number;           // Real-time OFI (OB Cont et al. или trade-based Δ)
+  tradeOFI?: TradeOFIResult;      // Trade-based OFI — работает без стакана (ДСВД)
+  ofiSource?: 'orderbook' | 'trades';  // true = OFI из сделок
   cumDelta: CumDeltaResult;
   vpin: VPINResult;
   prices: number[];
@@ -34,6 +37,13 @@ interface DetectorInput {
   candles: Candle[];
   crossTickers?: Record<string, { priceChange: number; ofi: number }>;
   rvi?: number;
+  // П2-9: Z-score нормализация
+  zScorePrices?: number[];       // для CIPHER
+  zScoreVolumes?: number[];      // для CIPHER, ACCRETOR
+  zScoreIntervals?: number[];    // для CIPHER, HAWKING
+  // Data freshness
+  staleData?: boolean;           // данные устарели
+  staleMinutes?: number;         // возраст свежей сделки
 }
 ```
 
@@ -346,27 +356,30 @@ Alert Levels: GREEN < 0.3 | YELLOW 0.3-0.5 | ORANGE 0.5-0.7 | RED ≥ 0.7
 
 | Приоритет | Детекторы | Когда |
 |-----------|----------|-------|
-| П1 (критическое) | DARKMATTER, DECOHERENCE, HAWKING, BSCI(η+min_w) | Sprint 4 (параллельно) |
+| П1 (критическое) | DARKMATTER, DECOHERENCE, HAWKING, BSCI(η+min_w) | Sprint 4 (✅ ВЫПОЛНЕНО) |
 | П2 (структурные) | GRAVITON, ACCRETOR, CIPHER, ATTRACTOR, ENTANGLE, PREDATOR, WAVEFUNCTION, BSCI(decay) | Sprint 5 |
+| П2-9 (сквозная) | z-score нормализация в data pipeline | Sprint 5 (✅ ВЫПОЛНЕНО) |
 | П3 (продвинутые) | WAVEFUNCTION(learnable), ENTANGLE(Hilbert), PREDATOR(POC), ATTRACTOR(FNN) | Sprint 6+ |
 
 ## Сквозные изменения
 
 - **ε=1e-6** во всех делениях (обязательно)
-- **z-score нормализация** в data pipeline для CIPHER, HAWKING, ACCRETOR (П2)
+- **z-score нормализация** в data pipeline для CIPHER, HAWKING, ACCRETOR (П2-9 ✅ РЕАЛИЗОВАНО)
+- **Trade-based OFI** — fallback при отсутствии стакана (Sprint 5C ✅ РЕАЛИЗОВАНО)
 - **Синтетические тест-сценарии** (П3): iceberg, accumulator, predator, algorithm, coordinated, regime_change
 - **KL-divergence мониторинг** (П3): weekly drift > 0.15 → заморозка адаптации
 
 ## Состояние и известные проблемы
 
 - **ACCRETOR**: До нормализации давал 0.8-0.99 (шум). После cross-section norm — дискриминирует. v4: DBSCAN вместо угловых секторов (П2)
-- **GRAVITON**: Часто 0.00 — "мёртвый". v4: центры масс + walls вместо экспоненциальной модели (П2)
+- **GRAVITON**: Часто 0.00 — "мёртвый". v4: центры масс + walls вместо экспоненциальной модели (П2). Trade-based OFI помогает при пустом стакане
 - **DECOHERENCE**: ✅ П1 ВЫПОЛНЕНО — символьный поток + tick_rule при ΔP=0 + Shannon entropy
-- **DARKMATTER**: ✅ П1 ВЫПОЛНЕНО — ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME + trades<10→0
+- **DARKMATTER**: ✅ П1 ВЫПОЛНЕНО — ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME + trades<10→0. Trade-based OFI помогает при пустом стакане
 - **HAWKING**: ✅ П1 ВЫПОЛНЕНО — Welch PSD + noise_ratio fix + N≥50 минимум + trades<50→0
 - **BSCI**: ✅ П1 ВЫПОЛНЕНО — η=0.03 + min_w=0.04
-- **CIPHER**: Нет z-score перед PCA. v4: обязательная нормализация + condition number check (П2)
+- **CIPHER**: Нет z-score перед PCA. v4: обязательная нормализация + condition number check (П2). z-score ВХОДНЫЕ данные готовы (П2-9 ✅)
 - **ATTRACTOR**: Галлюцинации на мёртвых тикерах. v4: stickiness по spread + volume_profile + Takens (П2)
 - **PREDATOR**: Нет FALSE_BREAKOUT градиента. v4: 5-фазный цикл + estimated_stops (П2)
 - **WAVEFUNCTION**: Нет ресэмплинга. v4: N_eff мониторинг + log-weights (П2)
 - **ENTANGLE**: Нет ADF-теста. v4: стационарность перед Granger (П2)
+- **Trade-based OFI**: ✅ РЕАЛИЗОВАНО (Sprint 5C) — calcTradeOFI() + smart fallback + Δ(tradeOFI) для rtOFI

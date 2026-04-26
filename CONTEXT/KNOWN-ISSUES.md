@@ -1,15 +1,16 @@
 # ИЗВЕСТНЫЕ ПРОБЛЕМЫ
 
-> Обновлён: 2026-04-26 (после HOTFIX v4.1.5)
+> Обновлён: 2026-04-26 (после Sprint 5: Trade-based OFI + П2-9)
 
 ## Критические
 
-### OFI = 0.0 на выходных (и при недоступном APIM) — 3 детектора мёртвые
-- **Статус**: ПЕРЕНЕСЁН В SPRINT 5 (Trade-based OFI)
-- **Проявление**: На выходных ISS возвращает HTML вместо orderbook, APIM/JWT ненадёжён → orderbook пустой → OFI=0.0
-- **Последствие**: Без orderbook мёртвые детекторы: GRAVITON (нужны walls), DARKMATTER (нужна entropy стакана), OFI (=0)
-- **Решение**: Trade-based OFI — вычисление OFI из потока сделок (tick rule) без orderbook
-- **См.**: SPRINT-PLAN.md — Sprint 5C
+### OFI=0 при пустом orderbook — ЧАСТИЧНО ИСПРАВЛЕН (Trade-based OFI)
+- **Статус**: ЧАСТИЧНО ИСПРАВЛЕН (Sprint 5C — Trade-based OFI реализован)
+- **Проявление**: При отсутствии orderbook (ДСВД, выходные) — ISS возвращает HTML
+- **Что сделано**: calcTradeOFI() + smart fallback логика — OFI теперь вычисляется из сделок когда стакан пуст
+- **Что осталось**: GRAVITON (нужны walls из стакана) и DARKMATTER (нужна entropy стакана) не могут полностью работать без orderbook, но используют tradeOFI как вход
+- **Результат**: 3 детектора больше не "мёртвые" при пустом стакане — OFI, частично GRAVITON, частично DARKMATTER
+- **См.**: ARCHITECTURE.md — OFI Calculation pipeline
 
 ### Средний BSCI ~0.50 (завышен)
 - **Статус**: ЧАСТИЧНО ИСПРАВЛЕН
@@ -137,15 +138,16 @@
 - **Кэширование**: Redis TTL 120 мин, инкрементальный прогресс 10 мин
 - **Cron**: каждые 3 часа в торговые дни
 
-### Детекторы требуют доработки по спецификации v4.1
+### Детекторы требуют доработки по спецификации v5
 - **DARKMATTER** (П1, ✅): expected_entropy + iceberg consecutive + MIN_ICEBERG_VOLUME
 - **DECOHERENCE** (П1, ✅): символьный поток + tick_rule при ΔP=0
 - **HAWKING** (П1, ✅): Welch PSD + noise_ratio fix + N≥50
 - **BSCI** (П1, ✅): η=0.03, min_w=0.04
 - **GRAVITON** (П2): экспоненциальная модель → центры масс + walls
 - **ACCRETOR** (П2): угловые сектора → DBSCAN
-- **CIPHER** (П2): нет z-score перед PCA, нет condition number check
+- **CIPHER** (П2): нет z-score перед PCA (входные данные готовы ✅), нет condition number check
 - **ATTRACTOR** (П2): галлюцинации на мёртвых тикерах → stickiness по spread + volume_profile
 - **ENTANGLE** (П2): нет ADF-теста стационарности
 - **PREDATOR** (П2): нет FALSE_BREAKOUT градиента, нет estimated_stops
 - **WAVEFUNCTION** (П2): нет ресэмплинга, нет log-weights → PF вырождается
+- **z-score pipeline** (П2-9, ✅): zScorePrices + zScoreVolumes + zScoreIntervals в DetectorInput
