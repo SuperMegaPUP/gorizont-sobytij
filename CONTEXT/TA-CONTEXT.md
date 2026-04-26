@@ -2,6 +2,7 @@
 
 > Файлы: `src/lib/horizon/ta-context.ts`, `src/lib/horizon/convergence-score.ts`
 > Статус: РЕАЛИЗОВАН (Спринт 2 + Спринт 3)
+> Обновлён: 2026-04-26
 
 ## 5 индикаторов (НЕ входят в BSCI — только контекст)
 

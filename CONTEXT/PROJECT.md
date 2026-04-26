@@ -1,17 +1,19 @@
 # ПРОЕКТ: Горизонт Событий (Event Horizon)
 
+> Обновлён: 2026-04-26
+
 ## Общая информация
 
-**Название**: Горизонт Событий — система обнаружения аномалий на рынке фьючерсов MOEX
+**Название**: Горизонт Событий — система обнаружения аномалий на рынке MOEX
 **Домен**: Финансовый анализ, обнаружение скрытых крупных игроков ("чёрных звёзд")
 **Язык**: Русский (UI, комментарии, AI-промпты)
 
 ## URL-адреса
 
-| Среда | URL | Vercel Project | Branch |
-|-------|-----|---------------|--------|
-| PROD | https://robot-detect-v3.vercel.app/ | robot-detect-v3 | main |
-| LAB | https://robot-lab-v3.vercel.app/ | robot-lab-v3 | lab |
+| Среда | URL | Vercel Project | Project ID |
+|-------|-----|---------------|------------|
+| PROD | https://robot-detect-v3.vercel.app/ | robot-detect-v3 | prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd |
+| LAB | https://robot-lab-v3.vercel.app/ | robot-lab-v3 | prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp |
 
 ## Технологический стек
 
@@ -24,8 +26,9 @@
 | Database | PostgreSQL (Neon) + Prisma ORM | latest |
 | Cache | Redis (ioredis) — Upstash/Vercel KV | latest |
 | AI | z-ai-web-dev-sdk (GLM chat completions) | latest |
-| Deploy | Vercel CLI (Git Integration сломан) | latest |
+| Deploy | Vercel CLI (Git Integration сломан) | 52.0.0 |
 | UI Kit | shadcn/ui | latest |
+| Tests | Jest — 177 тестов, 10 suites | latest |
 
 ## Структура проекта
 
@@ -34,18 +37,19 @@ src/
 ├── app/
 │   ├── api/
 │   │   ├── horizon/
-│   │   │   ├── scan/route.ts         — POST: batch scanner (core 9 / top 100)
+│   │   │   ├── scan/route.ts         — POST: batch scanner (core 9 / top 100) + signal generation
 │   │   │   ├── scanner/route.ts      — GET: cached scanner results
 │   │   │   ├── radar/route.ts        — GET: radar dots (core + top100)
 │   │   │   ├── heatmap/route.ts      — GET: heatmap cells
-│   │   │   ├── top100/route.ts       — GET/POST: TOP-100 by VALTODAY
+│   │   │   ├── top100/route.ts       — GET/POST: TOP-100 (инкрементальное сканирование)
 │   │   │   ├── observe/route.ts      — POST: AI Observer single ticker
 │   │   │   ├── observations/route.ts — GET: observation history
 │   │   │   ├── bsci-history/route.ts — GET: BSCI history chart
 │   │   │   ├── indicators/route.ts   — GET: detector indicators
 │   │   │   ├── accuracy/route.ts     — GET: accuracy metrics
 │   │   │   ├── moex-extended/route.ts— GET: MOEX extended data
-│   │   │   └── robot-context/route.ts— GET: Robot context per ticker
+│   │   │   ├── robot-context/route.ts— GET: Robot context per ticker
+│   │   │   └── signals/route.ts      — GET: active signals
 │   │   ├── detect/route.ts           — Original detect engine
 │   │   ├── moex/route.ts             — MOEX data fetcher
 │   │   ├── algopack/route.ts         — MOEX Algopack
@@ -68,18 +72,25 @@ src/
 │   │   │   └── save-observation.ts  — Save to PG + Redis
 │   │   ├── calculations/
 │   │   │   ├── delta.ts             — Cumulative Delta
-│   │   │   ├── ofi.ts               — Order Flow Imbalance
+│   │   │   ├── ofi.ts               — Order Flow Imbalance + Real-time OFI
 │   │   │   ├── vpin.ts              — Volume-synchronized VPIN
 │   │   │   └── index.ts
 │   │   ├── scanner/
 │   │   │   └── rules.ts             — 10 IF-THEN scanner rules
 │   │   ├── observer/
-│   │   │   ├── collect-market-data.ts — Market data collector
+│   │   │   ├── collect-market-data.ts — Market data collector (+ fastMode для TOP-100)
 │   │   │   └── generate-observation.ts — AI Observer orchestrator
+│   │   ├── signals/
+│   │   │   ├── signal-generator.ts  — Генерация сигналов (confidence + пороги + дедуп)
+│   │   │   ├── level-calculator.ts  — Расчёт S/R + entry/stop/target
+│   │   │   ├── signal-store.ts      — Zustand store + Redis сериализация
+│   │   │   ├── signal-feedback.ts   — Виртуальный P&L + feedback loop
+│   │   │   └── moex-sessions.ts     — Сессии МОЕКС + calculateTTL
 │   │   ├── ta-context.ts            — 5 TA indicators + SignalConvergence
 │   │   ├── convergence-score.ts     — Convergence score 0-10 + бонусы + штрафы
-│   │   └── robot-context.ts         — Robot context bridge (AlgoPack + Burst → Horizon)
-│   ├── horizon-store.ts             — Zustand: Scanner, Radar, Heatmap, TOP-100
+│   │   ├── robot-context.ts         — Robot context bridge (AlgoPack + Burst → Horizon)
+│   │   └── internal-consistency.ts  — Level-0 consistency check (hallucination detection)
+│   ├── horizon-store.ts             — Zustand: Scanner, Radar, Heatmap, TOP-100, Signals
 │   ├── settings-store.ts            — Font settings (11 options, max 45px)
 │   ├── redis.ts                     — ioredis singleton
 │   ├── db.ts                        — Prisma singleton
@@ -90,17 +101,18 @@ src/
 │   │   │   ├── ScannerFrame.tsx     — СКАНЕР (core 9 / top 100) + ConvergenceCell
 │   │   │   ├── RadarFrame.tsx       — РАДАР (BSCI Y-axis, CumDelta X-axis)
 │   │   │   ├── HeatmapFrame.tsx     — ТЕПЛОВАЯ КАРТА
-│   │   │   └── AIObserverFrame.tsx  — AI НАБЛЮДАТЕЛЬ
+│   │   │   ├── AIObserverFrame.tsx  — AI НАБЛЮДАТЕЛЬ
+│   │   │   └── SignalsFrame.tsx     — СИГНАЛЫ (Sprint 4)
 │   │   ├── scanner/
 │   │   │   └── DetectorDots.tsx     — 10-dot detector visualisation
 │   │   ├── shared/
 │   │   │   ├── DirectionArrow.tsx   — ▲/▼ arrow
 │   │   │   └── BSCIColor.ts         — BSCI→color mapping
 │   │   └── modals/
-│   │       ├── TickerModal.tsx      — Тикер детальная карточка (BSCI + конвергенция + роботы)
+│   │       ├── TickerModal.tsx      — Тикер детальная карточка (BSCI + конвергенция + роботы + OFI)
 │   │       └── TimeSliceModal.tsx   — Срез по времени
 │   ├── frames/
-│   │   ├── SignalsFrame.tsx         — СИГНАЛЫ (existing shell)
+│   │   ├── SignalsFrame.tsx         — СИГНАЛЫ (main tab shell)
 │   │   └── ...                      — Other frames
 │   ├── SettingsInitializer.tsx       — Font init after hydration
 │   └── ui/                          — shadcn/ui components
@@ -112,10 +124,10 @@ src/
 1. **ВСЕГДА** катить изменения и в PROD и в LAB
 2. **НИКОГДА** не трогать PROD без явного запроса пользователя
 3. Git Integration webhook сломан — деплой только через Vercel CLI
-4. Токен хранится в `.env` (VERCEL_TOKEN) и `CONTEXT/TOKEN`
-5. PROD: `npx vercel --prod --token $TOKEN --yes` (project linked)
-6. LAB: `npx vercel link --yes --project=robot-lab-v3 --token $TOKEN && npx vercel --prod --token $TOKEN --yes`
-7. После LAB-деплоя: вернуть link на PROD
+4. Токен: `VERCEL_TOKEN_REDACTED`
+5. PROD: `vercel deploy --prod --token $TOKEN --yes`
+6. LAB: переключить `.vercel/project.json` → задеплоить → вернуть PROD
+7. **НИКОГДА** не создавать новые Vercel проекты
 
 ## Шрифты
 
@@ -124,7 +136,13 @@ src/
 - Zustand store + localStorage, CSS vars на `<html>`
 - SettingsInitializer — после гидратации (fix React #418)
 
-## Известные баги
+## Текущий статус спринтов
 
-- **React error #418**: "Only plain objects can be passed to Client Components" с `text` prop — НЕ ИСПРАВЛЕН
-- **Git Integration**: webhook сломан, деплой только через CLI
+| Спринт | Статус | Описание |
+|--------|--------|----------|
+| Sprint 1 | ✅ ЗАВЕРШЁН | Фундамент: 10 детекторов + BSCI + Scanner + UI |
+| Sprint 2 | ✅ ЗАВЕРШЁН | TA-Context + Конвергенция |
+| Sprint 3 | ✅ ЗАВЕРШЁН | Robot Context |
+| Sprint 4 | ✅ ЗАВЕРШЁН | СИГНАЛЫ + П1 правки + bugfix'ы (калибровка порогов осталась) |
+| Sprint 5 | 🔜 ПЛАНИРУЕТСЯ | Калибровка + П2 структурные улучшения |
+| Sprint 6+ | 📋 ЗАПЛАНИРОВАН | П3 продвинутые улучшения |

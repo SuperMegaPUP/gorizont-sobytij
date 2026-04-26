@@ -1,78 +1,84 @@
 # ДЕПЛОЙ: Процедуры и доступы
 
-> ВНИМАНИЕ: Git Integration webhook сломан. Деплой ТОЛЬКО через Vercel CLI.
+> Обновлён: 2026-04-26
 
 ## URL-адреса
 
-| Среда | URL | Vercel Project |
-|-------|-----|----------------|
-| PROD | https://robot-detect-v3.vercel.app/ | robot-detect-v3 |
-| LAB | https://robot-lab-v3.vercel.app/ | robot-lab-v3 |
+| Среда | URL | Vercel Project | Project ID |
+|-------|-----|----------------|------------|
+| PROD | https://robot-detect-v3.vercel.app/ | robot-detect-v3 | prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd |
+| LAB | https://robot-lab-v3.vercel.app/ | robot-lab-v3 | prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp |
+| ❌ Удалить | https://my-project-phi-gray.vercel.app/ | my-project-phi-gray | — |
 
 ## Токен Vercel
 
-Хранится в двух местах:
-1. `.env` — переменная `VERCEL_TOKEN`
-2. `CONTEXT/TOKEN` — резервная копия (в .gitignore)
-
-```bash
-# Чтение токена:
-TOKEN=$(grep VERCEL_TOKEN /home/z/my-project/.env | cut -d= -f2)
-# ИЛИ
-TOKEN=$(cat /home/z/my-project/CONTEXT/TOKEN)
+```
+VERCEL_TOKEN_REDACTED
 ```
 
-## Деплой PROD
+Хранится:
+1. Здесь (в этом файле)
+2. `.env` — переменная `VERCEL_TOKEN`
+
+## Деплой через Vercel CLI (ЕДИНСТВЕННЫЙ рабочий способ)
+
+Git Integration webhook сломан — push НЕ триггерит автодеплой. Только CLI.
+
+### Деплой PROD
 
 ```bash
 cd /home/z/my-project
 
-# 1. Убедиться что проект слинкован на PROD
-npx vercel link --yes --project=robot-detect-v3 --token $TOKEN
+# Убедиться что проект слинкован на PROD
+cat .vercel/project.json
+# Должно быть: {"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd",...,"projectName":"robot-detect-v3"}
 
-# 2. Деплой
-npx vercel --prod --token $TOKEN --yes
+# Если нет — переключить:
+# echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-detect-v3"}' > .vercel/project.json
+
+# Деплой
+vercel deploy --prod --token "VERCEL_TOKEN_REDACTED" --yes
 ```
 
-## Деплой LAB
+### Деплой LAB
 
 ```bash
 cd /home/z/my-project
 
-# 1. Слинковать на LAB
-npx vercel link --yes --project=robot-lab-v3 --token $TOKEN
+# Переключить на LAB проект
+echo '{"projectId":"prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-lab-v3"}' > .vercel/project.json
 
-# 2. Деплой
-npx vercel --prod --token $TOKEN --yes
+# Деплой
+vercel deploy --prod --token "VERCEL_TOKEN_REDACTED" --yes
 
-# 3. Вернуть линк на PROD (чтобы следующий деплой шёл в PROD)
-npx vercel link --yes --project=robot-detect-v3 --token $TOKEN
+# ОБЯЗАТЕЛЬНО: вернуть линк на PROD
+echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-detect-v3"}' > .vercel/project.json
 ```
 
-## Полный деплой (PROD + LAB)
+### Полный деплой (PROD + LAB)
 
 ```bash
 cd /home/z/my-project
-TOKEN=$(grep VERCEL_TOKEN .env | cut -d= -f2)
+TOKEN="VERCEL_TOKEN_REDACTED"
 
-# PROD
-npx vercel --prod --token $TOKEN --yes
+# 1. PROD
+vercel deploy --prod --token $TOKEN --yes
 
-# LAB
-npx vercel link --yes --project=robot-lab-v3 --token $TOKEN
-npx vercel --prod --token $TOKEN --yes
-
-# Вернуть линк на PROD
-npx vercel link --yes --project=robot-detect-v3 --token $TOKEN
+# 2. LAB — переключить проект, задеплоить, вернуть PROD
+echo '{"projectId":"prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-lab-v3"}' > .vercel/project.json
+vercel deploy --prod --token $TOKEN --yes
+echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-detect-v3"}' > .vercel/project.json
 ```
 
 ## Правила
 
 1. **ВСЕГДА** катить и в PROD и в LAB
 2. **НИКОГДА** не трогать PROD без явного запроса пользователя
-3. Перед деплоем — проверить `npm run build` локально (177 тестов)
+3. Перед деплоем — проверить `npm run build` локально (177 тестов + Next.js build)
 4. После деплоя — проверить URL в браузере
-5. LAB деплой **меняет** `.vercel/project.json` — всегда возвращать линк на PROD
+5. LAB деплой **меняет** `.vercel/project.json` — **ВСЕГДА** возвращать линк на PROD
+6. **НИКОГДА** не создавать новые Vercel проекты — только robot-detect-v3 и robot-lab-v3
+7. Vercel CLI установлен глобально: `npm install -g vercel`
 
 ## Переменные окружения (Vercel)
 
@@ -100,14 +106,15 @@ curl -s https://robot-detect-v3.vercel.app/api/horizon/scanner | head -20
 ## Vercel CLI полезные команды
 
 ```bash
-# Версия
-npx vercel --version
+# Список проектов
+vercel projects list --token $TOKEN
 
 # Список деплоев
-npx vercel ls --token $TOKEN
+vercel list --token $TOKEN
 
-# Инспекция деплоя
-npx vercel inspect <url> --token $TOKEN
+# Инспекция проекта
+vercel projects inspect robot-detect-v3 --token $TOKEN
+vercel projects inspect robot-lab-v3 --token $TOKEN
 ```
 
 ## Известные проблемы
@@ -115,4 +122,5 @@ npx vercel inspect <url> --token $TOKEN
 - Git Integration webhook сломан — push в main/lab не триггерит деплой
 - VERCEL_TOKEN добавлен в GitHub Secrets, но не помогает
 - Единственный рабочий способ — Vercel CLI с токеном
-- `.vercel/project.json` перезаписывается при `vercel link` — после LAB деплоя нужно вернуть линк на PROD
+- `.vercel/project.json` перезаписывается при переключении PROD/LAB — после LAB деплоя нужно вернуть линк на PROD
+- Проект `my-project-phi-gray.vercel.app` нужно удалить — был создан по ошибке

@@ -1,8 +1,8 @@
 # СПРИНТ-ПЛАН: Горизонт Событий
 
 > Обновлён: 2026-04-26 (Спецификация v4.1 — заморожена)
-> Текущий спринт: Спринт 4 (П1 правки → СИГНАЛЫ → Feedback+UI)
-> ВАЖНО: П1 СТРОГО ДО signal-generator! Порядок изменён в v4.1.
+> Текущий спринт: Спринт 4 — ВЫПОЛНЕН (кроме калибровки порогов)
+> ВАЖНО: Калибровка порогов → при открытии сессии
 
 ## Спринт 1 (ЗАВЕРШЁН): Фундамент
 
@@ -40,11 +40,7 @@
 - [x] UI: робот-контекст + МАНИПУЛЯЦИЯ badge + СПУФИНГ→СПУФИНГ
 - [x] Деплой в PROD и LAB
 
-## Спринт 4 (ТЕКУЩИЙ): СИГНАЛЫ
-
-### ПОРЯДОК v4.1: Параметризованные пороги — можно строить ПАРАЛЛЕЛЬНО
-
-П1 правки уже реализованы в коде (BSCI η=0.03+min_w=0.04, HAWKING Welch PSD, DARKMATTER iceberg consecutive, DECOHERENCE symbolic stream). Пороги сигналов параметризованы как константы (`SIGNAL_BSCI_THRESHOLD`, `SIGNAL_CONV_THRESHOLD`) — подправим одной строкой после замера.
+## Спринт 4 (ЗАВЕРШЁН): СИГНАЛЫ + П1 правки + bugfix'ы
 
 ### Фаза 1 (ВЫПОЛНЕНА): П1 правки детекторов ✅
 
@@ -78,8 +74,18 @@
 | 3-3 | Virtual P&L + SignalFeedbackStore (в signal-feedback.ts) | — | ✅ |
 | 3-4 | SignalSnapshot при каждой P&L проверке | — | ✅ |
 
-### КОГДА ОТКРОЕТСЯ СЕССИЯ:
-→ Замерить BSCI/convergence распределения
+### Bugfix'ы (ВЫПОЛНЕНЫ) ✅
+
+| # | Баг | Статус |
+|---|-----|--------|
+| BF-1 | BSCI идентичный 0.52 у всех тикеров | ✅ Fallback values → 0 при нет данных |
+| BF-2 | OFI всегда = 0.0 | ✅ Добавлены поля ofi/realtimeOFI, точность .toFixed(3) |
+| BF-3 | ТОП 100 не грузился — только 9 фьючерсов | ✅ Инкрементальное сканирование + fastMode |
+| BF-4 | Деплой на wrong Vercel project | ✅ Токен + Vercel CLI напрямую |
+
+### КАЛИБРОВКА (ОСТАЛОСЬ)
+
+→ Замерить BSCI/convergence распределения при открытой сессии
 → Скорректировать SIGNAL_BSCI_THRESHOLD и SIGNAL_CONV_THRESHOLD если нужно
 → Это 5 минут работы
 
@@ -93,8 +99,6 @@ confidence = BSCI(bsci_weight) + conv(25) + RSI/CRSI(20) + роботы(15) + д
   topDetector ≥ 0.85 → +15
   topDetector < 0.85 → −10
 ```
-
-Почему условное взвешивание: BSCI и convergence коррелированы (высокий BSCI → больше TA-совпадений → выше convergence). Двойной счёт завышает confidence для ORANGE/RED тикеров. Решение: при высокой конвергенции BSCI менее важен (вес 20), при слабой — более важен как «есть ли аномалия» (вес 30).
 
 ### Динамический TTL (v4.1 — вместо фиксированного 4ч)
 
@@ -117,15 +121,9 @@ function calculateTTL(now: Date): number {
 }
 ```
 
-Примеры:
-- Сигнал в 10:00 → TTL = до 14:00 (4ч)
-- Сигнал в 16:00 → TTL = до 18:45 (2ч45м)
-- Сигнал в 19:00 → TTL = до 21:00 (2ч)
-- Сигнал в 22:00 → TTL = до 23:50 (1ч50м)
-
 ### Дедупликация сигналов (v4.1)
 
-1. Тот же тикер + тот же direction + <TTL → ОБНОВИТЬ существующий сигнал (пересчитать entry/stop/target, добавить snapshot, НЕ создавать новый signal_id)
+1. Тот же тикер + тот же direction + <TTL → ОБНОВИТЬ существующий сигнал
 2. Тот же тикер + сменился direction → ЗАКРЫТЬ старый (reason: DIRECTION_CHANGE), создать новый
 3. Тот же тикер + TTL истёк → ЗАКРЫТЬ (reason: EXPIRED), новый скан может создать новый
 
@@ -138,38 +136,18 @@ interface Signal {
 }
 ```
 
-Правила: SBER/SBERP → SAME_ISSUER; тикеры одного сектора с ENTANGLE>0.5 → SAME_SECTOR; ENTANGLE-флаг → SAME_FUND. В UI: бейдж "🔗 Связано с SBERP" — не блокировать, но предупредить.
+Правила: SBER/SBERP → SAME_ISSUER; тикеры одного сектора с ENTANGLE>0.5 → SAME_SECTOR; ENTANGLE-флаг → SAME_FUND. В UI: бейдж "🔗 Связано с SBERP".
 
-### FALSE_BREAKOUT градиент (v4.1 — вместо бинарного порога)
+### FALSE_BREAKOUT градиент (v4.1)
 
 ```
 price_reversion >= 0.7 && delta_flip → CONSUME (confidence_modifier = 1.0)
 price_reversion >= 0.4 && < 0.7 && delta_flip → CONSUME (confidence_modifier = price_reversion)
 price_reversion >= 0.4 && !delta_flip → CONSUME (confidence_modifier = price_reversion * 0.5)
 price_reversion < 0.4 → FALSE_BREAKOUT
-
-final_confidence = confidence_formula_result * confidence_modifier
 ```
 
-### SignalSnapshot при каждой P&L проверке (v4.1)
-
-```
-interface SignalSnapshot {
-  signal_id: string;
-  timestamp: Date;
-  price: number;
-  bsci: number;
-  convergence: number;
-  topDetector: number;
-  topDetectorScore: number;
-  pnl_unrealized: number;     // в тиках от entry
-  wavefunction_state: string;
-}
-```
-
-~100 записей/день/тикер вместо 6. Redis легко переварит.
-
-### Условия выхода (обновлены для v4.1)
+### Условия выхода (v4.1)
 
 | Условие | Порог | Тип |
 |---------|-------|-----|
@@ -178,7 +156,7 @@ interface SignalSnapshot {
 | BSCI drop >0.15 | bsci < bsciAtCreation - 0.15 | BSCI_DROP |
 | VPIN резко вырос | vpin > prevVpin × 1.5 | VPIN_SPIKE |
 | Цена < стоп-лосс | price < stopLoss | PRICE_STOP |
-| PREDATOR FALSE_BREAKOUT | градиент: reversion<0.4 → FALSE_BREAKOUT; reversion≥0.4 → CONSUME с confidence_modifier | FALSE_BREAKOUT |
+| PREDATOR FALSE_BREAKOUT | градиент: reversion<0.4 → FALSE_BREAKOUT; reversion≥0.4 → CONSUME | FALSE_BREAKOUT |
 
 ## Спринт 5: Калибровка + П2 структурные улучшения
 
@@ -216,16 +194,3 @@ interface SignalSnapshot {
 | П3-6 | ACCRETOR | Streaming DBSCAN с инкрементальным обновлением |
 | П3-7 | ATTRACTOR | FNN для автоматического выбора d |
 | П3-8 | BSCI | Динамическое окно верификации через ATR |
-
-## Sprint mapping (v4.1)
-
-```
-Sprint 4 (текущий):
-  Фаза 1: П1 правки (BSCI η+min_w, HAWKING, DARKMATTER, DECOHERENCE)
-  → замер BSCI/convergence распределений → калибровка порогов
-  Фаза 2: signal-generator + level-calculator + signal-store + exit conditions
-  Фаза 3: virtual P&L + SignalSnapshot + корреляция + SignalsFrame.tsx
-
-Sprint 5: Калибровка + win rate + П2 + ROC-анализ порогов + Youden's J
-Sprint 6+: П3 + обучение матриц + Hilbert + POC стопы + синтетические тесты + KL-divergence
-```

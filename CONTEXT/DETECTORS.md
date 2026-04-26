@@ -1,6 +1,7 @@
 # ДЕТЕКТОРЫ: 10 Black Star детекторов аномалий
 
 > Спецификация v4.1 — ФИНАЛЬНЫЕ ФОРМУЛЫ (заморожены)
+> Обновлён: 2026-04-26
 
 ## Типы
 
@@ -358,10 +359,14 @@ Alert Levels: GREEN < 0.3 | YELLOW 0.3-0.5 | ORANGE 0.5-0.7 | RED ≥ 0.7
 
 ## Состояние и известные проблемы
 
-- **ACCRETOR**: До нормализации давал 0.8-0.99 (шум). После cross-section norm — дискриминирует. v4: DBSCAN вместо угловых секторов
-- **GRAVITON**: Часто 0.00 — "мёртвый". v4: центры масс + walls вместо экспоненциальной модели
-- **DECOHERENCE**: Текущий «паттерн» неопределённый. v4: символьный поток + Shannon entropy
-- **DARKMATTER**: Нет expected_entropy. v4: ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME
-- **HAWKING**: noise_ratio некорректный. v4: median_psd + Welch при N≥100 + N≥50 минимум
-- **CIPHER**: Нет z-score перед PCA. v4: обязательная нормализация + condition number check
-- **ATTRACTOR**: Галлюцинации на мёртвых тикерах. v4: stickiness по spread + volume_profile + Takens
+- **ACCRETOR**: До нормализации давал 0.8-0.99 (шум). После cross-section norm — дискриминирует. v4: DBSCAN вместо угловых секторов (П2)
+- **GRAVITON**: Часто 0.00 — "мёртвый". v4: центры масс + walls вместо экспоненциальной модели (П2)
+- **DECOHERENCE**: ✅ П1 ВЫПОЛНЕНО — символьный поток + tick_rule при ΔP=0 + Shannon entropy
+- **DARKMATTER**: ✅ П1 ВЫПОЛНЕНО — ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME + trades<10→0
+- **HAWKING**: ✅ П1 ВЫПОЛНЕНО — Welch PSD + noise_ratio fix + N≥50 минимум + trades<50→0
+- **BSCI**: ✅ П1 ВЫПОЛНЕНО — η=0.03 + min_w=0.04
+- **CIPHER**: Нет z-score перед PCA. v4: обязательная нормализация + condition number check (П2)
+- **ATTRACTOR**: Галлюцинации на мёртвых тикерах. v4: stickiness по spread + volume_profile + Takens (П2)
+- **PREDATOR**: Нет FALSE_BREAKOUT градиента. v4: 5-фазный цикл + estimated_stops (П2)
+- **WAVEFUNCTION**: Нет ресэмплинга. v4: N_eff мониторинг + log-weights (П2)
+- **ENTANGLE**: Нет ADF-теста. v4: стационарность перед Granger (П2)

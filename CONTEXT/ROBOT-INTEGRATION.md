@@ -3,6 +3,7 @@
 > Статус: РЕАЛИЗОВАН (Спринт 3)
 > Файл: `src/lib/horizon/robot-context.ts`
 > API: `GET /api/horizon/robot-context?ticker=SMLT`
+> Обновлён: 2026-04-26
 
 ## Концепция
 

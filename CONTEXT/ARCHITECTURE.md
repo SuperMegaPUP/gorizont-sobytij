@@ -1,6 +1,6 @@
 # АРХИТЕКТУРА: Горизонт Событий
 
-> Спецификация v4.1
+> Спецификация v4.1 — Обновлён: 2026-04-26
 
 ## Пайплайн сканирования
 
@@ -8,11 +8,13 @@
 МОEX API
    │
    ▼
-collectMarketData(ticker)
+collectMarketData(ticker, fastMode?)
    ├── Orderbook snapshot
    ├── Recent trades
    ├── OHLCV candles
-   └── Market snapshot (mid, spread, RVI)
+   ├── Market snapshot (mid, spread)
+   ├── RVI (пропускается в fastMode)
+   └── FuturesOI (пропускается в fastMode)
    │
    ▼
 zScoreNormalize(features, window=100)  ← v4.1: сквозная нормализация (П2)
@@ -22,10 +24,10 @@ zScoreNormalize(features, window=100)  ← v4.1: сквозная нормали
    ▼
 runAllDetectors(detectorInput)  ← v4.1: финальные формулы
    ├── GRAVITON     → центры масс + walls + 80% cutoff (П2)
-   ├── DARKMATTER   → ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME (П1)
+   ├── DARKMATTER   → ΔH_norm + iceberg consecutive + MIN_ICEBERG_VOLUME (П1 ✅)
    ├── ACCRETOR     → DBSCAN + ATR-нормализация (П2)
-   ├── DECOHERENCE  → символьный поток + tick_rule при ΔP=0 (П1)
-   ├── HAWKING      → ACF + Welch при N≥100 + noise_ratio fix (П1)
+   ├── DECOHERENCE  → символьный поток + tick_rule при ΔP=0 (П1 ✅)
+   ├── HAWKING      → ACF + Welch при N≥100 + noise_ratio fix (П1 ✅)
    ├── PREDATOR     → 5 фаз + FALSE_BREAKOUT + estimated_stops (П2)
    ├── CIPHER       → PCA→ICA двухуровневый + z-score + condition number (П2)
    ├── ENTANGLE     → ADF-тест + Granger lag=3 (П2)
@@ -46,6 +48,12 @@ calcBSCI(normalizedScores, weights)  ← v4.1: η=0.03, min_w=0.04
    └── Top Detector
    │
    ▼
+checkInternalConsistency()  ← Level-0: галлюцинация detection
+   ├── Проверяет: detector score не соответствует данным
+   ├── Корректирует веса галлюцинирующих детекторов → 0
+   └── effectiveWeights = consistencyCheck.adjustedWeights
+   │
+   ▼
 calculateTAIndicators(candles, trades, orderbook)
    ├── RSI(14) + zone
    ├── CMF(20) + zone
@@ -57,7 +65,6 @@ calculateTAIndicators(candles, trades, orderbook)
 calculateSignalConvergence(bsciDirection, bsciScore, taIndicators)
    ├── Convergence Signal: STRONG_BULL / BULL / NEUTRAL / BEAR / STRONG_BEAR
    ├── Divergence flag: true/false
-   ├── Divergence note: string
    └── Convergence strength: 0-1
    │
    ▼
@@ -69,7 +76,7 @@ calculateRobotContext(ticker, algopack, detectorScores, topDetector, bsci)
    └── DETECTOR_PATTERN_MAP + DETECTOR_ALGOPACK_MAP
    │
    ▼
-calculateConvergenceScore(bsciDir, bsciScore, indicators, hasDivergence, atrCompressed, robotConfirmed, hasSpoofing, cancelRatio)
+calculateConvergenceScore(...)
    ├── База: 5 индикаторов × 0-2 балла = 0-10
    ├── +1 дивергенция, +1 ATR-сжатие, +1 роботы
    ├── −2 СПУФИНГ, −1 cancel>80%
@@ -79,20 +86,27 @@ calculateConvergenceScore(bsciDir, bsciScore, indicators, hasDivergence, atrComp
 applyScannerRules(scannerInput)
    ├── 10 IF-THEN правил
    ├── Signal: PREDATOR_ACCUM, IMBALANCE_SPIKE, ...
-   ├── Action: WATCH / ALERT / URGENT
-   └── Quick Status: строка для UI
+   └── Action: WATCH / ALERT / URGENT
    │
    ▼
 Результат:
    TickerScanResult {
      ticker, name, bsci, alertLevel, direction,
      detectorScores, keySignal, action, quickStatus,
-     vpin, cumDelta, ofi, turnover, moexTurnover,
+     vpin, cumDelta, ofi, realtimeOFI, turnover, moexTurnover,
      type: FUTURE|STOCK,
      taContext: SignalConvergence,
      convergenceScore: ConvergenceScoreResult,
      robotContext: RobotContext,
+     consistencyCheck: InternalConsistencyResult,
    }
+   │
+   ▼
+Sprint 4: Signal Generation
+   ├── generateSignal() — пороги: BSCI≥0.55, conv≥7, topDet≥0.75
+   ├── Дедупликация: findActiveSignal(ticker, direction)
+   ├── Динамический TTL: calculateTTL(createdAt)
+   └── Redis: horizon:signals:active
    │
    ▼
 Сохранение:
@@ -100,7 +114,43 @@ applyScannerRules(scannerInput)
    ├── Redis: horizon:scanner:bsci:{ticker} (TTL 1h)
    ├── Redis: horizon:cross-section:stats (TTL 2h)
    ├── Redis: horizon:algopack:{ticker} (TTL 5m)
-   └── PostgreSQL: bsci_log — батч-инсерт
+   ├── Redis: horizon:signals:active (TTL = dynamic)
+   ├── Redis: horizon:scanner:top100:progress (TTL 10m) — инкрементальный прогресс
+   └── PostgreSQL: bsci_log + signals — батч-инсерт
+```
+
+## TOP-100 инкрементальное сканирование (v3 — 2026-04-26)
+
+```
+POST /api/horizon/top100
+   │
+   ├── 1. fetchTop100Tickers() — динамический список от MOEX по VALTODAY
+   │   └── Fallback: TOP100_TICKERS hardcoded (100 акций)
+   │
+   ├── 2. Загрузить прогресс из Redis (если скан был прерван)
+   │   └── horizon:scanner:top100:progress → { results, scannedTickers }
+   │
+   ├── 3. Фильтр: пропустить уже отсканированные тикеры
+   │
+   ├── 4. Батчи по 5 тикеров, 200ms delay
+   │   ├── scanTicker(t, timeout=10s, fastMode=true)
+   │   │   ├── fastMode: пропускает RVI + FuturesOI (2 запроса экономии на тикер)
+   │   │   └── Per-ticker timeout: 10 сек, затем skip
+   │   └── Promise.allSettled → failed tickers → emptyResult
+   │
+   ├── 5. Сохранить прогресс после каждого батча (Redis, TTL 10 мин)
+   │
+   ├── 6. Cross-section нормализация (только valid results)
+   │
+   ├── 7. Фильтр: BSCI > 0.03 ИЛИ ≥2 активных детектора
+   │
+   ├── 8. Сортировка по moexTurnover (VALTODAY) ↓
+   │
+   └── 9. Сохранить в Redis (TTL 30 мин) + очистить прогресс
+
+GET /api/horizon/top100
+   ├── Если кэш есть → вернуть
+   └── Если нет → auto-trigger POST scan в фоне + вернуть hint
 ```
 
 ## Signal Generator Pipeline (Sprint 4 — РЕАЛИЗОВАН)
@@ -200,11 +250,12 @@ Cron/Manual → generateObservation(ticker, slot?)
 |------|-----|-----|----------|
 | `horizon:scanner:latest` | JSON | 1h | Core 9 scanner results |
 | `horizon:scanner:top100` | JSON | 30m | TOP-100 scanner results |
+| `horizon:scanner:top100:progress` | JSON | 10m | Инкрементальный прогресс сканирования |
 | `horizon:scanner:bsci:{ticker}` | String | 1h | Previous BSCI per ticker |
 | `horizon:cross-section:stats` | JSON | 2h | Z-score stats per detector |
 | `horizon:observe:{ticker}` | JSON | 30m | Last observation per ticker |
 | `horizon:algopack:{ticker}` | JSON | 5m | AlgoPack data per ticker |
-| `horizon:signals:active` | JSON | dynamic | Active trade signals (Sprint 4, TTL = calculateTTL) |
+| `horizon:signals:active` | JSON | dynamic | Active trade signals (TTL = calculateTTL) |
 
 ### PostgreSQL (постоянное хранение)
 
@@ -215,7 +266,7 @@ Cron/Manual → generateObservation(ticker, slot?)
 | `bsci_log` | Лог BSCI: ticker, bsci, alertLevel, topDetector |
 | `bsci_weights` | Адаптивные веса: detector, weight, accuracy, totalSignals |
 | `reports` | Робот-отчёты: ticker, reportType, content, hint |
-| `signals` | Торговые сигналы + результат + виртуальный P&L (Sprint 4) |
+| `signals` | Торговые сигналы + результат + виртуальный P&L |
 
 ## BSCI Composite Index (v4)
 
