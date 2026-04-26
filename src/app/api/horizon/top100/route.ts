@@ -235,14 +235,12 @@ export async function POST(_request: NextRequest) {
       console.log(`[cross-section] Normalized ${validResults.length}/${scannedResults.length} tickers`);
     }
 
-    // 7. Filter out tickers with no real data (BSCI ~0 = no orderbook / stale)
-    const realData = scannedResults.filter((t) => {
-      const activeDetectors = Object.values(t.detectorScores).filter(s => s > 0.1).length;
-      return t.bsci > 0.03 || activeDetectors >= 2;
-    });
+    // 7. Show ALL tickers — do NOT filter by BSCI level!
+    // Even on weekends when BSCI ≈ 0, users should see tickers.
+    // Low BSCI tickers are displayed as GREEN (calm) — that's correct.
 
     // 8. Sort by moexTurnover (VALTODAY) descending — TOP-100 = по обороту!
-    const sorted = realData.sort((a, b) =>
+    const sorted = scannedResults.sort((a, b) =>
       (b.moexTurnover || b.turnover || 0) - (a.moexTurnover || a.turnover || 0)
     );
 

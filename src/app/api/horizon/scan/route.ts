@@ -232,14 +232,10 @@ export async function scanTicker(
   });
 
   try {
-    // ─── v4.1.2: Market session check ──────────────────────────────────────
-    // Если рынок закрыт (ночь, перерыв) — пропускаем детекторы, возвращаем GREEN
-    const sessionInfo = getSessionInfo();
-    if (!canGenerateSignals()) {
-      return emptyResult({
-        quickStatus: `Рынок закрыт (${sessionInfo.description}). BSCI 0.00`,
-      });
-    }
+    // NOTE: canGenerateSignals() check removed from here!
+    // It must ONLY block signal generation, NOT the detector pipeline.
+    // Detectors should always run — even on stale data / weekends.
+    // Signal gate is in the POST handler below.
 
     // 1. Collect market data (with auto-resolution + timeout per ticker)
     const collectPromise = collectMarketData(ticker, undefined, fastMode);
@@ -248,19 +244,11 @@ export async function scanTicker(
     );
     const { detectorInput } = await Promise.race([collectPromise, timeoutPromise]);
 
-    // ─── v4.1.2: Stale data shortcut ──────────────────────────────────────
-    // Если сделки старше 30 мин (stale) — все детекторы вернут score=0
-    // Пропускаем детекторы для скорости, но Всё равно считаем BSCI=0
-    if (detectorInput.staleData) {
-      return emptyResult({
-        quickStatus: `Нет свежих данных (сделка ${detectorInput.staleMinutes ?? '?'} мин назад). BSCI 0.00`,
-        vpin: detectorInput.vpin.vpin,
-        cumDelta: detectorInput.cumDelta.delta,
-        ofi: detectorInput.ofi,
-        realtimeOFI: detectorInput.realtimeOFI,
-        turnover: detectorInput.trades.reduce((s, t) => s + t.price * t.quantity, 0),
-      });
-    }
+    // NOTE: Stale data shortcut removed!
+    // Even with stale data (weekends, nights), we still run detectors.
+    // The detectors themselves + internal consistency check handle
+    // empty/stale data properly (low scores, not 0.5 fallback).
+    // staleData flag is kept in DetectorInput for informational purposes.
 
     // 2. Load current BSCI weights
     const weightsRows = await prisma.bsciWeight.findMany();

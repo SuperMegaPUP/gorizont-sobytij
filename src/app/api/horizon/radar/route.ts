@@ -95,28 +95,30 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 4. Filter out tickers with no real data (BSCI near 0 = only ENTANGLE)
-    const realData = deduped.filter((d: any) => {
-      const activeDetectors = Object.values(d.detectorScores || {}).filter((s: any) => Number(s) > 0.1).length;
-      return (d.bsci || 0) > 0.05 || activeDetectors >= 3;
-    });
-
-    // 4.5 Smart filtering for radar clarity
-    // Always include: YELLOW+ alerts (BSCI > 0.2), futures, top-15 by BSCI
-    const alertData = realData.filter((d: any) => {
-      const norm = normalizeTicker(d.ticker);
-      const isFuture = d.type === 'FUTURE';
-      return (d.bsci || 0) > 0.2 || isFuture || norm in MOEX_TO_SHORT;
-    });
-    // Add top-15 by BSCI (in case they're not in alert/futures sets)
-    const byBsci = [...realData].sort((a: any, b: any) => (b.bsci || 0) - (a.bsci || 0));
-    const top15 = byBsci.slice(0, 15);
-    const radarSource = new Map<string, any>();
-    for (const d of alertData) radarSource.set(d.ticker, d);
-    for (const d of top15) {
-      if (!radarSource.has(d.ticker)) radarSource.set(d.ticker, d);
+    // 4. Show ALL tickers on radar — do NOT filter by BSCI level!
+    // Even on weekends when BSCI ≈ 0, users should see radar dots.
+    // Core 9 futures are always visible (they may be GREEN = calm).
+    // For very large datasets (>50), keep smart filtering by top-N + alerts.
+    let radarInput: any[];
+    if (deduped.length <= 50) {
+      // Small dataset: show all
+      radarInput = deduped;
+    } else {
+      // Large dataset: smart filter — alerts + futures + top-30 by BSCI
+      const alertData = deduped.filter((d: any) => {
+        const norm = normalizeTicker(d.ticker);
+        const isFuture = d.type === 'FUTURE';
+        return (d.bsci || 0) > 0.2 || isFuture || norm in MOEX_TO_SHORT;
+      });
+      const byBsci = [...deduped].sort((a: any, b: any) => (b.bsci || 0) - (a.bsci || 0));
+      const top30 = byBsci.slice(0, 30);
+      const radarSource = new Map<string, any>();
+      for (const d of alertData) radarSource.set(d.ticker, d);
+      for (const d of top30) {
+        if (!radarSource.has(d.ticker)) radarSource.set(d.ticker, d);
+      }
+      radarInput = Array.from(radarSource.values());
     }
-    const radarInput = Array.from(radarSource.values());
 
     // 5. Calculate radar dots (from filtered radarInput)
     const cumDeltas = radarInput.map((d: any) => d.cumDelta || 0);
