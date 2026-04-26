@@ -135,11 +135,12 @@ export function TickerModal() {
           </div>
 
           {/* Metrics Row */}
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-2">
             {[
               { label: 'VPIN', value: detail.vpin?.toFixed(3) ?? '—' },
               { label: 'CumDelta', value: detail.cumDelta?.toFixed(0) ?? '—' },
-              { label: 'OFI', value: (detail as any).ofi?.toFixed(1) ?? '—' },
+              { label: 'OFI', value: detail.ofi !== undefined && detail.ofi !== null ? detail.ofi.toFixed(3) : '—' },
+              { label: 'rtOFI', value: (detail as any).realtimeOFI != null ? (detail as any).realtimeOFI.toFixed(0) : '—' },
               { label: 'Оборот', value: detail.turnover ? `${(detail.turnover / 1e6).toFixed(1)}M` : '—' },
             ].map((m) => (
               <div key={m.label} className="bg-[var(--terminal-bg)]/50 rounded-lg px-2 py-1.5 border border-[var(--terminal-border)]/30 text-center">

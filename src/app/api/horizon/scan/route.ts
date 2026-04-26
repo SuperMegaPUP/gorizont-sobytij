@@ -196,76 +196,70 @@ const FUTURES_TICKERS = new Set(['Si', 'RI', 'BR']);
 
 export async function scanTicker(
   tickerInfo: { ticker: string; name: string; moexTurnover?: number },
+  timeoutMs: number = 15000,
+  fastMode: boolean = false,
 ): Promise<TickerScanResult> {
   const { ticker, name, moexTurnover } = tickerInfo;
   const tickerType = FUTURES_TICKERS.has(ticker) ? 'FUTURE' as const : 'STOCK' as const;
+
+  // Helper: create empty result for error/closed cases
+  const emptyResult = (extra?: Partial<TickerScanResult>): TickerScanResult => ({
+    ticker,
+    name,
+    bsci: 0,
+    prevBsci: 0,
+    alertLevel: 'GREEN',
+    direction: 'NEUTRAL',
+    confidence: 0,
+    detectorScores: {},
+    keySignal: 'NEUTRAL',
+    action: 'WATCH',
+    quickStatus: `Спокойно. BSCI 0.00`,
+    vpin: 0,
+    cumDelta: 0,
+    ofi: 0,
+    realtimeOFI: undefined,
+    turnover: 0,
+    moexTurnover,
+    type: tickerType,
+    taContext: undefined,
+    convergenceScore: undefined,
+    consistencyCheck: undefined,
+    robotContext: undefined,
+    _rawDetectorResults: undefined,
+    _weights: undefined,
+    ...extra,
+  });
 
   try {
     // ─── v4.1.2: Market session check ──────────────────────────────────────
     // Если рынок закрыт (ночь, перерыв) — пропускаем детекторы, возвращаем GREEN
     const sessionInfo = getSessionInfo();
     if (!canGenerateSignals()) {
-      return {
-        ticker,
-        name,
-        bsci: 0,
-        prevBsci: 0,
-        alertLevel: 'GREEN',
-        direction: 'NEUTRAL',
-        confidence: 0,
-        detectorScores: {},
-        keySignal: 'NEUTRAL',
-        action: 'WATCH',
+      return emptyResult({
         quickStatus: `Рынок закрыт (${sessionInfo.description}). BSCI 0.00`,
-        vpin: 0,
-        cumDelta: 0,
-        ofi: 0,
-        realtimeOFI: undefined,
-        turnover: 0,
-        moexTurnover,
-        type: tickerType,
-        taContext: undefined,
-        convergenceScore: undefined,
-        consistencyCheck: undefined,
-        robotContext: undefined,
-        _rawDetectorResults: undefined,
-        _weights: undefined,
-      };
+      });
     }
 
-    // 1. Collect market data (with auto-resolution)
-    const { detectorInput } = await collectMarketData(ticker);
+    // 1. Collect market data (with auto-resolution + timeout per ticker)
+    const collectPromise = collectMarketData(ticker, undefined, fastMode);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout ${timeoutMs}ms`)), timeoutMs)
+    );
+    const { detectorInput } = await Promise.race([collectPromise, timeoutPromise]);
 
     // ─── v4.1.2: Stale data shortcut ──────────────────────────────────────
     // Если сделки старше 30 мин (stale) — все детекторы вернут score=0
     // Пропускаем детекторы для скорости, но Всё равно считаем BSCI=0
     if (detectorInput.staleData) {
-      return {
-        ticker,
-        name,
-        bsci: 0,
-        prevBsci: 0,
-        alertLevel: 'GREEN',
-        direction: 'NEUTRAL',
-        confidence: 0,
-        detectorScores: {},
-        keySignal: 'NEUTRAL',
-        action: 'WATCH',
+      return emptyResult({
         quickStatus: `Нет свежих данных (сделка ${detectorInput.staleMinutes ?? '?'} мин назад). BSCI 0.00`,
         vpin: detectorInput.vpin.vpin,
         cumDelta: detectorInput.cumDelta.delta,
         ofi: detectorInput.ofi,
         realtimeOFI: detectorInput.realtimeOFI,
         turnover: detectorInput.trades.reduce((s, t) => s + t.price * t.quantity, 0),
-        moexTurnover,
-        type: tickerType,
-        taContext: undefined,
-        convergenceScore: undefined,
-        consistencyCheck: undefined,
-        robotContext: undefined,
-        _rawDetectorResults: undefined,
-        _weights: undefined,
-      };
+      });
     }
 
     // 2. Load current BSCI weights
@@ -440,33 +434,10 @@ export async function scanTicker(
     };
   } catch (error: any) {
     console.error(`[horizon/scan] Error scanning ${ticker}:`, error.message);
-    return {
-      ticker,
-      name,
-      bsci: 0,
-      prevBsci: 0,
-      alertLevel: 'GREEN',
-      direction: 'NEUTRAL',
-      confidence: 0,
-      detectorScores: {},
-      keySignal: 'NEUTRAL',
-      action: 'WATCH',
+    return emptyResult({
       quickStatus: `Спокойно. BSCI 0.00. ОШИБКА: ${error.message?.slice(0, 40)}`,
-      vpin: 0,
-      cumDelta: 0,
-      ofi: 0,
-      realtimeOFI: undefined,
-      turnover: 0,
-      moexTurnover,
-      type: tickerType,
       error: error.message,
-      taContext: undefined,
-      convergenceScore: undefined,
-      consistencyCheck: undefined,
-      robotContext: undefined,
-      _rawDetectorResults: undefined,
-      _weights: undefined,
-    };
+    });
   }
 }
 

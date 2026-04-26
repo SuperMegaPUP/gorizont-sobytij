@@ -137,6 +137,17 @@ export function HorizonScannerFrame() {
     }
   }, [scannerMode, top100Data.length, top100Loading, fetchTop100]);
 
+  // Auto-refresh TOP-100 every 5 min when in top100 mode
+  useEffect(() => {
+    if (scannerMode !== 'top100') return;
+    const interval = setInterval(() => {
+      if (!lastTop100Update || Date.now() - lastTop100Update > 5 * 60 * 1000) {
+        fetchTop100();
+      }
+    }, 60 * 1000); // check every minute
+    return () => clearInterval(interval);
+  }, [scannerMode, lastTop100Update, fetchTop100]);
+
   // Reset on filter change
   // (no pagination needed — all items shown in scroll)
 

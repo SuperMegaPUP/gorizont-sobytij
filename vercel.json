@@ -47,6 +47,22 @@
     {
       "path": "/api/horizon/scan?mode=top100",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/horizon/top100",
+      "schedule": "5 7 * * 1-5"
+    },
+    {
+      "path": "/api/horizon/top100",
+      "schedule": "0 10 * * 1-5"
+    },
+    {
+      "path": "/api/horizon/top100",
+      "schedule": "0 13 * * 1-5"
+    },
+    {
+      "path": "/api/horizon/top100",
+      "schedule": "0 16 * * 1-5"
     }
   ]
 }

@@ -38,6 +38,8 @@ export interface ScannerTicker {
   quickStatus: string;
   vpin: number;
   cumDelta: number;
+  ofi: number;               // Order Flow Imbalance [-1, 1]
+  realtimeOFI?: number;      // Real-time OFI (Cont et al. 2014)
   turnover: number;
   moexTurnover?: number;  // VALTODAY от MOEX
   type: 'FUTURE' | 'STOCK';
@@ -446,14 +448,25 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       let json = await res.json();
 
-      // 2. If no cached data, trigger a POST scan (takes ~2-3 min for 100 tickers)
+      // 2. If no cached data (scanning in background), wait and retry
       if (!json.data || json.data.length === 0) {
-        console.log('[HorizonStore] No cached TOP-100 data, triggering POST scan...');
-        const scanRes = await fetch('/api/horizon/top100', { method: 'POST' });
-        if (scanRes.ok) {
-          json = await scanRes.json();
-        } else {
-          throw new Error('TOP-100 scan failed');
+        // If scan was triggered in background, wait 30s and retry
+        if (json.scanning) {
+          console.log('[HorizonStore] TOP-100 scan started in background, waiting 30s...');
+          await new Promise(resolve => setTimeout(resolve, 30000));
+          res = await fetch('/api/horizon/top100');
+          if (res.ok) json = await res.json();
+        }
+
+        // If still no data, try POST directly
+        if (!json.data || json.data.length === 0) {
+          console.log('[HorizonStore] No cached TOP-100 data, triggering POST scan...');
+          const scanRes = await fetch('/api/horizon/top100', { method: 'POST' });
+          if (scanRes.ok) {
+            json = await scanRes.json();
+          } else {
+            throw new Error('TOP-100 scan failed');
+          }
         }
       }
 

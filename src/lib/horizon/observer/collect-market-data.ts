@@ -454,29 +454,38 @@ export interface MarketDataResult {
 export async function collectMarketData(
   ticker: string = 'SBER',
   crossTickers?: string[],
+  fastMode: boolean = false,
 ): Promise<MarketDataResult> {
-  console.log(`[collect-market-data] Starting for ${ticker}`);
+  if (!fastMode) {
+    console.log(`[collect-market-data] Starting for ${ticker}`);
+  }
 
   // 0. Резолвация тикера → правильный борд MOEX
   const config = await resolveTicker(ticker);
-  console.log(`[collect-market-data] Resolved: ${ticker} → ${config.moexTicker} on ${config.board} (${config.type})`);
+  if (!fastMode) {
+    console.log(`[collect-market-data] Resolved: ${ticker} → ${config.moexTicker} on ${config.board} (${config.type})`);
+  }
 
   // 1. Параллельный сбор данных
-  const [obResult, tradesResult, rviResult, futuresOI] = await Promise.allSettled([
+  // fastMode: skip RVI and futuresOI (they're shared across all tickers and cached)
+  const fetchPromises: Promise<any>[] = [
     fetchOrderboard(config),
     fetchTrades(config, 200),
-    fetchRVI(),
-    fetchFuturesOI(),
-  ]);
+  ];
+  if (!fastMode) {
+    fetchPromises.push(fetchRVI(), fetchFuturesOI());
+  }
+
+  const results = await Promise.allSettled(fetchPromises);
 
   // 2. Стакан
-  const orderbook: OrderBookData = obResult.status === 'fulfilled' && obResult.value
-    ? obResult.value
+  const orderbook: OrderBookData = results[0].status === 'fulfilled' && results[0].value
+    ? results[0].value
     : { bids: [], asks: [] };
 
   // 3. Сделки
-  const { trades, recentTrades } = tradesResult.status === 'fulfilled'
-    ? tradesResult.value
+  const { trades, recentTrades } = results[1].status === 'fulfilled'
+    ? results[1].value
     : { trades: [], recentTrades: [] };
 
   // 3.5 Предыдущий снапшот стакана из Redis (для Real-time OFI)
@@ -526,16 +535,22 @@ export async function collectMarketData(
   const prices = trades.slice(-50).map(t => t.price);
   const volumes = trades.slice(-50).map(t => t.quantity);
 
-  // 7. RVI
-  const rvi = rviResult.status === 'fulfilled' && rviResult.value
-    ? rviResult.value.value : null;
+  // 7. RVI (only in full mode)
+  let rvi: number | null = null;
+  let oi: FuturesOIResult[] = [];
+
+  if (!fastMode) {
+    // results[2] = RVI, results[3] = futuresOI
+    rvi = results[2]?.status === 'fulfilled' && results[2]?.value
+      ? results[2].value.value : null;
+    oi = results[3]?.status === 'fulfilled' ? results[3].value : [];
+  }
 
   // 8. Кросс-тикерные данные (ENTANGLE)
   const defaultCrossTickers = crossTickers || ['GAZP', 'LKOH', 'GMKN', 'ROSN', 'NVTK'];
   const crossTickerData: Record<string, { priceChange: number; ofi: number }> = {};
 
   // Собираем кросс-данные из фьючерсов OI (если есть)
-  const oi = futuresOI.status === 'fulfilled' ? futuresOI.value : [];
   for (const f of oi.slice(0, 5)) {
     crossTickerData[f.ticker] = {
       priceChange: f.change,
