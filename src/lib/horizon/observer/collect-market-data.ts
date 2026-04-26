@@ -591,10 +591,19 @@ export async function collectMarketData(
     console.log(`[collect-market-data] ${ticker}: STALE DATA — no trades at all`);
   }
 
-  // Если стакан пустой — тоже считаем stale
+  // Пустой стакан: НЕ автоматически stale!
+  // На выходных (ДСВД) ISS возвращает HTML вместо orderbook JSON — но рынок открыт, trades свежие.
+  // Пустой стакан → staleData=TRUE только если trades ТОЖЕ stale/пустые.
+  // Если trades свежие → стакан пустой из-за ограничения API, не закрытого рынка.
   if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
-    staleData = true;
-    console.log(`[collect-market-data] ${ticker}: STALE DATA — empty orderbook`);
+    if (staleData) {
+      // Trades stale/пустые + стакан пустой → рынок реально закрыт
+      console.log(`[collect-market-data] ${ticker}: STALE DATA — empty orderbook + stale trades`);
+    } else {
+      // Trades свежие + стакан пустой → ограничение API (ДСВД выходные)
+      console.log(`[collect-market-data] ${ticker}: Empty orderbook but trades fresh — API limitation (ДСВД?), NOT stale`);
+      // staleData остаётся false! Детекторы получат пустой стакан, но смогут работать с trades
+    }
   }
 
   // 9. Формируем DetectorInput

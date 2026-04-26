@@ -262,6 +262,8 @@ export async function POST(_request: NextRequest) {
     if (!hasRealData) {
       // Market truly closed — return cached data if available, don't overwrite with zeros
       console.log(`[/api/horizon/top100] No real data (all BSCI≈0), market likely closed (${sessionInfo.description})`);
+      // IMPORTANT: Clear progress cache so next scan starts fresh (not stuck with stale BSCI=0 results)
+      try { await redis.del(PROGRESS_KEY); } catch { /* ignore */ }
       try {
         const cached = await redis.get(CACHE_KEY);
         if (cached) {
