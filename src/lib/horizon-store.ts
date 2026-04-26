@@ -1,11 +1,52 @@
 // ─── Horizon Store — Zustand ──────────────────────────────────────────────
 // Состояние вкладки «Горизонт событий»
 // Expanded for Phase 5: Scanner, Radar, Heatmap, Selection, TOP 100
+//
+// v4.1.5: Added exponential backoff + circuit breaker for API polling
+// Prevents ERR_CONNECTION_RESET avalanche on Vercel serverless
 
 import { create } from 'zustand';
 import type { OrderBookData } from './horizon/calculations/ofi';
 import type { CumDeltaResult } from './horizon/calculations/delta';
 import type { VPINResult } from './horizon/calculations/vpin';
+
+// ─── API Backoff Manager ──────────────────────────────────────────────────
+// Tracks consecutive errors per endpoint and applies exponential backoff
+
+const backoffState: Record<string, { errors: number; backoffMs: number; blockedUntil: number }> = {};
+
+function getBackoff(endpoint: string): { errors: number; backoffMs: number; blockedUntil: number } {
+  if (!backoffState[endpoint]) {
+    backoffState[endpoint] = { errors: 0, backoffMs: 5000, blockedUntil: 0 };
+  }
+  return backoffState[endpoint];
+}
+
+function recordSuccess(endpoint: string) {
+  backoffState[endpoint] = { errors: 0, backoffMs: 5000, blockedUntil: 0 };
+}
+
+function recordError(endpoint: string) {
+  const state = getBackoff(endpoint);
+  state.errors++;
+  state.backoffMs = Math.min(state.backoffMs * 2, 60000); // max 60s backoff
+  if (state.errors >= 3) {
+    // Circuit breaker: block for 2 minutes
+    state.blockedUntil = Date.now() + 120000;
+  }
+}
+
+function isBlocked(endpoint: string): boolean {
+  const state = getBackoff(endpoint);
+  if (state.blockedUntil > Date.now()) return true;
+  if (state.blockedUntil > 0 && state.blockedUntil <= Date.now()) {
+    // Block expired, reset
+    state.blockedUntil = 0;
+    state.errors = 0;
+    state.backoffMs = 5000;
+  }
+  return false;
+}
 
 // ─── Original Types ────────────────────────────────────────────────────────
 
@@ -310,6 +351,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
   // ── Phase 5: Fetch Scanner ────────────────────────────────────────────
 
   fetchScanner: async () => {
+    if (isBlocked('scanner')) return;
     set({ loading: true, error: null });
     try {
       // 1. Try GET first (reads from Redis cache)
@@ -326,6 +368,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
         }
       }
 
+      recordSuccess('scanner');
       set({
         scannerData: json.data || [],
         lastScannerUpdate: Date.now(),
@@ -334,6 +377,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
         sessionInfo: json.sessionInfo || '',
       });
     } catch (error: any) {
+      recordError('scanner');
       set({ error: error.message, loading: false });
     }
   },
@@ -341,14 +385,16 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
   // ── Phase 5: Fetch Radar ──────────────────────────────────────────────
 
   fetchRadar: async () => {
+    if (isBlocked('radar')) return;
     try {
       // Always fetch ALL data (core + top100 combined) for radar
-      // Radar shows the full picture regardless of scanner mode
       const res = await fetch('/api/horizon/radar?source=all');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      recordSuccess('radar');
       set({ radarData: json.data || [] });
     } catch (error: any) {
+      recordError('radar');
       console.warn('[HorizonStore] fetchRadar error:', error.message);
     }
   },
@@ -356,6 +402,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
   // ── Phase 5: Fetch Heatmap ────────────────────────────────────────────
 
   fetchHeatmap: async (hours?: number) => {
+    if (isBlocked('heatmap')) return;
     try {
       const url = hours
         ? `/api/horizon/heatmap?hours=${hours}`
@@ -363,11 +410,13 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      recordSuccess('heatmap');
       set({
         heatmapData: json.data || [],
         lastHeatmapUpdate: Date.now(),
       });
     } catch (error: any) {
+      recordError('heatmap');
       console.warn('[HorizonStore] fetchHeatmap error:', error.message);
     }
   },
@@ -400,6 +449,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
   // ── Phase 5: Fetch Observations ───────────────────────────────────────
 
   fetchObservations: async (ticker?: string) => {
+    if (isBlocked('observations')) return;
     try {
       const t = ticker || get().activeTicker;
       const res = await fetch(`/api/horizon/observations?ticker=${t}&limit=20`);
@@ -414,11 +464,13 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
           model: 'horizon',
         }),
       );
+      recordSuccess('observations');
       set({
         observations: obs,
         lastObservationUpdate: Date.now(),
       });
     } catch (error: any) {
+      recordError('observations');
       console.warn('[HorizonStore] fetchObservations error:', error.message);
     }
   },
@@ -447,6 +499,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
   setScannerMode: (mode) => set({ scannerMode: mode }),
 
   fetchTop100: async () => {
+    if (isBlocked('top100')) { set({ top100Loading: false }); return; }
     set({ top100Loading: true, top100Error: null });
     try {
       // 1. Try GET first (reads from Redis cache)
@@ -476,6 +529,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
         }
       }
 
+      recordSuccess('top100');
       set({
         top100Data: json.data || [],
         lastTop100Update: Date.now(),
@@ -484,6 +538,7 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
         sessionInfo: json.sessionInfo || '',
       });
     } catch (error: any) {
+      recordError('top100');
       set({ top100Error: error.message, top100Loading: false });
     }
   },

@@ -75,7 +75,7 @@ export function HorizonRadarFrame() {
   useEffect(() => {
     setMounted(true);
     fetchRadar();
-    const interval = setInterval(fetchRadar, 30000);
+    const interval = setInterval(fetchRadar, 60000); // 60s — increased from 30s to reduce Vercel load
     return () => clearInterval(interval);
   }, [fetchRadar]);
 

@@ -41,7 +41,7 @@ export function HorizonHeatmapFrame() {
   // Fetch on mount + interval (always 48h)
   useEffect(() => {
     fetchHeatmap(48);
-    const interval = setInterval(() => fetchHeatmap(48), 60000);
+    const interval = setInterval(() => fetchHeatmap(48), 120000); // 2 min — increased from 60s to reduce Vercel load
     return () => clearInterval(interval);
   }, [fetchHeatmap]);
 
