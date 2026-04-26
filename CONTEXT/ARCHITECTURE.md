@@ -1,6 +1,6 @@
 # АРХИТЕКТУРА: Горизонт Событий
 
-> Спецификация v4.1 — Обновлён: 2026-04-26
+> Спецификация v4.1 + HOTFIX v4.1.5 — Обновлён: 2026-04-26
 
 ## Пайплайн сканирования
 
@@ -9,8 +9,8 @@
    │
    ▼
 collectMarketData(ticker, fastMode?)
-   ├── Orderbook snapshot
-   ├── Recent trades
+   ├── Orderbook snapshot (⚠️ пустой на выходных — ISS HTML, APIM/JWT ненадёжён)
+   ├── Recent trades (✅ `&reversed=1` — LAST 200, не FIRST 200 — FIX 0)
    ├── OHLCV candles
    ├── Market snapshot (mid, spread)
    ├── RVI (пропускается в fastMode)
@@ -80,6 +80,7 @@ calculateConvergenceScore(...)
    ├── База: 5 индикаторов × 0-2 балла = 0-10
    ├── +1 дивергенция, +1 ATR-сжатие, +1 роботы
    ├── −2 СПУФИНГ, −1 cancel>80%
+   ├── FIX 9: BSCI < 0.15 → conv = 0/10 (детекторы неактивны)
    └── score = clamp(totalPoints, 0, 10)
    │
    ▼
@@ -249,13 +250,14 @@ Cron/Manual → generateObservation(ticker, slot?)
 | Ключ | Тип | TTL | Описание |
 |------|-----|-----|----------|
 | `horizon:scanner:latest` | JSON | 1h | Core 9 scanner results |
-| `horizon:scanner:top100` | JSON | 30m | TOP-100 scanner results |
+| `horizon:scanner:top100` | JSON | 120m | TOP-100 scanner results (увеличен с 30m) |
 | `horizon:scanner:top100:progress` | JSON | 10m | Инкрементальный прогресс сканирования |
 | `horizon:scanner:bsci:{ticker}` | String | 1h | Previous BSCI per ticker |
 | `horizon:cross-section:stats` | JSON | 2h | Z-score stats per detector |
 | `horizon:observe:{ticker}` | JSON | 30m | Last observation per ticker |
 | `horizon:algopack:{ticker}` | JSON | 5m | AlgoPack data per ticker |
 | `horizon:signals:active` | JSON | dynamic | Active trade signals (TTL = calculateTTL) |
+| `horizon:excluded:{ticker}` | String | 24h | Мёртвые тикеры (все scores<0.15 на 3+ сканах) |
 
 ### PostgreSQL (постоянное хранение)
 

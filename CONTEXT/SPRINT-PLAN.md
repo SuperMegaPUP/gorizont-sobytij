@@ -1,8 +1,8 @@
 # СПРИНТ-ПЛАН: Горизонт Событий
 
-> Обновлён: 2026-04-26 (Спецификация v4.1 — заморожена)
-> Текущий спринт: Спринт 4 — ВЫПОЛНЕН (кроме калибровки порогов)
-> ВАЖНО: Калибровка порогов → при открытии сессии
+> Обновлён: 2026-04-26 (Спецификация v4.1 + HOTFIX v4.1.5)
+> Текущий спринт: Спринт 4 — ВЫПОЛНЕН + HOTFIX v4.1.5 задеплоен
+> ВАЖНО: Калибровка порогов → при открытии сессии (понедельник 10:00 МСК)
 
 ## Спринт 1 (ЗАВЕРШЁН): Фундамент
 
@@ -40,7 +40,7 @@
 - [x] UI: робот-контекст + МАНИПУЛЯЦИЯ badge + СПУФИНГ→СПУФИНГ
 - [x] Деплой в PROD и LAB
 
-## Спринт 4 (ЗАВЕРШЁН): СИГНАЛЫ + П1 правки + bugfix'ы
+## Спринт 4 (ЗАВЕРШЁН): СИГНАЛЫ + П1 правки + bugfix'ы + HOTFIX v4.1.5
 
 ### Фаза 1 (ВЫПОЛНЕНА): П1 правки детекторов ✅
 
@@ -74,7 +74,7 @@
 | 3-3 | Virtual P&L + SignalFeedbackStore (в signal-feedback.ts) | — | ✅ |
 | 3-4 | SignalSnapshot при каждой P&L проверке | — | ✅ |
 
-### Bugfix'ы (ВЫПОЛНЕНЫ) ✅
+### Bugfix'ы Sprint 4 (ВЫПОЛНЕНЫ) ✅
 
 | # | Баг | Статус |
 |---|-----|--------|
@@ -83,11 +83,32 @@
 | BF-3 | ТОП 100 не грузился — только 9 фьючерсов | ✅ Инкрементальное сканирование + fastMode |
 | BF-4 | Деплой на wrong Vercel project | ✅ Токен + Vercel CLI напрямую |
 
-### КАЛИБРОВКА (ОСТАЛОСЬ)
+### HOTFIX v4.1.5 (ВЫПОЛНЕН) ✅ — BSCI=0.00 на выходных
 
-→ Замерить BSCI/convergence распределения при открытой сессии
-→ Скорректировать SIGNAL_BSCI_THRESHOLD и SIGNAL_CONV_THRESHOLD если нужно
-→ Это 5 минут работы
+| # | Фикс | Описание | Статус |
+|---|------|----------|--------|
+| FIX 0 | `reversed=1` | MOEX ISS `/trades.json` — LAST 200 сделок вместо FIRST 200 | ✅ 6 мест |
+| FIX 1 | isWeekend удалён | Сессия определяется ТОЛЬКО по времени суток | ✅ |
+| FIX 2 | canGenerateSignals убран из scan | Блокировка только генерации сигналов, не детекторов | ✅ |
+| FIX 3 | canGenerateSignals убран из top100 | + TTL 1800→7200 + hasRealData + progress cleanup | ✅ |
+| FIX 4 | canGenerateSignals только в signal-generator | Очистка неиспользуемых импортов | ✅ |
+| FIX 5 | [DATA-DEBUG] логирование | В collect-market-data.ts | ✅ |
+| FIX 6 | staleData логика | Пустой orderbook ≠ stale если trades свежие (<30 мин) | ✅ |
+| FIX 7 | Progress cache cleanup | При раннем возврате в top100/route.ts | ✅ |
+| FIX 8 | HorizonStore polling | Throttle + exponential backoff + circuit breaker | ✅ |
+| FIX 9 | Конвергенция при BSCI≈0 | BSCI < 0.15 → conv = 0/10 (не 5/10 из ниоткуда) | ✅ |
+| FIX 10 | Радар BSCI ось | Jitter горизонтальный + ±20px drift limit + post-process инверсии | ✅ |
+
+**Результат**: 77/100 тикеров с BSCI > 0 на выходных (было 0/100).
+
+### ОСТАТОК СпРИНТА 4 (не блокирует Sprint 5)
+
+| # | Задача | Описание | Статус |
+|---|--------|----------|--------|
+| 4R-1 | Radar CumDelta=0 по центру | `absMaxCD = max(abs(minCD), abs(maxCD))` | ⬜ |
+| 4R-2 | Нормализация 0.25→0.4 | В cross-section-normalize.ts | ⬜ |
+| 4R-3 | Калибровка порогов | Замер BSCI/conv распределений при открытой сессии, скорректировать пороги | ⬜ |
+| 4R-4 | Мёртвые тикеры persistent flag | Redis `horizon:excluded:{ticker}` при scores<0.15 на 3+ сканах | ⬜ |
 
 ### Формула уверенности (v4.1 — условное взвешивание BSCI)
 
@@ -158,17 +179,19 @@ price_reversion < 0.4 → FALSE_BREAKOUT
 | Цена < стоп-лосс | price < stopLoss | PRICE_STOP |
 | PREDATOR FALSE_BREAKOUT | градиент: reversion<0.4 → FALSE_BREAKOUT; reversion≥0.4 → CONSUME | FALSE_BREAKOUT |
 
-## Спринт 5: Калибровка + П2 структурные улучшения
+## Спринт 5: Калибровка + П2 структурные улучшения + Trade-based OFI
 
-### Калибровка
+### 5A. Калибровка (3 уровня)
 
 - [ ] Win rate по истории сигналов (через виртуальный P&L)
 - [ ] ROC-анализ порогов + Youden's J
 - [ ] Уровень 0: внутренняя консистентность (детектор vs свои данные)
 - [ ] Уровень 1: детектор vs робот-данные
 - [ ] Уровень 2: детектор vs робот-данные vs результат сигнала
+- [ ] Адаптивные пороги: threshold = baseThreshold + volatilityAdjustment (VIX/RVI + среднерыночный BSCI)
+- [ ] Динамическое окно верификации BSCI через ATR (из спецификации v4 п.7)
 
-### П2 Структурные улучшения детекторов
+### 5B. П2 Структурные улучшения детекторов
 
 | # | Правка | Описание |
 |---|--------|----------|
@@ -181,6 +204,31 @@ price_reversion < 0.4 → FALSE_BREAKOUT
 | П2-7 | WAVEFUNCTION | Ресэмплинг при N_eff < 0.5*n_particles + log-weights (ОБЯЗАТЕЛЬНО) |
 | П2-8 | BSCI | Мягкий daily weight decay (w = 0.99*w + 0.01/K) |
 | П2-9 | Сквозная | z-score нормализация в data pipeline для всех детекторов |
+
+### 5C. Trade-based OFI (КРИТИЧЕСКИЙ — 3 детектора мёртвые без orderbook)
+
+> **Проблема**: OFI (Order Flow Imbalance) сейчас считается ТОЛЬКО из orderbook.
+> На выходных ISS возвращает HTML вместо orderbook, APIM/JWT ненадёжён.
+> Без orderbook мёртвые: GRAVITON, DARKMATTER, и сам OFI.
+> **Решение**: Trade-based OFI — вычисление OFI из потока сделок без orderbook.
+
+| # | Задача | Описание | Оценка |
+|---|--------|----------|--------|
+| 5C-1 | Trade-based OFI алгоритм | OFI из trades: классификация buyer/seller initiated (tick rule) → imbalance = Σ(buy_vol - sell_vol) / (Σ(buy_vol + sell_vol) + ε). Окно = последние 200 сделок | 3 ч |
+| 5C-2 | Fallback логика | Если orderbook доступен → orderbook OFI (точнее). Если нет → trade-based OFI (всегда доступен). Результат: rtOFI = orderbook-based, ofi = trade-based | 2 ч |
+| 5C-3 | Интеграция в collect-market-data | Подавать trade-based OFI в детекторы когда orderbook пуст | 1 ч |
+| 5C-4 | GRAVITON + DARKMATER с trade-OFI | Проверить что детекторы работают с trade-based OFI (даже если менее точно) | 1 ч |
+| 5C-5 | UI: источник OFI | Показывать "OFI (trades)" vs "OFI (orderbook)" в карточке тикера | 30 мин |
+
+**Ссылка**: Cont, Kukanov, Stoikov (2014) — The Price Impact of Order Book Events
+
+### 5D. Валидация П2
+
+| # | Задача | Описание |
+|---|--------|----------|
+| 5D-1 | Сравнение до/после П2 | Замер BSCI distribution до и после П2 правок → среднее должно сместиться ниже 0.50 |
+| 5D-2 | Дискриминация детекторов | Для каждого детектора: скор на высоколиквидных vs низколиквидных |
+| 5D-3 | Перекалибровка порогов сигналов | После П2 правок — заново замерить распределения и скорректировать пороги |
 
 ## Спринт 6+: П3 Продвинутые
 

@@ -9,11 +9,11 @@
 //
 // РЕШЕНИЕ:
 //   Для каждого детектора вычисляем z-score по всему батчу тикеров,
-//   затем маппим в [0, 1]: normalized = clamp(0.5 + z * 0.25, 0, 1)
+//   затем маппим в [0, 1]: normalized = clamp(0.5 + z * 0.4, 0, 1)
 //
 //   z = 0 (среднее) → normalized = 0.5
-//   z = +2 (выброс вверх) → normalized = 1.0
-//   z = -2 (выброс вниз) → normalized = 0.0
+//   z = +1.25 (выброс вверх) → normalized = 1.0
+//   z = -1.25 (выброс вниз) → normalized = 0.0
 //
 // ЭФФЕКТ: BSCI растянется до 0.05–0.75, появятся ORANGE тикеры
 //
@@ -102,8 +102,9 @@ export function crossSectionNormalize(
       }
 
       const z = (s.score - stat.mean) / stat.std;
-      // Маппинг: z=0 → 0.5, z=+2 → 1.0, z=-2 → 0.0
-      let normalized = Math.max(0, Math.min(1, 0.5 + z * 0.25));
+      // Маппинг: z=0 → 0.5, z=+1.25 → 1.0, z=-1.25 → 0.0
+      // FIX 4R-2: 0.25→0.4 — более сильная дискриминация (из спецификации v4)
+      let normalized = Math.max(0, Math.min(1, 0.5 + z * 0.4));
 
       // v4.1.1: Если у этого конкретного тикера insufficientData,
       // не позволяем нормализации поднять score выше raw
@@ -163,7 +164,8 @@ export function crossSectionNormalizeSingle(
     }
 
     const z = (s.score - stat.mean) / stat.std;
-    let normalized = Math.max(0, Math.min(1, 0.5 + z * 0.25));
+    // FIX 4R-2: 0.25→0.4 — более сильная дискриминация
+    let normalized = Math.max(0, Math.min(1, 0.5 + z * 0.4));
 
     // v4.1.1: insufficientData — не поднимаем выше raw
     const hasInsufficient = s.metadata?.insufficientData || s.metadata?.insufficientTrades ||
@@ -255,7 +257,8 @@ export function crossSectionNormalizeScores(
         continue;
       }
       const z = (s[k] - stat.mean) / stat.std;
-      normalized[k] = Math.round(Math.max(0, Math.min(1, 0.5 + z * 0.25)) * 1000) / 1000;
+      // FIX 4R-2: 0.25→0.4 — более сильная дискриминация
+      normalized[k] = Math.round(Math.max(0, Math.min(1, 0.5 + z * 0.4)) * 1000) / 1000;
     }
     return normalized;
   });

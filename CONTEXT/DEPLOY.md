@@ -1,6 +1,6 @@
 # ДЕПЛОЙ: Процедуры и доступы
 
-> Обновлён: 2026-04-26
+> Обновлён: 2026-04-26 (после HOTFIX v4.1.5)
 
 ## URL-адреса
 
@@ -69,11 +69,12 @@ echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDv
 
 1. **ВСЕГДА** катить и в PROD и в LAB
 2. **НИКОГДА** не трогать PROD без явного запроса пользователя
-3. Перед деплоем — проверить `npm run build` локально (177 тестов + Next.js build)
+3. Перед деплоем — проверить `npx next build` локально
 4. После деплоя — проверить URL в браузере
 5. LAB деплой **меняет** `.vercel/project.json` — **ВСЕГДА** возвращать линк на PROD
 6. **НИКОГДА** не создавать новые Vercel проекты — только robot-detect-v3 и robot-lab-v3
 7. Vercel CLI установлен глобально: `npm install -g vercel`
+8. **`reversed=1`** — КРИТИЧЕСКИЙ параметр MOEX ISS. Никогда не убирать из trades.json URL!
 
 ## Переменные окружения (Vercel)
 
