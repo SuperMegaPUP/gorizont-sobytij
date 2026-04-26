@@ -66,6 +66,35 @@ export function calculateConvergenceScore(
   hasSpoofing: boolean = false,
   cancelRatio: number = 0,
 ): ConvergenceScoreResult {
+  // ─── FIX 9: Нет данных детекторов → конвергенция не определена ────────────
+  // Когда BSCI ≈ 0, все детекторы неактивны (insufficientData/staleData),
+  // direction = NEUTRAL. Для NEUTRAL каждый ТА-индикатор получает +1
+  // ("не противоречит"), что даёт бессмысленные 5/10.
+  // Если детекторы ничего не видят, конвергенция = 0 (не с чем сходиться).
+  if (bsciScore < 0.15) {
+    return {
+      score: 0,
+      details: [
+        { indicator: 'RSI', points: 0, maxPoints: 2, alignment: 'NEUTRAL',
+          note: `BSCI ${bsciScore.toFixed(2)} — детекторы неактивны, конвергенция не определена` },
+        { indicator: 'CMF', points: 0, maxPoints: 2, alignment: 'NEUTRAL',
+          note: `BSCI ${bsciScore.toFixed(2)} — детекторы неактивны` },
+        { indicator: 'CRSI', points: 0, maxPoints: 2, alignment: 'NEUTRAL',
+          note: `BSCI ${bsciScore.toFixed(2)} — детекторы неактивны` },
+        { indicator: 'VWAP', points: 0, maxPoints: 2, alignment: 'NEUTRAL',
+          note: `BSCI ${bsciScore.toFixed(2)} — детекторы неактивны` },
+        { indicator: 'ATR', points: 0, maxPoints: 2, alignment: 'NEUTRAL',
+          note: `BSCI ${bsciScore.toFixed(2)} — детекторы неактивны` },
+      ],
+      divergenceBonus: false,
+      atrBonus: false,
+      robotBonus: false,
+      spoofingPenalty: false,
+      cancelPenalty: false,
+      summary: `0/5 совпадений — BSCI ${bsciScore.toFixed(2)} (детекторы неактивны) = 0/10`,
+    };
+  }
+
   const details: ConvergenceDetail[] = [];
   let totalPoints = 0;
 
