@@ -15,6 +15,14 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   const { prices, recentTrades } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // v4.1.2: Stale data → нет аномалии
+  if (input.staleData) {
+    return {
+      detector: 'ATTRACTOR', description: 'Аттрактор — цена прилипает к уровню (устаревшие данные)',
+      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+    };
+  }
+
   if (prices.length < 8 || recentTrades.length < 5) {
     return {
       detector: 'ATTRACTOR', description: 'Аттрактор — цена прилипает к уровню',

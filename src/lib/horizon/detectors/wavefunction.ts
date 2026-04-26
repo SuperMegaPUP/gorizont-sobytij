@@ -50,6 +50,14 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
   const { prices } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // v4.1.2: Stale data → нет аномалии
+  if (input.staleData) {
+    return {
+      detector: 'WAVEFUNCTION', description: 'Волновая функция — циклические паттерны (устаревшие данные)',
+      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+    };
+  }
+
   if (prices.length < 12) {
     return {
       detector: 'WAVEFUNCTION', description: 'Волновая функция — циклические паттерны',

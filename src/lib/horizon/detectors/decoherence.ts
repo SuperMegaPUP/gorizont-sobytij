@@ -105,7 +105,22 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   // Нужны сделки с ценами для построения символьного потока
   const allTrades = trades && trades.length > 0 ? trades : recentTrades;
 
-  if (allTrades.length < 10) {
+  // v4.1.2: Stale data (рынок закрыт / сделки из прошлой сессии) → нет аномалии
+  if (input.staleData) {
+    metadata.insufficientTrades = true;
+    metadata.staleData = true;
+    metadata.staleMinutes = input.staleMinutes ?? 0;
+    return {
+      detector: 'DECOHERENCE',
+      description: 'Декогеренция — символьный поток (устаревшие данные)',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+
+  if (allTrades.length < 20) {
     metadata.insufficientTrades = true;
     return {
       detector: 'DECOHERENCE',

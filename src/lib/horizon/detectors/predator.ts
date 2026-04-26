@@ -16,6 +16,14 @@ export function detectPredator(input: DetectorInput): DetectorResult {
   const { prices, volumes, cumDelta, recentTrades } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // v4.1.2: Stale data → нет аномалии
+  if (input.staleData) {
+    return {
+      detector: 'PREDATOR', description: 'Хищник — охота за стопами (устаревшие данные)',
+      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+    };
+  }
+
   if (prices.length < 5) {
     return {
       detector: 'PREDATOR', description: 'Хищник — охота за стопами',

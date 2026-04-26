@@ -16,6 +16,16 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   const { orderbook, ofi, weightedOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // v4.1.2: Stale data → нет аномалии (стакан из прошлой сессии — не актуален)
+  if (input.staleData) {
+    return {
+      detector: 'GRAVITON',
+      description: 'Гравитационная линза (устаревшие данные)',
+      score: 0, confidence: 0, signal: 'NEUTRAL',
+      metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+    };
+  }
+
   // ─── Проверка достаточности данных ────────────────────────────────────
   // Нет стакана → нет данных для линзирования. Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ
   if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {

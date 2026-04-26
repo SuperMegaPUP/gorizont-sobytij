@@ -55,11 +55,16 @@ export interface BSCIResult {
  * Вычислить BSCI Composite Index
  * @param scores — результаты 10 детекторов
  * @param weights — адаптивные веса из BsciWeight таблицы
+ *
+ * v4.1.2: Если детектор вернул insufficientData/staleData → его вес снижается до min_w (0.04)
+ * Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ — детектор без данных не должен двигать BSCI
  */
 export function calcBSCI(
   scores: DetectorResult[],
   weights: Record<string, number>
 ): BSCIResult {
+  const MIN_WEIGHT = 0.04; // минимальный вес (как в save-observation.ts)
+
   // BSCI = Σ(w_i × score_i)
   let weightedSum = 0;
   let weightTotal = 0;
@@ -67,7 +72,13 @@ export function calcBSCI(
   let topDetector = 'NONE';
 
   for (const result of scores) {
-    const w = weights[result.detector] ?? 0.1; // default weight = 0.1
+    let w = weights[result.detector] ?? 0.1; // default weight = 0.1
+
+    // v4.1.2: Снижаем вес для детекторов без данных
+    if (result.metadata?.insufficientData || result.metadata?.staleData) {
+      w = MIN_WEIGHT; // минимальный вес — детектор не должен двигать BSCI
+    }
+
     weightedSum += w * result.score;
     weightTotal += w;
     if (result.score > maxScore) {
@@ -85,10 +96,12 @@ export function calcBSCI(
   else if (clampedBsci >= 0.5) alertLevel = 'ORANGE';
   else if (clampedBsci >= 0.3) alertLevel = 'YELLOW';
 
-  // Direction: взвешенное голосование детекторов
+  // Direction: взвешенное голосование детекторов (без insufficientData/staleData)
   let bullWeight = 0;
   let bearWeight = 0;
   for (const result of scores) {
+    // v4.1.2: Пропускаем детекторы без данных при голосовании за направление
+    if (result.metadata?.insufficientData || result.metadata?.staleData) continue;
     const w = weights[result.detector] ?? 0.1;
     if (result.signal === 'BULLISH') bullWeight += w * result.score;
     else if (result.signal === 'BEARISH') bearWeight += w * result.score;

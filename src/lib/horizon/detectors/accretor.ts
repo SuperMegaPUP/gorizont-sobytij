@@ -32,6 +32,14 @@ export function detectAccretor(input: DetectorInput): DetectorResult {
   const { cumDelta, prices, trades } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // v4.1.2: Stale data → нет аномалии
+  if (input.staleData) {
+    return {
+      detector: 'ACCRETOR', description: 'Аккреция — постепенное накопление (устаревшие данные)',
+      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+    };
+  }
+
   // Нужен минимум 10 сделок и 5 цен
   if (trades.length < 10 || prices.length < 5) {
     return {

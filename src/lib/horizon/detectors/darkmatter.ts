@@ -116,6 +116,22 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   // Нет стакана → нет данных для энтропии. Нет сделок → нет iceberg detection.
   // Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ = score ≈ 0
   const allTrades = trades && trades.length > 0 ? trades : recentTrades;
+
+  // v4.1.2: Stale data (рынок закрыт / сделки из прошлой сессии) → нет аномалии
+  if (input.staleData) {
+    metadata.insufficientData = true;
+    metadata.staleData = true;
+    metadata.staleMinutes = input.staleMinutes ?? 0;
+    return {
+      detector: 'DARKMATTER',
+      description: 'Тёмная материя — скрытая ликвидность (устаревшие данные)',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+
   if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
     metadata.insufficientData = true;
     return {

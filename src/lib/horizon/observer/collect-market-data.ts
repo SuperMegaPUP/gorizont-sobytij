@@ -553,6 +553,35 @@ export async function collectMarketData(
     }
   }
 
+  // 8.5 Проверка свежести данных (v4.1.2: NO DATA = NO ANOMALY)
+  // Если самая свежая сделка старше 30 минут — данные stale (рынок закрыт / перерыв)
+  let staleData = false;
+  let staleMinutes = 0;
+  const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 минут
+
+  if (trades.length > 0) {
+    const newestTradeTs = Math.max(...trades.map(t => t.timestamp || 0));
+    if (newestTradeTs > 0) {
+      const ageMs = Date.now() - newestTradeTs;
+      staleMinutes = Math.round(ageMs / 60000);
+      if (ageMs > STALE_THRESHOLD_MS) {
+        staleData = true;
+        console.log(`[collect-market-data] ${ticker}: STALE DATA — newest trade ${staleMinutes} min ago`);
+      }
+    }
+  } else {
+    // Вообще нет сделок — тоже stale
+    staleData = true;
+    staleMinutes = 999;
+    console.log(`[collect-market-data] ${ticker}: STALE DATA — no trades at all`);
+  }
+
+  // Если стакан пустой — тоже считаем stale
+  if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
+    staleData = true;
+    console.log(`[collect-market-data] ${ticker}: STALE DATA — empty orderbook`);
+  }
+
   // 9. Формируем DetectorInput
   const detectorInput: DetectorInput = {
     ticker,
@@ -570,6 +599,8 @@ export async function collectMarketData(
     candles,
     crossTickers: Object.keys(crossTickerData).length > 0 ? crossTickerData : undefined,
     rvi: rvi ?? undefined,
+    staleData: staleData || undefined,
+    staleMinutes: staleData ? staleMinutes : undefined,
   };
 
   // 10. Market snapshot для AI

@@ -15,6 +15,14 @@ export function detectEntangle(input: DetectorInput): DetectorResult {
   const { ticker, ofi, prices, crossTickers } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // v4.1.2: Stale data → нет аномалии
+  if (input.staleData) {
+    return {
+      detector: 'ENTANGLE', description: 'Запутанность — кросс-тикерная корреляция (устаревшие данные)',
+      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+    };
+  }
+
   // Без кросс-тикерных данных — детектор не работает
   if (!crossTickers || Object.keys(crossTickers).length === 0) {
     return {

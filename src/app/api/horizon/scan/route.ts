@@ -23,6 +23,7 @@ import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rul
 import { calculateRobotContext, findTopDetector, isRobotConfirmed, type RobotContext } from '@/lib/horizon/robot-context';
 import { generateSignal, type TradeSignal, type SignalGeneratorInput } from '@/lib/horizon/signals/signal-generator';
 import { serializeSignal } from '@/lib/horizon/signals/signal-store';
+import { canGenerateSignals, getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
 
@@ -200,8 +201,72 @@ export async function scanTicker(
   const tickerType = FUTURES_TICKERS.has(ticker) ? 'FUTURE' as const : 'STOCK' as const;
 
   try {
+    // ─── v4.1.2: Market session check ──────────────────────────────────────
+    // Если рынок закрыт (ночь, перерыв) — пропускаем детекторы, возвращаем GREEN
+    const sessionInfo = getSessionInfo();
+    if (!canGenerateSignals()) {
+      return {
+        ticker,
+        name,
+        bsci: 0,
+        prevBsci: 0,
+        alertLevel: 'GREEN',
+        direction: 'NEUTRAL',
+        confidence: 0,
+        detectorScores: {},
+        keySignal: 'NEUTRAL',
+        action: 'WATCH',
+        quickStatus: `Рынок закрыт (${sessionInfo.description}). BSCI 0.00`,
+        vpin: 0,
+        cumDelta: 0,
+        ofi: 0,
+        realtimeOFI: undefined,
+        turnover: 0,
+        moexTurnover,
+        type: tickerType,
+        taContext: undefined,
+        convergenceScore: undefined,
+        consistencyCheck: undefined,
+        robotContext: undefined,
+        _rawDetectorResults: undefined,
+        _weights: undefined,
+      };
+    }
+
     // 1. Collect market data (with auto-resolution)
     const { detectorInput } = await collectMarketData(ticker);
+
+    // ─── v4.1.2: Stale data shortcut ──────────────────────────────────────
+    // Если сделки старше 30 мин (stale) — все детекторы вернут score=0
+    // Пропускаем детекторы для скорости, но Всё равно считаем BSCI=0
+    if (detectorInput.staleData) {
+      return {
+        ticker,
+        name,
+        bsci: 0,
+        prevBsci: 0,
+        alertLevel: 'GREEN',
+        direction: 'NEUTRAL',
+        confidence: 0,
+        detectorScores: {},
+        keySignal: 'NEUTRAL',
+        action: 'WATCH',
+        quickStatus: `Нет свежих данных (сделка ${detectorInput.staleMinutes ?? '?'} мин назад). BSCI 0.00`,
+        vpin: detectorInput.vpin.vpin,
+        cumDelta: detectorInput.cumDelta.delta,
+        ofi: detectorInput.ofi,
+        realtimeOFI: detectorInput.realtimeOFI,
+        turnover: detectorInput.trades.reduce((s, t) => s + t.price * t.quantity, 0),
+        moexTurnover,
+        type: tickerType,
+        taContext: undefined,
+        convergenceScore: undefined,
+        consistencyCheck: undefined,
+        robotContext: undefined,
+        _rawDetectorResults: undefined,
+        _weights: undefined,
+      };
+    }
 
     // 2. Load current BSCI weights
     const weightsRows = await prisma.bsciWeight.findMany();

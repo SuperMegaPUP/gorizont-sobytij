@@ -58,6 +58,12 @@ export interface DetectorInput {
 
   // Волатильность
   rvi?: number;            // Russian Volatility Index
+
+  // ─── Data freshness flags (v4.1.2: NO DATA = NO ANOMALY) ───────────────
+  /** Данные устарели (сделки из прошлой сессии, рынок закрыт) */
+  staleData?: boolean;
+  /** Самая свежая сделка старше этого количества минут */
+  staleMinutes?: number;
 }
 
 // ─── Интерфейс детектора ──────────────────────────────────────────────────

@@ -193,6 +193,21 @@ export function detectHawking(input: DetectorInput): DetectorResult {
 
   metadata.n_trades = n;
 
+  // v4.1.2: Stale data (рынок закрыт / сделки из прошлой сессии) → нет аномалии
+  if (input.staleData) {
+    metadata.insufficientData = true;
+    metadata.staleData = true;
+    metadata.staleMinutes = input.staleMinutes ?? 0;
+    return {
+      detector: 'HAWKING',
+      description: 'Излучение — периодичность алгоритмов (устаревшие данные)',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+
   // ─── Минимум 50 сделок ─────────────────────────────────────────────────
   if (n < 50) {
     metadata.insufficientData = true;
