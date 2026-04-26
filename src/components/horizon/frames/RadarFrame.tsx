@@ -132,7 +132,8 @@ export function HorizonRadarFrame() {
       };
     });
 
-    // Second pass: resolve overlaps with deterministic jitter
+    // Second pass: resolve overlaps with BSCI-aware deterministic jitter
+    // Key principle: preserve BSCI vertical ordering — jitter primarily horizontal
     const resolved: ComputedDot[] = [];
     for (let i = 0; i < positions.length; i++) {
       const dot = positions[i];
@@ -152,8 +153,12 @@ export function HorizonRadarFrame() {
           const hash = simpleHash(dot.ticker);
           const angle = (hash % 360) * (Math.PI / 180);
           const push = (minDist - dist) + 3;
+
+          // FIX 10: Jitter is primarily HORIZONTAL to preserve BSCI Y-order.
+          // Vertical component reduced to 15% — enough for small nudge,
+          // but not enough to invert BSCI positions visually.
           cx += Math.cos(angle) * push;
-          cy += Math.sin(angle) * push;
+          cy += Math.sin(angle) * push * 0.15; // was 1.0 → 0.15
         }
       }
 
@@ -161,7 +166,36 @@ export function HorizonRadarFrame() {
       cx = Math.max(padX + dot.r, Math.min(dims.w - padX - dot.r, cx));
       cy = Math.max(padY + dot.r, Math.min(dims.h - padY - dot.r, cy));
 
+      // Clamp Y to stay within ±20px of BSCI-determined position
+      // This prevents extreme vertical drift even with multiple overlaps
+      const maxYPixelDrift = 20;
+      cy = Math.max(dot.baseCy - maxYPixelDrift, Math.min(dot.baseCy + maxYPixelDrift, cy));
+
       resolved.push({ ...dot, cx, cy });
+    }
+
+    // FIX 10: Post-processing — correct any remaining BSCI order inversions.
+    // After jitter, a dot with higher BSCI might have ended up lower (higher cy)
+    // than a dot with lower BSCI. We fix this by swapping cy values for inversions.
+    // Multiple passes to handle cascading corrections.
+    for (let pass = 0; pass < 3; pass++) {
+      let swapped = false;
+      for (let i = 0; i < resolved.length; i++) {
+        for (let j = i + 1; j < resolved.length; j++) {
+          // If dot[i] has HIGHER BSCI but is LOWER on screen (higher cy) than dot[j]
+          const bsciDiff = resolved[i].bsci - resolved[j].bsci;
+          const cyDiff = resolved[i].cy - resolved[j].cy; // positive = i is lower on screen
+          // Only correct significant inversions (BSCI gap > 0.02, visual gap > 3px)
+          if (bsciDiff > 0.02 && cyDiff > 3) {
+            // Swap cy values to restore correct BSCI visual order
+            const tempCy = resolved[i].cy;
+            resolved[i].cy = resolved[j].cy;
+            resolved[j].cy = tempCy;
+            swapped = true;
+          }
+        }
+      }
+      if (!swapped) break; // No inversions found — done early
     }
 
     return resolved;
