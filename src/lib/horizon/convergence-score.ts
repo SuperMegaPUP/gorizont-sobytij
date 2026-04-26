@@ -131,7 +131,8 @@ export function calculateConvergenceScore(
   let cancelPenalty = false;
 
   // +1 за дивергенцию (кит виден, ТА нет → скрытая активность = ЦЕННОСТЬ)
-  if (hasDivergence && bsciScore >= 0.55) {
+  // Порог снижен с 0.55 до 0.45 — калибровка 2026-04-26
+  if (hasDivergence && bsciScore >= 0.45) {
     totalPoints += 1;
     divergenceBonus = true;
   }
@@ -348,7 +349,7 @@ function scoreATR(
 
   if (indicators.atrZone === 'COMPRESSED') {
     // Сжатие → прорыв imminent. Если BSCI высокий — это очень ценно
-    if (bsciScore >= 0.55) {
+    if (bsciScore >= 0.45) { // калибровка 2026-04-26: снижено с 0.55
       return { indicator: 'ATR', points: 2, maxPoints: 2, alignment: 'ALIGNED',
         note: `ATR сжат (${(indicators.atrPercentile * 100).toFixed(0)}%) + BSCI высокий → ПРОРЫВ IMMINENT!` };
     }

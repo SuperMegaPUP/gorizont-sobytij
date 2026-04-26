@@ -472,7 +472,7 @@ export function SignalsFrame() {
             </div>
             {!showHistory && (
               <div className="text-[7px] text-[var(--terminal-muted)]/60 font-mono mt-2">
-                Тишина = норма. Сигналы генерируются при BSCI &ge; 0.55, Conv &ge; 7, TopDet &ge; 0.75
+                Тишина = норма. Сигналы генерируются при BSCI &ge; 0.45, Conv &ge; 5, TopDet &ge; 0.75
               </div>
             )}
           </div>
@@ -514,7 +514,7 @@ export function SignalsFrame() {
           </>
         )}
         <span className="ml-auto">
-          Пороги: BSCI&ge;0.55 | Conv&ge;7 | TopDet&ge;0.75
+          Пороги: BSCI&ge;0.45 | Conv&ge;5 | TopDet&ge;0.75
         </span>
       </div>
     </div>

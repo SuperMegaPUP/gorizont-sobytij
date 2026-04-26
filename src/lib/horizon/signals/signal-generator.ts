@@ -2,7 +2,7 @@
 // v4.1: Спецификация заморожена
 //
 // ПОРОГ ГЕНЕРАЦИИ (параметризован — можно подправить одной строкой):
-//   BSCI ≥ SIGNAL_BSCI_THRESHOLD (0.55)
+//   BSCI ≥ SIGNAL_BSCI_THRESHOLD (0.45, калибровка 2026-04-26)
 //   Конвергенция ≥ SIGNAL_CONV_THRESHOLD (7)
 //   Top-детектор ≥ 0.75
 //   Явная дивергенция (детектор ≠ ТА)
@@ -24,26 +24,34 @@ import { calculateTTL, calculateExpiresAt, canGenerateSignals, getSessionInfo } 
 
 // ─── Параметризованные пороги ────────────────────────────────────────────────
 
-/** BSCI порог для генерации сигнала. Можно изменить после замера распределений. */
-export const SIGNAL_BSCI_THRESHOLD = 0.55;
+/** BSCI порог для генерации сигнала.
+ * Калибровка 2026-04-26: Max BSCI=0.546, P90=0.485 на 100 тикерах.
+ * Старый порог 0.55 → 0 сигналов. Новый 0.45 → 4 сигнала (редкость=ценность).
+ * При П2 правках (Sprint 5) BSCI дискриминация улучшится → пересмотреть.
+ */
+export const SIGNAL_BSCI_THRESHOLD = 0.45;
 
-/** Конвергенция порог для генерации сигнала */
-export const SIGNAL_CONV_THRESHOLD = 7;
+/** Конвергенция порог для генерации сигнала.
+ * Калибровка 2026-04-26: Max conv=9, conv>=5 у 32%, conv>=7 у 2%.
+ * Старый порог 7 → 2 сигнала. Новый 5 → 4 сигнала (с BSCI>=0.45).
+ * При П2 правках (Sprint 5) конвергенция уточнится → пересмотреть.
+ */
+export const SIGNAL_CONV_THRESHOLD = 5;
 
 /** Top-детектор порог */
 export const SIGNAL_TOP_DET_THRESHOLD = 0.75;
 
 /** Порог BSCI для AWAIT сигнала */
-export const SIGNAL_AWAIT_BSCI_THRESHOLD = 0.45;
+export const SIGNAL_AWAIT_BSCI_THRESHOLD = 0.35;
 
 /** Порог HAWKING для BREAKOUT сигнала */
 export const SIGNAL_BREAKOUT_HAWKING_THRESHOLD = 0.7;
 
 /** Условное взвешивание BSCI в confidence */
 export const BSCI_WEIGHTS = {
-  highConv: 20,   // conv ≥ 8
-  midConv: 25,    // 5 ≤ conv < 8
-  lowConv: 30,    // conv < 5
+  highConv: 20,   // conv ≥ SIGNAL_CONV_THRESHOLD (калибровка: 5)
+  midConv: 25,    // порог ≤ conv < threshold + 2
+  lowConv: 30,    // conv < threshold
 } as const;
 
 /** Вес компонентов confidence */
@@ -246,11 +254,11 @@ export function calculateConfidence(input: ConfidenceInput): { confidence: numbe
 
   // 1. BSCI (условный вес)
   let bsciWeight: number;
-  if (convergence >= 8) bsciWeight = BSCI_WEIGHTS.highConv;
-  else if (convergence < 5) bsciWeight = BSCI_WEIGHTS.lowConv;
+  if (convergence >= SIGNAL_CONV_THRESHOLD + 2) bsciWeight = BSCI_WEIGHTS.highConv;
+  else if (convergence < SIGNAL_CONV_THRESHOLD) bsciWeight = BSCI_WEIGHTS.lowConv;
   else bsciWeight = BSCI_WEIGHTS.midConv;
 
-  // BSCI баллы: линейно от 0.55 до 1.0 (если ниже порога — 0, если 1.0 — максимум)
+  // BSCI баллы: линейно от SIGNAL_BSCI_THRESHOLD до 1.0 (если ниже порога — 0, если 1.0 — максимум)
   const bsciPoints = bsci >= SIGNAL_BSCI_THRESHOLD
     ? ((bsci - SIGNAL_BSCI_THRESHOLD) / (1 - SIGNAL_BSCI_THRESHOLD)) * bsciWeight
     : 0;
@@ -465,7 +473,7 @@ export function generateSignal(input: SignalGeneratorInput): SignalGeneratorOutp
   let signalDirection: SignalDirection;
   let reason = '';
 
-  // BREAKOUT: BSCI≥0.55 + HAWKING≥0.7 + ATR сжат
+  // BREAKOUT: BSCI≥SIGNAL_BSCI_THRESHOLD + HAWKING≥0.7 + ATR сжат
   if (bsciPass && hawkingScore >= SIGNAL_BREAKOUT_HAWKING_THRESHOLD && atrCompressed) {
     signalType = 'BREAKOUT';
     signalDirection = direction === 'BEARISH' ? 'SHORT' : 'LONG';
@@ -482,7 +490,7 @@ export function generateSignal(input: SignalGeneratorInput): SignalGeneratorOutp
       reason = 'BSCI direction NEUTRAL — нет направления для сигнала';
     }
   }
-  // AWAIT: BSCI≥0.45 но конвергенция <7
+  // AWAIT: BSCI≥0.35 но конвергенция <SIGNAL_CONV_THRESHOLD
   else if (bsci >= SIGNAL_AWAIT_BSCI_THRESHOLD && !convPass) {
     signalType = 'AWAIT';
     signalDirection = direction === 'BEARISH' ? 'SHORT' : 'LONG';
