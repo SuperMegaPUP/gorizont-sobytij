@@ -16,7 +16,7 @@ import { fetchTop100Tickers } from '@/lib/horizon/observer/collect-market-data';
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import { crossSectionNormalize } from '@/lib/horizon/detectors/cross-section-normalize';
 import { applyScannerRules } from '@/lib/horizon/scanner/rules';
-import { canGenerateSignals, getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
+import { getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
 
 // Redis keys
 const CACHE_KEY = 'horizon:scanner:top100';
@@ -84,37 +84,12 @@ export async function POST(_request: NextRequest) {
   const MAX_SCAN_TIME = 240_000; // 4 min max (leave 1 min buffer for Vercel 5 min limit)
 
   try {
-    // ─── Market closed check ──────────────────────────────────────────
-    // When market is closed (weekends, nights), DON'T re-scan.
-    // Return cached data from last trading session instead.
-    const sessionInfo = getSessionInfo();
-    if (!canGenerateSignals()) {
-      try {
-        const cached = await redis.get(CACHE_KEY);
-        if (cached) {
-          const data = JSON.parse(cached);
-          console.log(`[/api/horizon/top100] Market closed (${sessionInfo.description}), returning cached data (${data.length} tickers)`);
-          return NextResponse.json({
-            success: true,
-            count: data.length,
-            data,
-            marketClosed: true,
-            sessionInfo: sessionInfo.description,
-            ts: Date.now(),
-          });
-        }
-      } catch { /* ignore */ }
+    // ─── Market closed check REMOVED (HOTFIX v4.1.5) ───────────
+    // canGenerateSignals() is NOW only in signal-generator.ts.
+    // Scanning always runs — but we check AFTER scanning if data is real.
+    // This allows weekend ДСВД sessions to work properly.
 
-      console.log(`[/api/horizon/top100] Market closed, no cached data`);
-      return NextResponse.json({
-        success: true,
-        count: 0,
-        data: [],
-        marketClosed: true,
-        sessionInfo: sessionInfo.description,
-        ts: Date.now(),
-      });
-    }
+    const sessionInfo = getSessionInfo();
 
     console.log('[/api/horizon/top100] Starting TOP-100 incremental scan...');
 
@@ -280,9 +255,42 @@ export async function POST(_request: NextRequest) {
     // 9. Strip internal fields
     const cleanData = stripInternalFields(sorted);
 
-    // 10. Save to Redis (30 min TTL)
+    // ── hasRealData check (HOTFIX v4.1.5) ─────────────────────────────────
+    // If ALL tickers have BSCI ≈ 0, market is truly closed → don't overwrite cache with zeros
+    const hasRealData = scannedResults.some(r => r.bsci > 0.01);
+
+    if (!hasRealData) {
+      // Market truly closed — return cached data if available, don't overwrite with zeros
+      console.log(`[/api/horizon/top100] No real data (all BSCI≈0), market likely closed (${sessionInfo.description})`);
+      try {
+        const cached = await redis.get(CACHE_KEY);
+        if (cached) {
+          const cachedData = JSON.parse(cached);
+          return NextResponse.json({
+            success: true,
+            count: cachedData.length,
+            data: cachedData,
+            marketClosed: true,
+            sessionInfo: sessionInfo.description,
+            ts: Date.now(),
+          });
+        }
+      } catch { /* ignore */ }
+
+      // No cached data either
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        data: [],
+        marketClosed: true,
+        sessionInfo: sessionInfo.description,
+        ts: Date.now(),
+      });
+    }
+
+    // 10. Save to Redis (2 hours TTL — HOTFIX v4.1.5: raised from 30 min)
     try {
-      await redis.setex(CACHE_KEY, 1800, JSON.stringify(cleanData));
+      await redis.setex(CACHE_KEY, 7200, JSON.stringify(cleanData));
     } catch (redisErr: any) {
       console.warn('[/api/horizon/top100] Redis save failed:', redisErr.message);
     }

@@ -12,13 +12,9 @@
 
 ## Токен Vercel
 
-```
-VERCEL_TOKEN_REDACTED
-```
+Хранится в `.env` — переменная `VERCEL_TOKEN`.
 
-Хранится:
-1. Здесь (в этом файле)
-2. `.env` — переменная `VERCEL_TOKEN`
+**ВНИМАНИЕ:** Токен НЕ хранится в этом файле для безопасности (GitHub secret scanning).
 
 ## Деплой через Vercel CLI (ЕДИНСТВЕННЫЙ рабочий способ)
 
@@ -37,7 +33,7 @@ cat .vercel/project.json
 # echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-detect-v3"}' > .vercel/project.json
 
 # Деплой
-vercel deploy --prod --token "VERCEL_TOKEN_REDACTED" --yes
+vercel deploy --prod --token $VERCEL_TOKEN --yes
 ```
 
 ### Деплой LAB
@@ -49,7 +45,7 @@ cd /home/z/my-project
 echo '{"projectId":"prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-lab-v3"}' > .vercel/project.json
 
 # Деплой
-vercel deploy --prod --token "VERCEL_TOKEN_REDACTED" --yes
+vercel deploy --prod --token $VERCEL_TOKEN --yes
 
 # ОБЯЗАТЕЛЬНО: вернуть линк на PROD
 echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-detect-v3"}' > .vercel/project.json
@@ -59,14 +55,13 @@ echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDv
 
 ```bash
 cd /home/z/my-project
-TOKEN="VERCEL_TOKEN_REDACTED"
 
 # 1. PROD
-vercel deploy --prod --token $TOKEN --yes
+vercel deploy --prod --token $VERCEL_TOKEN --yes
 
 # 2. LAB — переключить проект, задеплоить, вернуть PROD
 echo '{"projectId":"prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-lab-v3"}' > .vercel/project.json
-vercel deploy --prod --token $TOKEN --yes
+vercel deploy --prod --token $VERCEL_TOKEN --yes
 echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDvTY9ebB8JfI0f","projectName":"robot-detect-v3"}' > .vercel/project.json
 ```
 
@@ -107,20 +102,19 @@ curl -s https://robot-detect-v3.vercel.app/api/horizon/scanner | head -20
 
 ```bash
 # Список проектов
-vercel projects list --token $TOKEN
+vercel projects list --token $VERCEL_TOKEN
 
 # Список деплоев
-vercel list --token $TOKEN
+vercel list --token $VERCEL_TOKEN
 
 # Инспекция проекта
-vercel projects inspect robot-detect-v3 --token $TOKEN
-vercel projects inspect robot-lab-v3 --token $TOKEN
+vercel projects inspect robot-detect-v3 --token $VERCEL_TOKEN
+vercel projects inspect robot-lab-v3 --token $VERCEL_TOKEN
 ```
 
 ## Известные проблемы
 
 - Git Integration webhook сломан — push в main/lab не триггерит деплой
-- VERCEL_TOKEN добавлен в GitHub Secrets, но не помогает
 - Единственный рабочий способ — Vercel CLI с токеном
 - `.vercel/project.json` перезаписывается при переключении PROD/LAB — после LAB деплоя нужно вернуть линк на PROD
 - Проект `my-project-phi-gray.vercel.app` нужно удалить — был создан по ошибке

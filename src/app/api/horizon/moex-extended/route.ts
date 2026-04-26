@@ -100,7 +100,7 @@ async function getOrderbook(ticker: string, depth: number = 50) {
 
 /** Сделки с BUYSELL */
 async function getTrades(ticker: string, limit: number = 100) {
-  const path = `/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?limit=${limit}`;
+  const path = `/iss/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?limit=${limit}&reversed=1`;
   const data = await moexFetch(path);
 
   const rows = parseIssGrid(data.trades);

@@ -23,7 +23,7 @@ import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rul
 import { calculateRobotContext, findTopDetector, isRobotConfirmed, type RobotContext } from '@/lib/horizon/robot-context';
 import { generateSignal, type TradeSignal, type SignalGeneratorInput } from '@/lib/horizon/signals/signal-generator';
 import { serializeSignal } from '@/lib/horizon/signals/signal-store';
-import { canGenerateSignals, getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
+import { getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
 
@@ -579,44 +579,12 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // ─── Market closed check ──────────────────────────────────────────
-    // When market is closed (weekends, nights), DON'T re-scan.
-    // Return cached data from last trading session instead.
-    // This prevents overwriting Friday's BSCI values with zeros.
+    // ─── Market closed check REMOVED (HOTFIX v4.1.5) ───────────
+    // canGenerateSignals() is NOW only in signal-generator.ts (for signal generation).
+    // Scanning always runs — but we check AFTER scanning if data is real.
+    // This allows weekend ДСВД sessions to work properly.
+
     const sessionInfo = getSessionInfo();
-    const marketClosed = !canGenerateSignals();
-
-    if (marketClosed) {
-      const redisKey = 'horizon:scanner:latest';
-      try {
-        const cached = await redis.get(redisKey);
-        if (cached) {
-          const data = JSON.parse(cached);
-          console.log(`[/api/horizon/scan] Market closed (${sessionInfo.description}), returning cached data (${data.length} tickers)`);
-          return NextResponse.json({
-            success: true,
-            mode: 'core',
-            count: data.length,
-            data,
-            marketClosed: true,
-            sessionInfo: sessionInfo.description,
-            ts: Date.now(),
-          });
-        }
-      } catch { /* ignore Redis errors */ }
-
-      // No cached data and market closed — return empty with marketClosed flag
-      console.log(`[/api/horizon/scan] Market closed, no cached data`);
-      return NextResponse.json({
-        success: true,
-        mode: 'core',
-        count: 0,
-        data: [],
-        marketClosed: true,
-        sessionInfo: sessionInfo.description,
-        ts: Date.now(),
-      });
-    }
 
     // Check for TOP-100 mode via query param or body
     let scanMode: 'core' | 'top100' = 'core';
@@ -690,8 +658,43 @@ export async function POST(request: NextRequest) {
     // Strip internal fields before saving/sending
     const cleanData = stripInternalFields(scannerData);
 
-    // Save to Redis
+    // ── hasRealData check (HOTFIX v4.1.5) ─────────────────────────────────
+    // If ALL tickers have BSCI ≈ 0, market is truly closed → don't overwrite cache with zeros
+    const hasRealData = scannerData.some(r => r.bsci > 0.01);
     const redisKey = scanMode === 'top100' ? 'horizon:scanner:top100' : 'horizon:scanner:latest';
+
+    if (!hasRealData) {
+      // Market truly closed — return cached data if available, don't overwrite with zeros
+      console.log(`[/api/horizon/scan] No real data (all BSCI≈0), market likely closed (${sessionInfo.description})`);
+      try {
+        const cached = await redis.get(redisKey);
+        if (cached) {
+          const cachedData = JSON.parse(cached);
+          return NextResponse.json({
+            success: true,
+            mode: scanMode,
+            count: cachedData.length,
+            data: cachedData,
+            marketClosed: true,
+            sessionInfo: sessionInfo.description,
+            ts: Date.now(),
+          });
+        }
+      } catch { /* ignore Redis errors */ }
+
+      // No cached data either
+      return NextResponse.json({
+        success: true,
+        mode: scanMode,
+        count: 0,
+        data: [],
+        marketClosed: true,
+        sessionInfo: sessionInfo.description,
+        ts: Date.now(),
+      });
+    }
+
+    // Save to Redis (only if we have real data)
     const redisTTL = scanMode === 'top100' ? 7200 : 14400; // TOP-100: 2 hours, Core: 4 hours (longer TTL preserves data over weekends)
 
     try {

@@ -144,7 +144,7 @@ async function fetchMoexTrades(ticker: string): Promise<any[] | null> {
     const jwt = getMoexJWT();
     if (jwt) {
       const apimRes = await fetch(
-        `${MOEX_APIM}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL&limit=50`,
+        `${MOEX_APIM}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL&limit=50&reversed=1`,
         { headers: authHeaders(), cache: 'no-store' as RequestCache }
       );
       if (apimRes.ok) {
@@ -163,7 +163,7 @@ async function fetchMoexTrades(ticker: string): Promise<any[] | null> {
 
     // 2. Fallback на ISS без авторизации
     const res = await fetch(
-      `${MOEX_ISS}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL&limit=50`,
+      `${MOEX_ISS}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL&limit=50&reversed=1`,
       { cache: 'no-store' as RequestCache }
     );
 

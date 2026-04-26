@@ -76,13 +76,13 @@ export async function GET(req: NextRequest) {
       case 'trades': {
         // Последние сделки по тикеру — APIM с авторизацией, fallback ISS
         const res = await fetch(
-          `${MOEX_APIM_API}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL,BOARDID,TRADESESSION&limit=100`,
+          `${MOEX_APIM_API}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL,BOARDID,TRADESESSION&limit=100&reversed=1`,
           { headers: authHeaders(), cache: 'no-store' as RequestCache }
         );
         let data = !res.ok ? null : await res.json().catch(() => null);
         if (!data) {
           const fbRes = await fetch(
-            `${MOEX_ISS_API}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL,BOARDID,TRADESESSION&limit=100`,
+            `${MOEX_ISS_API}/engines/stock/markets/shares/boards/TQBR/securities/${ticker}/trades.json?iss.meta=off&iss.only=trades&trades.columns=TRADETIME,PRICE,QUANTITY,BUYSELL,BOARDID,TRADESESSION&limit=100&reversed=1`,
             { cache: 'no-store' as RequestCache }
           );
           data = await fbRes.json();

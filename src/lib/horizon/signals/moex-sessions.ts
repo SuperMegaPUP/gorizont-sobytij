@@ -50,21 +50,18 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
   const mskM = utcM;
   const mskMinutes = mskH * 60 + mskM;
 
-  // MOEX trades Monday-Friday only!
-  // getUTCDay(): 0=Sunday, 1=Monday, ..., 6=Saturday
-  // MSK day = same as UTC day for most hours (UTC+3 only shifts the hour)
-  const utcDay = now.getUTCDay();
-  // Adjust for MSK date boundary: if MSK hour wrapped past midnight, day advances
-  const mskDayRaw = (utcH + 3) >= 24 ? (utcDay + 1) % 7 : utcDay;
-  const isWeekend = mskDayRaw === 0 || mskDayRaw === 6; // Sunday or Saturday
+  // ДСВД: MOEX trades on weekends too!
+  // Since March 2025: Дополнительная торговая сессия выходного дня
+  // Stocks: 09:50-19:00 MSK, Futures: 09:50-18:50 MSK
+  // So we NO LONGER check isWeekend — session is determined by time of day only.
 
   const mainOpen = MAIN_OPEN_HOUR * 60 + MAIN_OPEN_MIN;     // 600
   const mainClose = MAIN_CLOSE_HOUR * 60 + MAIN_CLOSE_MIN;  // 1125
   const eveningOpen = EVENING_OPEN_HOUR * 60 + EVENING_OPEN_MIN;     // 1140
   const eveningClose = EVENING_CLOSE_HOUR * 60 + EVENING_CLOSE_MIN;  // 1430
 
-  // Основная сессия: 10:00 - 18:45 (Пн-Пт только!)
-  if (!isWeekend && mskMinutes >= mainOpen && mskMinutes < mainClose) {
+  // Основная сессия: 10:00 - 18:45 (будни + ДСВД выходные)
+  if (mskMinutes >= mainOpen && mskMinutes < mainClose) {
     const minutesUntilClose = mainClose - mskMinutes;
     return {
       session: 'MAIN',
@@ -75,8 +72,8 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
     };
   }
 
-  // Вечерняя сессия: 19:00 - 23:50 (Пн-Пт только!)
-  if (!isWeekend && mskMinutes >= eveningOpen && mskMinutes < eveningClose) {
+  // Вечерняя сессия: 19:00 - 23:50
+  if (mskMinutes >= eveningOpen && mskMinutes < eveningClose) {
     const minutesUntilClose = eveningClose - mskMinutes;
     return {
       session: 'EVENING',
@@ -87,8 +84,8 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
     };
   }
 
-  // Предрынок: 09:00 - 09:59 (Пн-Пт)
-  if (!isWeekend && mskMinutes >= 540 && mskMinutes < mainOpen) {
+  // Предрынок: 09:00 - 09:59
+  if (mskMinutes >= 540 && mskMinutes < mainOpen) {
     const minutesUntilOpen = mainOpen - mskMinutes;
     return {
       session: 'PRE_MARKET',
@@ -99,8 +96,8 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
     };
   }
 
-  // Перерыв: 18:45 - 19:00 (Пн-Пт)
-  if (!isWeekend && mskMinutes >= mainClose && mskMinutes < eveningOpen) {
+  // Перерыв: 18:45 - 19:00
+  if (mskMinutes >= mainClose && mskMinutes < eveningOpen) {
     const minutesUntilOpen = eveningOpen - mskMinutes;
     return {
       session: 'OVERNIGHT',
@@ -111,20 +108,9 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
     };
   }
 
-  // Ночь: 23:50 - 10:00 ИЛИ выходной (Сб, Вс)
+  // Ночь: 23:50 - 10:00
   let minutesUntilOpen: number;
-  if (isWeekend) {
-    // Выходной: считаем до ближайшего Пн 10:00
-    const daysUntilMonday = mskDayRaw === 6 ? 2 : 1; // Сб→2 дня, Вс→1 день
-    minutesUntilOpen = daysUntilMonday * 24 * 60 - mskMinutes + mainOpen;
-    return {
-      session: 'OVERNIGHT',
-      minutesUntilClose: 0,
-      minutesUntilOpen,
-      maxTTLMinutes: 0,
-      description: `Выходной, до открытия ${minutesUntilOpen} мин`,
-    };
-  } else if (mskMinutes >= eveningClose) {
+  if (mskMinutes >= eveningClose) {
     // После закрытия вечерки до полуночи → завтра 10:00
     minutesUntilOpen = (24 * 60 - mskMinutes) + mainOpen;
   } else {

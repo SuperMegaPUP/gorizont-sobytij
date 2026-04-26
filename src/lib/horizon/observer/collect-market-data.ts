@@ -330,7 +330,7 @@ async function fetchOrderboard(config: TickerConfig): Promise<OrderbookResult | 
 async function fetchTrades(config: TickerConfig, limit: number = 200): Promise<TradesResult> {
   const empty: TradesResult = { trades: [], recentTrades: [] };
   try {
-    const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/trades.json?limit=${limit}`;
+    const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/trades.json?limit=${limit}&reversed=1`;
     const data = await moexFetch(path);
     const rows = parseIssGrid(data.trades);
     const trades: Trade[] = rows.map((t) => ({
@@ -617,6 +617,11 @@ export async function collectMarketData(
     staleData: staleData || undefined,
     staleMinutes: staleData ? staleMinutes : undefined,
   };
+
+  // DATA-DEBUG: диагностика для выходных торгов (ДСВД) — HOTFIX v4.1.5
+  if (staleData || trades.length === 0 || (orderbook.bids.length === 0 && orderbook.asks.length === 0)) {
+    console.warn(`[DATA-DEBUG] ${ticker} (${config.board}/${config.type}): stale=${staleData}, trades=${trades.length}, ob_bids=${orderbook.bids.length}, ob_asks=${orderbook.asks.length}, staleMin=${staleMinutes}, board=${config.board}`);
+  }
 
   // 10. Market snapshot для AI
   const bestBid = orderbook.bids.length > 0 ? orderbook.bids[0].price : 0;

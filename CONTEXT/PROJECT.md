@@ -124,7 +124,7 @@ src/
 1. **ВСЕГДА** катить изменения и в PROD и в LAB
 2. **НИКОГДА** не трогать PROD без явного запроса пользователя
 3. Git Integration webhook сломан — деплой только через Vercel CLI
-4. Токен: `VERCEL_TOKEN_REDACTED`
+4. Токен: использовать из env переменной VERCEL_TOKEN
 5. PROD: `vercel deploy --prod --token $TOKEN --yes`
 6. LAB: переключить `.vercel/project.json` → задеплоить → вернуть PROD
 7. **НИКОГДА** не создавать новые Vercel проекты
