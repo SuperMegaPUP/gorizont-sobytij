@@ -1,7 +1,7 @@
 # СПРИНТ-ПЛАН: Горизонт Событий
 
-> Обновлён: 2026-04-26 (Sprint 5: Trade-based OFI + П2-9 z-score)
-> Текущий спринт: Спринт 5 — В ПРОЦЕССЕ (5C + П2-9 выполнены, 5A/5B/5D остаются)
+> Обновлён: 2026-04-26 (Sprint 5: v4.2 cross-cutting changes — ALL COMPLETE)
+> Текущий спринт: Спринт 5 — ЗАВЕРШЁН
 
 ## Спринт 1 (ЗАВЕРШЁН): Фундамент
 
@@ -190,19 +190,19 @@ price_reversion < 0.4 → FALSE_BREAKOUT
 - [ ] Адаптивные пороги: threshold = baseThreshold + volatilityAdjustment (VIX/RVI + среднерыночный BSCI)
 - [ ] Динамическое окно верификации BSCI через ATR (из спецификации v4 п.7)
 
-### 5B. П2 Структурные улучшения детекторов
+### 5B. П2 Структурные улучшения детекторов (ВЫПОЛНЕНО)
 
-| # | Правка | Описание |
-|---|--------|----------|
-| П2-1 | GRAVITON | Центры масс bid/ask + detect_walls + depth-вес + 80% объём cutoff + ε=1e-6 |
-| П2-2 | ACCRETOR | DBSCAN (классический, окно 200, 30сек) + ATR-нормализация concentration |
-| П2-3 | CIPHER | Двухуровневый PCA→ICA + z-score перед PCA + ICA fallback + condition number check |
-| П2-4 | ATTRACTOR | Takens + volume_profile + stickiness + Silverman bandwidth + авто τ через ACF + stickiness по 0.5*spread |
-| П2-5 | ENTANGLE | ADF-тест стационарности перед Granger |
-| П2-6 | PREDATOR | estimated_stops формула + FALSE_BREAKOUT градиент (часть П1 уже в v4.1) |
-| П2-7 | WAVEFUNCTION | Ресэмплинг при N_eff < 0.5*n_particles + log-weights (ОБЯЗАТЕЛЬНО) |
-| П2-8 | BSCI | Мягкий daily weight decay (w = 0.99*w + 0.01/K) |
-| П2-9 | Сквозная | z-score нормализация в data pipeline для всех детекторов | ✅ РЕАЛИЗОВАНО |
+| # | Правка | Описание | Статус |
+|---|--------|----------|--------|
+| П2-1 | GRAVITON | Центры масс bid/ask + detect_walls + depth-вес + 80% объём cutoff + ε=1e-6 | ✅ |
+| П2-2 | ACCRETOR | DBSCAN (классический, окно 200, 30сек) + ATR-нормализация concentration | ✅ |
+| П2-3 | CIPHER | Двухуровневый PCA→ICA + z-score перед PCA + ICA fallback + condition number check | ✅ |
+| П2-4 | ATTRACTOR | Takens + volume_profile + stickiness + Silverman bandwidth + авто τ через ACF + stickiness по 0.5*spread | ✅ |
+| П2-5 | ENTANGLE | ADF-тест стационарности перед Granger | ✅ |
+| П2-6 | PREDATOR | estimated_stops формула + FALSE_BREAKOUT градиент (часть П1 уже в v4.1) | ✅ |
+| П2-7 | WAVEFUNCTION | Ресэмплинг при N_eff < 0.5*n_particles + log-weights (ОБЯЗАТЕЛЬНО) | ✅ |
+| П2-8 | BSCI | Мягкий daily weight decay (w = 0.99*w + 0.01/K) | ✅ |
+| П2-9 | Сквозная | z-score нормализация в data pipeline для всех детекторов | ✅ |
 
 ### 5C. Trade-based OFI (✅ РЕАЛИЗОВАН — 3 детектора живы без orderbook)
 
@@ -226,6 +226,30 @@ price_reversion < 0.4 → FALSE_BREAKOUT
 | 5D-1 | Сравнение до/после П2 | Замер BSCI distribution до и после П2 правок → среднее должно сместиться ниже 0.50 |
 | 5D-2 | Дискриминация детекторов | Для каждого детектора: скор на высоколиквидных vs низколиквидных |
 | 5D-3 | Перекалибровка порогов сигналов | После П2 правок — заново замерить распределения и скорректировать пороги |
+
+### 5E. v4.2 Cross-cutting Changes (ВЫПОЛНЕНО)
+
+| # | Правка | Описание | Статус |
+|---|--------|----------|--------|
+| P2-1 | Robust scaling | median/IQR вместо mean/std в cross-section-normalize.ts | ✅ |
+| P2-2 | Trading phase filter | guards.ts: alphabet<5, min_trades<30 | ✅ |
+| P2-3 | ε→max(x,floor) | safeDivide() в guards.ts, применено в GRAVITON/DARKMATTER/ACCRETOR | ✅ |
+| P2-4 | Score ∈ [0,1] | clampScore() во всех 10 детекторах | ✅ |
+| P2-5 | Stale penalty | Градуальный (0.7/0.4/0.15/0) вместо бинарного | ✅ |
+| P2-6 | BSCI adaptive decay by RVI | decay_factor ∈ [0.985, 0.995] по RVI | ✅ |
+| P2-7 | BSCI multicollinearity | Штраф 0.75 для коррелированных пар детекторов | ✅ |
+| P2-8 | Virtual P&L MFE/MAE | MFE_MAECalculator в signal-feedback.ts | ✅ |
+| P2-10 | CIPHER PCA whitening | Корреляционная матрица + robust scaling | ✅ |
+| P2-11 | WAVEFUNCTION parallel rollout | Параллельный PF (ν=7) + сравнение N_eff | ✅ |
+
+### 5F. Синтетические тесты (ВЫПОЛНЕНО)
+
+| # | Сценарий | Детектор | Статус |
+|---|----------|----------|--------|
+| S1 | Iceberg | DARKMATTER | ✅ |
+| S2 | Accumulator | ACCRETOR | ✅ |
+| S3 | Algorithmic/HFT | DECOHERENCE + HAWKING | ✅ |
+| S4 | Stop-hunt | PREDATOR | ✅ |
 
 ## Спринт 6+: П3 Продвинутые
 

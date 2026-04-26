@@ -13,6 +13,7 @@
 // Trade-based OFI fallback остаётся (Режим 1 — нет стакана)
 
 import type { DetectorInput, DetectorResult } from './types';
+import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
@@ -152,14 +153,18 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   const { orderbook, ofi, weightedOFI, tradeOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.1.2: Stale data → нет аномалии (стакан из прошлой сессии — не актуален)
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    return {
-      detector: 'GRAVITON',
-      description: 'Гравитационная линза (устаревшие данные)',
-      score: 0, confidence: 0, signal: 'NEUTRAL',
-      metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      return {
+        detector: 'GRAVITON',
+        description: 'Гравитационная линза (устаревшие данные)',
+        score: 0, confidence: 0, signal: 'NEUTRAL',
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   const obIsEmpty = orderbook.bids.length === 0 && orderbook.asks.length === 0;
@@ -218,11 +223,17 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
       signal = tradeOfiSimple > 0.1 ? 'BULLISH' : tradeOfiSimple < -0.1 ? 'BEARISH' : 'NEUTRAL';
     }
 
+    // Apply stale penalty (v4.2: gradual instead of binary)
+    const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+    const finalScore = clampScore(score * staleFactor);
+    const finalConfidence = clampScore(confidence * staleFactor);
+    metadata.staleFactor = staleFactor;
+
     return {
       detector: 'GRAVITON',
       description: 'Гравитационная линза — крупный игрок (trade-based OFI, нет стакана)',
-      score: Math.round(score * 1000) / 1000,
-      confidence: Math.round(confidence * 1000) / 1000,
+      score: finalScore,
+      confidence: finalConfidence,
       signal,
       metadata,
     };
@@ -280,12 +291,12 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   // Нормальный стакан: CM_bid < mid < CM_ask, separation ≈ spread / mid
   // Аномалия: CM_bid сдвинут к mid → бычье давление (крупный бид-стену держат рядом)
   //           CM_ask сдвинут к mid → медвежье давление
-  const separation = (cmAsk - cmBid) / (midPrice + EPS);
+  const separation = safeDivide(cmAsk - cmBid, midPrice, 0.001);
   metadata.separation = Math.round(separation * 10000) / 10000;
 
   // Ожидаемый separation ≈ spread/mid — нормируем
   const spread = bestAsk - bestBid;
-  const expectedSep = spread / (midPrice + EPS);
+  const expectedSep = safeDivide(spread, midPrice, 0.001);
 
   // Separation score: насколько separation меньше ожидаемого
   // Сжатие → один центр масс ближе к mid → крупный игрок
@@ -356,7 +367,7 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   // Веса: separation (0.30) + asymmetry (0.25) + walls (0.45)
   // Стены — самый надёжный индикатор крупного игрока
   const rawScore = separationScore * 0.30 + asymmetryScore * 0.25 + wallScore * 0.45;
-  const score = Math.min(1, Math.max(0, rawScore));
+  let score = Math.min(1, Math.max(0, rawScore));
 
   // ─── 7. Signal direction ──────────────────────────────────────────────
   let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
@@ -392,16 +403,22 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
     ? Math.min(1, agreement * 1.5 * Math.max(score, 0.3))
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  score = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+
   metadata.separationScore = Math.round(separationScore * 1000) / 1000;
   metadata.asymmetryScore = Math.round(asymmetryScore * 1000) / 1000;
   metadata.wallScoreCombined = Math.round(wallScore * 1000) / 1000;
   metadata.ofiSource = 'orderbook';
+  metadata.staleFactor = staleFactor;
 
   return {
     detector: 'GRAVITON',
     description: 'Гравитационная линза — центры масс + стены стакана',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

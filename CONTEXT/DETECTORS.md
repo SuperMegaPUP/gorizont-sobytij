@@ -1,7 +1,7 @@
 # ДЕТЕКТОРЫ: 10 Black Star детекторов аномалий
 
-> Спецификация v5.0 — ФИНАЛЬНЫЕ ФОРМУЛЫ (заморожены)
-> Обновлён: 2026-04-26 (Sprint 5: Trade-based OFI + П2-9 z-score)
+> Спецификация v5.2 — ФИНАЛЬНЫЕ ФОРМУЛЫ (v4.2 cross-cutting changes applied)
+> Обновлён: 2026-04-26 (Sprint 5: v4.2 cross-cutting changes)
 
 ## Типы
 
@@ -357,7 +357,7 @@ Alert Levels: GREEN < 0.3 | YELLOW 0.3-0.5 | ORANGE 0.5-0.7 | RED ≥ 0.7
 | Приоритет | Детекторы | Когда |
 |-----------|----------|-------|
 | П1 (критическое) | DARKMATTER, DECOHERENCE, HAWKING, BSCI(η+min_w) | Sprint 4 (✅ ВЫПОЛНЕНО) |
-| П2 (структурные) | GRAVITON, ACCRETOR, CIPHER, ATTRACTOR, ENTANGLE, PREDATOR, WAVEFUNCTION, BSCI(decay) | Sprint 5 |
+| П2 (структурные) | GRAVITON, ACCRETOR, CIPHER, ATTRACTOR, ENTANGLE, PREDATOR, WAVEFUNCTION, BSCI(decay) | Sprint 5 (✅ ВЫПОЛНЕНО) |
 | П2-9 (сквозная) | z-score нормализация в data pipeline | Sprint 5 (✅ ВЫПОЛНЕНО) |
 | П3 (продвинутые) | WAVEFUNCTION(learnable), ENTANGLE(Hilbert), PREDATOR(POC), ATTRACTOR(FNN) | Sprint 6+ |
 
@@ -366,8 +366,87 @@ Alert Levels: GREEN < 0.3 | YELLOW 0.3-0.5 | ORANGE 0.5-0.7 | RED ≥ 0.7
 - **ε=1e-6** во всех делениях (обязательно)
 - **z-score нормализация** в data pipeline для CIPHER, HAWKING, ACCRETOR (П2-9 ✅ РЕАЛИЗОВАНО)
 - **Trade-based OFI** — fallback при отсутствии стакана (Sprint 5C ✅ РЕАЛИЗОВАНО)
+- **Robust scaling (median/IQR)** — П2 ВЫПОЛНЕНО
+- **Trading phase filter** — П2 ВЫПОЛНЕНО
+- **ε→max(x,floor)** — П2 ВЫПОЛНЕНО
+- **Score ∈ [0,1]** — П2 ВЫПОЛНЕНО
+- **Stale penalty (gradual)** — П2 ВЫПОЛНЕНО
+- **BSCI multicollinearity** — П2 ВЫПОЛНЕНО
+- **MFE/MAE** — П2 ВЫПОЛНЕНО
+- **CIPHER PCA whitening** — П2 ВЫПОЛНЕНО
+- **WAVEFUNCTION parallel rollout** — П2 ВЫПОЛНЕНО
 - **Синтетические тест-сценарии** (П3): iceberg, accumulator, predator, algorithm, coordinated, regime_change
 - **KL-divergence мониторинг** (П3): weekly drift > 0.15 → заморозка адаптации
+
+## Сквозные изменения v4.2 (Sprint 5 — РЕАЛИЗОВАНО)
+
+### Robust Scaling (P2-1)
+- Кросс-секционная нормализация использует **median/IQR** вместо mean/std
+- robust_z = (x - median) / (IQR / 1.35)
+- Устойчива к выбросам — в отличие от z-score на mean/std
+- MIN_IQR = 0.01 — ниже не нормализуем (НЕТ ДАННЫХ = НЕТ АНОМАЛИИ)
+
+### Trading Phase Filter (P2-2)
+- Guards перед вычислением детекторов (guards.ts):
+  - alphabet < 5 → DECOHERENCE score = 0
+  - min_trades < 30 → большинство детекторов → 0 (кроме ACCRETOR=20, HAWKING=50)
+  - empty_ob → обрабатывается внутри GRAVITON/DARKMATTER через tradeOFI fallback
+
+### ε→max(x,floor) (P2-3)
+- safeDivide(x, y, floor=0.001) заменяет x/(y+EPS) в RATIO-вычислениях
+- Предотвращает x/1e-6 = x*1e6 при y≈0
+- Применено в: GRAVITON (separation, expectedSep), DARKMATTER (entropyScore), ACCRETOR (concentration)
+
+### Score ∈ [0,1] (P2-4)
+- clampScore() — глобальный clamp + round(×1000)/1000
+- Все 10 детекторов используют clampScore() для финального score
+
+### Stale Penalty (P2-5)
+- Градуальный вместо бинарного stale→0:
+  - ≤30 мин: factor=1.0 (приемлемо)
+  - 30-60 мин: factor=0.7 (мягкий)
+  - 60-120 мин: factor=0.4 (умеренный)
+  - 120-240 мин: factor=0.15 (сильный)
+  - >240 мин: factor=0 (предыдущая сессия)
+
+### BSCI Adaptive Decay by RVI (P2-6)
+- decay_factor = 0.99 - 0.005 × (1 - rvi_norm)
+- RVI_norm ∈ [0,1]: normalize RVI от 10 до 50
+- decay_factor ∈ [0.985, 0.995]:
+  - Высокая волатильность → медленнее decay (веса актуальны)
+  - Низкая волатильность → быстрее decay (боковик → веса устаревают)
+
+### BSCI Multicollinearity Penalty (P2-7)
+- Коррелированные детекторы штрафуются:
+  - [GRAVITON, DARKMATTER] — оба orderbook-based
+  - [DECOHERENCE, HAWKING] — оба алго-детекторы
+  - [CIPHER, WAVEFUNCTION] — оба циклические
+  - [ACCRETOR, ATTRACTOR] — оба про прилипание
+- Оба активны + однонаправлены → penalty=0.75
+- Оба активны + разнонаправлены → penalty=0.9
+
+### Virtual P&L MFE/MAE (P2-8)
+- MFE (Maximum Favorable Excursion) — лучший P&L в ходе сделки
+- MAE (Maximum Adverse Excursion) — худший P&L в ходе сделки
+- MFE/MAE ratio > 1.0 = хороший timing, < 1.0 = поздний вход
+- MFE_MAECalculator класс в signal-feedback.ts
+
+### CIPHER PCA Whitening (P2-10)
+- PCA от корреляционной матрицы вместо ковариационной
+- Robust scaling (IQR) + correlation matrix = корректный explained_variance_ratio_
+- scalingMethod = 'robust_iqr' в metadata
+
+### WAVEFUNCTION Parallel Rollout (P2-11)
+- Параллельный PF с ν=7 (DF_ROLLOUT) для smoother likelihood
+- Основной PF с ν=5 (DF_PRIMARY)
+- Сравнение avg N_eff: rollout > 110% primary → rollout лучше
+- Метаданные: rolloutAvgNeff, rolloutResampleCount, rolloutDf, rolloutBetter
+
+### Синтетические тесты (S1-S4)
+- S1: Iceberg (DARKMATTER) — consecutive same-volume trades
+- S2: Accumulator (ACCRETOR) — small trades clustered in time+price
+- S3: Algorithmic (DECOHERENCE + HAWKING) — periodic same-volume trades
+- S4: Stop-hunt (PREDATOR) — sharp spike + quick reversal
 
 ## Состояние и известные проблемы
 

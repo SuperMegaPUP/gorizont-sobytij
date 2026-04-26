@@ -1,10 +1,16 @@
 // ─── signal-feedback.ts — Виртуальный P&L и обратная связь ───────────────────
-// v4.1: Feedback loop без роботов — виртуальный P&L
+// v4.2: Feedback loop без роботов — виртуальный P&L + MFE/MAE
 //
 // Каждые 5 минут проверяем ACTIVE сигналы:
 //   LONG: max(price) >= target → WIN; min(price) <= stop → LOSS
 //   SHORT — зеркально
 //   TTL истёк → EXPIRED
+//
+// v4.2 NEW: MFE/MAE (Maximum Favorable/Adverse Excursion)
+//   MFE = максимальная прибыль в ходе сделки (насколько «в деньгах» была сделка)
+//   MAE = максимальный убыток в ходе сделки (насколько «под водой» была сделка)
+//   MFE/MAE ratio → качество входа: высокий MFE/MAE = хороший timing
+//   Низкий MFE/MAE = поздний вход (цена уже откатила)
 //
 // Snapshot при каждой проверке (~100/день для ACTIVE сигналов)
 // Обратная связь для WAVEFUNCTION и BSCI весов
@@ -31,6 +37,12 @@ export interface SignalFeedbackResult {
   close_price: number;
   pnl_ticks: number;
   result: SignalResult;
+  /** v4.2: Maximum Favorable Excursion — наилучший P&L в ходе сделки (ticks) */
+  mfe_ticks: number;
+  /** v4.2: Maximum Adverse Excursion — наихудший P&L в ходе сделки (ticks) */
+  mae_ticks: number;
+  /** v4.2: MFE/MAE ratio — качество входа (>1.0 = хороший timing) */
+  mfe_mae_ratio: number;
 }
 
 export interface FeedbackCheckResult {
@@ -48,6 +60,63 @@ export interface FeedbackCheckResult {
   snapshotAdded: boolean;
   /** Какие exit conditions сработали */
   triggeredExits: ExitCondition[];
+}
+
+// ─── MFE/MAE Tracker (v4.2) ─────────────────────────────────────────────────
+
+/**
+ * Tracks Maximum Favorable Excursion and Maximum Adverse Excursion
+ * for a signal across its lifetime.
+ *
+ * MFE = best unrealized P&L during the trade (how far "in the money")
+ * MAE = worst unrealized P&L during the trade (how far "underwater")
+ *
+ * Usage: call update() at each P&L check, then getResults() when signal closes.
+ */
+export class MFE_MAECalculator {
+  private mfe = 0;  // max favorable excursion (ticks)
+  private mae = 0;  // max adverse excursion (ticks, negative = loss)
+
+  /**
+   * Update MFE/MAE with current unrealized P&L.
+   * @param pnlTicks - current unrealized P&L in ticks
+   *   positive = in profit, negative = in loss
+   */
+  update(pnlTicks: number): void {
+    if (pnlTicks > this.mfe) this.mfe = pnlTicks;
+    if (pnlTicks < this.mae) this.mae = pnlTicks;
+  }
+
+  /** Get MFE (best P&L achieved) */
+  getMFE(): number {
+    return this.mfe;
+  }
+
+  /** Get MAE (worst P&L experienced, always ≤ 0) */
+  getMAE(): number {
+    return this.mae;
+  }
+
+  /**
+   * Get MFE/MAE ratio — quality of entry.
+   * > 1.0 = good timing (MFE > |MAE|)
+   * < 1.0 = poor timing (losses exceeded gains before exit)
+   * = 0 if no adverse excursion (perfect trade)
+   */
+  getRatio(): number {
+    const absMAE = Math.abs(this.mae);
+    if (absMAE < 0.001) return this.mfe > 0 ? 999 : 0; // no adverse excursion
+    return this.mfe / absMAE;
+  }
+
+  /** Get final results for feedback */
+  getResults(): { mfe_ticks: number; mae_ticks: number; mfe_mae_ratio: number } {
+    return {
+      mfe_ticks: Math.round(this.mfe * 100) / 100,
+      mae_ticks: Math.round(this.mae * 100) / 100,
+      mfe_mae_ratio: Math.round(this.getRatio() * 100) / 100,
+    };
+  }
 }
 
 // ─── Проверка P&L одного сигнала ─────────────────────────────────────────────
@@ -84,7 +153,19 @@ export function checkSignalPnL(input: PnLCheckInput): FeedbackCheckResult {
 
   const triggeredExits: ExitCondition[] = [];
 
+  const mfe_mae = new MFE_MAECalculator();
+
+  /**
+   * Вычисляет unrealized PnL в тиках
+   */
+  function unrealizedPnL(dir: 'LONG' | 'SHORT', current: number, entry: number): number {
+    return dir === 'LONG' ? current - entry : entry - current;
+  }
+
   // ── 1. Добавляем snapshot ────────────────────────────────────────────────
+  const pnlNow = unrealizedPnL(signal.direction, currentPrice, signal.entry_price);
+  mfe_mae.update(pnlNow);
+
   const snapshot: SignalSnapshot = {
     signal_id: signal.signal_id,
     timestamp: now,
@@ -93,9 +174,7 @@ export function checkSignalPnL(input: PnLCheckInput): FeedbackCheckResult {
     convergence: currentConvergence,
     topDetector: signal.top_detector,
     topDetectorScore: signal.bsciAtCreation, // approximate
-    pnl_unrealized: signal.direction === 'LONG'
-      ? currentPrice - signal.entry_price
-      : signal.entry_price - currentPrice,
+    pnl_unrealized: pnlNow,
     wavefunction_state: signal.wavefunction_state,
   };
 
@@ -321,6 +400,15 @@ export function generateWeightAdjustments(
 export function signalToFeedbackResult(signal: TradeSignal): SignalFeedbackResult | null {
   if (signal.state !== 'CLOSED' || !signal.close_reason || !signal.result) return null;
 
+  // v4.2: Compute MFE/MAE from snapshots
+  const mfe_mae = new MFE_MAECalculator();
+  for (const snap of signal.snapshots) {
+    if (snap.pnl_unrealized !== undefined) {
+      mfe_mae.update(snap.pnl_unrealized);
+    }
+  }
+  const mfeResults = mfe_mae.getResults();
+
   return {
     signal_id: signal.signal_id,
     ticker: signal.ticker,
@@ -338,5 +426,6 @@ export function signalToFeedbackResult(signal: TradeSignal): SignalFeedbackResul
     close_price: signal.close_price || 0,
     pnl_ticks: signal.pnl_ticks || 0,
     result: signal.result,
+    ...mfeResults,
   };
 }

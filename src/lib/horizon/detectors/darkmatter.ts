@@ -28,6 +28,7 @@
 // 4) darkmatter_score = 0.5 * darkmatter_entropy_score + 0.5 * iceberg_score
 
 import type { DetectorInput, DetectorResult } from './types';
+import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 const MIN_ICEBERG_VOLUME_RATIO = 0.005; // 0.5% дневного оборота
@@ -118,19 +119,23 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   // ─── 0. Проверка достаточности данных ────────────────────────────────────
   const allTrades = trades && trades.length > 0 ? trades : recentTrades;
 
-  // v4.1.2: Stale data (рынок закрыт / сделки из прошлой сессии) → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    metadata.insufficientData = true;
-    metadata.staleData = true;
-    metadata.staleMinutes = input.staleMinutes ?? 0;
-    return {
-      detector: 'DARKMATTER',
-      description: 'Тёмная материя — скрытая ликвидность (устаревшие данные)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      metadata.insufficientData = true;
+      metadata.staleData = true;
+      metadata.staleMinutes = input.staleMinutes ?? 0;
+      return {
+        detector: 'DARKMATTER',
+        description: 'Тёмная материя — скрытая ликвидность (устаревшие данные)',
+        score: 0,
+        confidence: 0,
+        signal: 'NEUTRAL',
+        metadata,
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   if (allTrades.length < 10) {
@@ -235,11 +240,17 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
 
     metadata.deltaDiscrepancy = deltaDiscrepancy;
 
+    // Apply stale penalty (v4.2: gradual instead of binary)
+    const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+    const finalScore = clampScore(score * staleFactor);
+    const finalConfidence = clampScore(confidence * staleFactor);
+    metadata.staleFactor = staleFactor;
+
     return {
       detector: 'DARKMATTER',
       description: 'Тёмная материя — скрытая ликвидность (trade-based, нет стакана)',
-      score: Math.round(score * 1000) / 1000,
-      confidence: Math.round(confidence * 1000) / 1000,
+      score: finalScore,
+      confidence: finalConfidence,
       signal,
       metadata,
     };
@@ -270,7 +281,7 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
     const deltaH = expectedEntropy - observedEntropy;
     if (deltaH > 0) {
       // observed < expected → аномалия (скрытая ликвидность)
-      entropyScore = deltaH / (expectedEntropy + EPS);
+      entropyScore = safeDivide(deltaH, expectedEntropy, 0.01);
     }
     // observed >= expected → нет аномалии, score = 0
   }
@@ -373,11 +384,17 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
 
   metadata.deltaDiscrepancy = deltaDiscrepancy;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'DARKMATTER',
     description: 'Тёмная материя — скрытая ликвидность (ΔH_norm + iceberg)',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

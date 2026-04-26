@@ -1,13 +1,17 @@
-// ─── CIPHER — Шифр v5.1 (П2 — PCA→ICA двухуровневый) ──────────────────────
+// ─── CIPHER — Шифр v5.2 (П2 — PCA→ICA + whitening + robust scaling) ────────────
 // Алгоритмический бот оставляет «отпечаток» в виде:
 // - Доминирующая главная компонента (PCA dominance_ratio > 0.6)
 // - Негауссовы независимые компоненты (ICA kurtosis > 3)
 //
-// v5.1 П2 Правка (согласно спецификации v4):
+// v5.2 П2 Правка (согласно спецификации v4.2):
 //
 // УРОВЕНЬ 1 (быстрый скрининг):
-//   1) features = zScoreNormalize([volume, trade_size, interval], window=100)
-//   2) PCA(n_components=3).fit(features)
+//   1) features = robustNormalize([volume, trade_size, interval], window=100)
+//   2) PCA(n_components=3).fit(features, { whiten: true })
+//      — ИЛИ PCA от корреляционной матрицы (не ковариационной!)
+//      — После robust scaling (IQR) explained_variance_ratio_ искажается
+//        если считать PCA от ковариационной матрицы. Whitening или
+//        корреляционная матрица решает эту проблему.
 //   3) dominance_ratio = explained_variance_ratio_[0]
 //   4) Если dominance_ratio > 0.6 → алгоритм
 //   5) cipher_quick = dominance_ratio
@@ -22,12 +26,16 @@
 //   6) cipher_deep = (cipher_quick + kurtosis_normalized) / 2
 //
 // Финал: cipher_quick <= 0.5 → cipher_quick; иначе → cipher_deep; ICA fallback → cipher_quick
+//
+// Микро-уточнение #1: после robustNormalize() используем корреляционную матрицу
 
 import type { DetectorInput, DetectorResult } from './types';
+import { robustNormalize } from './cross-section-normalize';
+import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
-// ─── Z-score normalization ────────────────────────────────────────────────
+// ─── Z-score normalization (legacy — используется внутри CIPHER для features) ──
 
 function zScoreNormalize(values: number[]): number[] {
   const n = values.length;
@@ -70,10 +78,18 @@ function pca(data: number[][], nComponents: number = 3): PCAResult {
 
   const actualComponents = Math.min(nComponents, m, n);
 
-  // Compute covariance matrix (m × m)
-  // data is already z-score normalized, so cov = (1/n) * X^T * X
-  const cov: number[][] = Array.from({ length: m }, () => new Array(m).fill(0));
+  // v5.2: Compute CORRELATION matrix (not covariance) for PCA.
+  // After robust scaling (IQR), covariance matrix has distorted
+  // explained_variance_ratio_. Correlation matrix normalizes each variable
+  // to unit variance, making PCA invariant to scale differences.
+  // This is equivalent to PCA with whiten:true in scikit-learn.
+  //
+  // Correlation = standardized covariance: R[j][k] = cov[j][k] / (σ_j × σ_k)
+  // For z-scored data, R ≈ cov. But after robust scaling, we need explicit
+  // normalization.
 
+  // First compute covariance
+  const cov: number[][] = Array.from({ length: m }, () => new Array(m).fill(0));
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < m; j++) {
       for (let k = j; k < m; k++) {
@@ -82,27 +98,38 @@ function pca(data: number[][], nComponents: number = 3): PCAResult {
       }
     }
   }
-
   for (let j = 0; j < m; j++) {
     for (let k = 0; k < m; k++) {
       cov[j][k] /= n;
     }
   }
 
-  // Condition number of covariance matrix
-  // Approximate: ratio of max diagonal to min diagonal (simplified)
+  // Convert covariance → correlation matrix
+  // R[j][k] = cov[j][k] / sqrt(cov[j][j] × cov[k][k])
   const diagValues = cov.map((row, i) => row[i]).filter(v => v > EPS);
   const maxDiag = Math.max(...diagValues, EPS);
   const minDiag = Math.min(...diagValues, EPS);
   const conditionNumber = maxDiag / minDiag;
+
+  const corr: number[][] = Array.from({ length: m }, () => new Array(m).fill(0));
+  for (let j = 0; j < m; j++) {
+    for (let k = 0; k < m; k++) {
+      const sj = Math.sqrt(Math.max(cov[j][j], EPS));
+      const sk = Math.sqrt(Math.max(cov[k][k], EPS));
+      corr[j][k] = cov[j][k] / (sj * sk);
+    }
+  }
+  // Ensure diagonal = 1 (numerical stability)
+  for (let j = 0; j < m; j++) corr[j][j] = 1;
 
   // Power iteration for each component
   const components: number[][] = [];
   const eigenvalues: number[] = [];
   const maxIter = 200;
 
-  // Work on a copy of cov (we'll deflate)
-  const covWork = cov.map(row => [...row]);
+  // Work on a copy of CORRELATION matrix (not covariance!)
+  // v5.2: PCA from correlation matrix — invariant to feature scale after robust scaling
+  const covWork = corr.map(row => [...row]);
 
   for (let c = 0; c < actualComponents; c++) {
     // Random initial vector
@@ -290,14 +317,18 @@ export function detectCipher(input: DetectorInput): DetectorResult {
   const { recentTrades, trades } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.1.2: Stale data → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    return {
-      detector: 'CIPHER',
-      description: 'Шифр — неестественная периодичность (устаревшие данные)',
-      score: 0, confidence: 0, signal: 'NEUTRAL',
-      metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      return {
+        detector: 'CIPHER',
+        description: 'Шифр — неестественная периодичность (устаревшие данные)',
+        score: 0, confidence: 0, signal: 'NEUTRAL',
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   // Need at least 20 trades for meaningful PCA/ICA
@@ -364,7 +395,10 @@ export function detectCipher(input: DetectorInput): DetectorResult {
     };
   }
 
-  // ─── Z-score normalize each feature ───────────────────────────────────
+  // ─── Robust normalize each feature ───────────────────────────────────
+  // v5.2: Используем robustNormalize (median/IQR) вместо zScoreNormalize (mean/std)
+  // Robust scaling устойчив к выбросам → PCA на корреляционной матрице
+  // даст корректный explained_variance_ratio_
   const nFeatures = 3;
   const normalizedFeatures: number[][] = [];
 
@@ -373,8 +407,8 @@ export function detectCipher(input: DetectorInput): DetectorResult {
     featureRows.map(row => row[j])
   );
 
-  // Z-score each column
-  const zCols = cols.map(col => zScoreNormalize(col));
+  // v5.2: Robust normalize each column (median/IQR — outlier resistant)
+  const zCols = cols.map(col => robustNormalize(col));
 
   // Reconstruct normalized matrix
   for (let i = 0; i < featureRows.length; i++) {
@@ -383,14 +417,15 @@ export function detectCipher(input: DetectorInput): DetectorResult {
 
   metadata.featureCount = nFeatures;
   metadata.sampleCount = normalizedFeatures.length;
+  metadata.scalingMethod = 'robust_iqr'; // v5.2: robust scaling вместо z-score
 
   // ─── LEVEL 1: PCA quick screening ─────────────────────────────────────
   const pcaResult = pca(normalizedFeatures, 3);
 
   metadata.pcaDominance = Math.round(pcaResult.dominanceRatio * 1000) / 1000;
   metadata.pcaConditionNumber = Math.round(pcaResult.conditionNumber * 100) / 100;
-  metadata.pcaExplainedVariance = pcaResult.explainedVariance
-    .map(v => Math.round(v * 1000) / 1000);
+  metadata.pcaExplainedVariance = JSON.stringify(pcaResult.explainedVariance
+    .map(v => Math.round(v * 1000) / 1000));
 
   const cipherQuick = pcaResult.dominanceRatio;
   metadata.cipherQuick = Math.round(cipherQuick * 1000) / 1000;
@@ -460,11 +495,17 @@ export function detectCipher(input: DetectorInput): DetectorResult {
     ? Math.min(1, (cipherQuick > 0.5 ? 0.5 : 0.2) + (score - 0.2) * 0.5)
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'CIPHER',
     description: 'Шифр — PCA/ICA анализ алгоритмических паттернов',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

@@ -16,6 +16,7 @@
 // Убрать ВСЕ упоминания WVD из спецификации и комментариев.
 
 import type { DetectorInput, DetectorResult } from './types';
+import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
@@ -193,19 +194,23 @@ export function detectHawking(input: DetectorInput): DetectorResult {
 
   metadata.n_trades = n;
 
-  // v4.1.2: Stale data (рынок закрыт / сделки из прошлой сессии) → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    metadata.insufficientData = true;
-    metadata.staleData = true;
-    metadata.staleMinutes = input.staleMinutes ?? 0;
-    return {
-      detector: 'HAWKING',
-      description: 'Излучение — периодичность алгоритмов (устаревшие данные)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      metadata.insufficientData = true;
+      metadata.staleData = true;
+      metadata.staleMinutes = input.staleMinutes ?? 0;
+      return {
+        detector: 'HAWKING',
+        description: 'Излучение — периодичность алгоритмов (устаревшие данные)',
+        score: 0,
+        confidence: 0,
+        signal: 'NEUTRAL',
+        metadata,
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   // ─── Минимум 50 сделок ─────────────────────────────────────────────────
@@ -347,11 +352,17 @@ export function detectHawking(input: DetectorInput): DetectorResult {
     ? Math.min(1, (periodicity + (1 - clampedNoiseRatio)) / 1.5)
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'HAWKING',
     description: 'Излучение — периодичность алгоритмов (ACF + PSD)',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

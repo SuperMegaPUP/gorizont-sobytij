@@ -20,6 +20,7 @@
 // 4) attractor_score = 0.4 × takens + 0.3 × volume_profile + 0.3 × stickiness
 
 import type { DetectorInput, DetectorResult } from './types';
+import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
@@ -241,14 +242,18 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   const { prices, recentTrades, trades, orderbook } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.1.2: Stale data → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    return {
-      detector: 'ATTRACTOR',
-      description: 'Аттрактор — цена прилипает к уровню (устаревшие данные)',
-      score: 0, confidence: 0, signal: 'NEUTRAL',
-      metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      return {
+        detector: 'ATTRACTOR',
+        description: 'Аттрактор — цена прилипает к уровню (устаревшие данные)',
+        score: 0, confidence: 0, signal: 'NEUTRAL',
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   if (prices.length < 12 || trades.length < 5) {
@@ -363,11 +368,17 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
     ? Math.min(1, agreement * 1.2 * Math.max(score, 0.3))
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'ATTRACTOR',
     description: 'Аттрактор — Takens + профиль объёма + прилипание',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

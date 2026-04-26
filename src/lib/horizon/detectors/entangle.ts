@@ -12,6 +12,7 @@
 // 2) Granger causality с лагом = 3 (фиксированный для v1)
 
 import type { DetectorInput, DetectorResult } from './types';
+import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
@@ -333,14 +334,18 @@ export function detectEntangle(input: DetectorInput): DetectorResult {
   const { ticker, ofi, prices, crossTickers } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.1.2: Stale data → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    return {
-      detector: 'ENTANGLE',
-      description: 'Запутанность — кросс-тикерная корреляция (устаревшие данные)',
-      score: 0, confidence: 0, signal: 'NEUTRAL',
-      metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      return {
+        detector: 'ENTANGLE',
+        description: 'Запутанность — кросс-тикерная корреляция (устаревшие данные)',
+        score: 0, confidence: 0, signal: 'NEUTRAL',
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   // Без кросс-тикерных данных — детектор не работает
@@ -486,11 +491,17 @@ export function detectEntangle(input: DetectorInput): DetectorResult {
     ? Math.min(1, (correlationScore + syncScore + grangerScore) / 2)
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'ENTANGLE',
     description: 'Запутанность — ADF + Granger + синхронность',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

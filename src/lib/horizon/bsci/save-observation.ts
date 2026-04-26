@@ -133,11 +133,32 @@ export async function saveObservation(input: ObservationInput): Promise<SaveResu
  * 1% в день к равновесию → за 100 дней → 63% сдвиг
  * Решает «дрейф весов при длительном флете»
  *
+ * v4.2: Адаптивный decay по RVI (Russian Volatility Index)
+ * Высокая волатильность → медленнее decay (сохраняем веса — они ещё актуальны)
+ * Низкая волатильность → быстрее decay (веса могли устареть в боковике)
+ *
+ * decay_factor = 0.99 - 0.005 × (1 - rvi_norm)
+ * rvi_norm ∈ [0, 1]: 0 = низкая волатильность, 1 = высокая
+ * decay_factor ∈ [0.985, 0.995]:
+ *   rvi_norm=1 (высокая вол) → decay=0.995 (медленнее → 0.5% в день)
+ *   rvi_norm=0 (низкая вол)  → decay=0.985 (быстрее  → 1.5% в день)
+ *
  * Вызывать один раз в день (при первом наблюдении сессии)
  */
-export async function applyDailyWeightDecay(): Promise<void> {
-  const DECAY_FACTOR = 0.99;
-  const EQUAL_WEIGHT = 1 / 10; // 1/K = 1/10
+export async function applyDailyWeightDecay(rvi?: number): Promise<void> {
+  const K = 10; // количество детекторов
+  const EQUAL_WEIGHT = 1 / K;
+
+  // v4.2: Адаптивный decay factor по RVI
+  // RVI > 30 → высокая волатильность → медленнее decay
+  // RVI < 15 → низкая волатильность → быстрее decay
+  // RVI undefined → default 0.99
+  let decayFactor = 0.99;
+  if (rvi !== undefined && rvi > 0) {
+    const rviNorm = Math.max(0, Math.min(1, (rvi - 10) / 40)); // normalize RVI to [0,1]
+    decayFactor = 0.99 - 0.005 * (1 - rviNorm);
+    decayFactor = Math.max(0.985, Math.min(0.995, decayFactor)); // clamp
+  }
 
   try {
     const allWeights = await prisma.bsciWeight.findMany();
@@ -163,9 +184,9 @@ export async function applyDailyWeightDecay(): Promise<void> {
       }
     }
 
-    // Apply decay
+    // Apply adaptive decay
     for (const w of allWeights) {
-      const newWeight = DECAY_FACTOR * w.weight + (1 - DECAY_FACTOR) * EQUAL_WEIGHT;
+      const newWeight = decayFactor * w.weight + (1 - decayFactor) * EQUAL_WEIGHT;
       await prisma.bsciWeight.update({
         where: { detector: w.detector },
         data: { weight: Math.max(0.04, newWeight) },
@@ -184,7 +205,7 @@ export async function applyDailyWeightDecay(): Promise<void> {
       }
     }
 
-    console.log(`[BSCI] Daily weight decay applied (factor=${DECAY_FACTOR})`);
+    console.log(`[BSCI] Daily weight decay applied (factor=${decayFactor.toFixed(4)}, rvi=${rvi ?? 'N/A'})`);
   } catch (e: any) {
     console.warn('[BSCI] Daily weight decay failed:', e.message);
   }

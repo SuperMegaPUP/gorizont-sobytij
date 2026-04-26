@@ -11,17 +11,22 @@
 // Score: spikeMagnitude × volumeAnomaly × reversalIndicator × deltaConfirmation
 
 import type { DetectorInput, DetectorResult } from './types';
+import { clampScore, stalePenalty } from './guards';
 
 export function detectPredator(input: DetectorInput): DetectorResult {
   const { prices, volumes, cumDelta, recentTrades } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.1.2: Stale data → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    return {
-      detector: 'PREDATOR', description: 'Хищник — охота за стопами (устаревшие данные)',
-      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      return {
+        detector: 'PREDATOR', description: 'Хищник — охота за стопами (устаревшие данные)',
+        score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   if (prices.length < 5) {
@@ -95,11 +100,17 @@ export function detectPredator(input: DetectorInput): DetectorResult {
     ? Math.min(1, (spikeScore + volScore + reversalScore) / 2)
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'PREDATOR',
     description: 'Хищник — охота за стопами',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

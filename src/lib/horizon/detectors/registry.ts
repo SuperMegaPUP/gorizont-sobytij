@@ -39,8 +39,9 @@ export function runDetector(name: DetectorName, input: DetectorInput): DetectorR
 }
 
 // ─── BSCI Composite Index ──────────────────────────────────────────────────
-// BSCI = Σ(w_i × score_i) / Σ(w_i)
+// BSCI = Σ(w_i × score_i × multicoll_penalty_i) / Σ(w_i × multicoll_penalty_i)
 // Веса адаптивные, сумма = 1, минимальный 0.04 (v4.1)
+// v4.2: Multicollinearity penalty — коррелированные детекторы штрафуются
 
 export interface BSCIResult {
   bsci: number;                          // 0..1
@@ -49,6 +50,74 @@ export interface BSCIResult {
   topDetector: string;                   // детектор с макс score
   scores: DetectorResult[];              // все 10 результатов
   weights: Record<string, number>;       // текущие веса
+  /** v4.2: Multicollinearity penalties per detector */
+  multicollPenalties?: Record<string, number>;
+}
+
+/**
+ * v4.2: Multicollinearity penalty
+ *
+ * Когда два детектора дают похожие сигналы (оба BULLISH с высоким score),
+ * они НЕ несут независимую информацию — штрафуем чтобы избежать
+ * двойного счёта.
+ *
+ * Группы детекторов, склонные к мультиколлинеарности:
+ *   [GRAVITON, DARKMATTER] — оба завязаны на orderbook
+ *   [DECOHERENCE, HAWKING] — оба детектят алгоритмическую торговлю
+ *   [CIPHER, WAVEFUNCTION] — оба ищут циклы
+ *   [ACCRETOR, ATTRACTOR]  — оба про «прилипание» цены
+ *
+ * Штраф: если оба детектора в группе активны (score > 0.3) и
+ * направлены одинаково → каждый получает penalty = 0.75
+ * (вместо 1.0), что снижает их суммарный вклад.
+ *
+ * Если только один активен — penalty = 1.0 (нет штрафа).
+ */
+const MULTICOLL_GROUPS: string[][] = [
+  ['GRAVITON', 'DARKMATTER'],
+  ['DECOHERENCE', 'HAWKING'],
+  ['CIPHER', 'WAVEFUNCTION'],
+  ['ACCRETOR', 'ATTRACTOR'],
+];
+
+function computeMulticollinearityPenalties(
+  scores: DetectorResult[],
+): Record<string, number> {
+  const penalties: Record<string, number> = {};
+  const scoreMap = new Map<string, DetectorResult>();
+  for (const s of scores) scoreMap.set(s.detector, s);
+
+  // Инициализируем все penalty = 1.0
+  for (const s of scores) penalties[s.detector] = 1.0;
+
+  // Проверяем каждую группу
+  for (const group of MULTICOLL_GROUPS) {
+    const active = group.filter(d => {
+      const s = scoreMap.get(d);
+      return s && s.score > 0.3 && !s.metadata?.insufficientData;
+    });
+
+    // Если 2+ детектора в группе активны и направлены одинаково → штраф
+    if (active.length >= 2) {
+      const results = active.map(d => scoreMap.get(d)!);
+      const allBullish = results.every(r => r.signal === 'BULLISH');
+      const allBearish = results.every(r => r.signal === 'BEARISH');
+
+      if (allBullish || allBearish) {
+        // Оба активны и однонаправлены → штраф 0.75
+        for (const d of active) {
+          penalties[d] = 0.75;
+        }
+      } else {
+        // Активны но разнонаправлены → мягкий штраф 0.9
+        for (const d of active) {
+          penalties[d] = Math.min(penalties[d], 0.9);
+        }
+      }
+    }
+  }
+
+  return penalties;
 }
 
 /**
@@ -56,31 +125,38 @@ export interface BSCIResult {
  * @param scores — результаты 10 детекторов
  * @param weights — адаптивные веса из BsciWeight таблицы
  *
- * v4.1.2: Если детектор вернул insufficientData/staleData → его вес снижается до min_w (0.04)
- * Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ — детектор без данных не должен двигать BSCI
+ * v4.2: Multicollinearity penalty — коррелированные детекторы штрафуются
+ * v4.1.2: insufficientData/staleData → вес снижается до min_w (0.04)
  */
 export function calcBSCI(
   scores: DetectorResult[],
   weights: Record<string, number>
 ): BSCIResult {
-  const MIN_WEIGHT = 0.04; // минимальный вес (как в save-observation.ts)
+  const MIN_WEIGHT = 0.04;
 
-  // BSCI = Σ(w_i × score_i)
+  // v4.2: Compute multicollinearity penalties
+  const multicollPenalties = computeMulticollinearityPenalties(scores);
+
+  // BSCI = Σ(w_i × score_i × multicoll_penalty_i)
   let weightedSum = 0;
   let weightTotal = 0;
   let maxScore = 0;
   let topDetector = 'NONE';
 
   for (const result of scores) {
-    let w = weights[result.detector] ?? 0.1; // default weight = 0.1
+    let w = weights[result.detector] ?? 0.1;
 
     // v4.1.2: Снижаем вес для детекторов без данных
     if (result.metadata?.insufficientData || result.metadata?.staleData) {
-      w = MIN_WEIGHT; // минимальный вес — детектор не должен двигать BSCI
+      w = MIN_WEIGHT;
     }
 
-    weightedSum += w * result.score;
-    weightTotal += w;
+    // v4.2: Применяем multicollinearity penalty
+    const penalty = multicollPenalties[result.detector] ?? 1.0;
+    const effectiveWeight = w * penalty;
+
+    weightedSum += effectiveWeight * result.score;
+    weightTotal += effectiveWeight;
     if (result.score > maxScore) {
       maxScore = result.score;
       topDetector = result.detector;
@@ -100,11 +176,12 @@ export function calcBSCI(
   let bullWeight = 0;
   let bearWeight = 0;
   for (const result of scores) {
-    // v4.1.2: Пропускаем детекторы без данных при голосовании за направление
     if (result.metadata?.insufficientData || result.metadata?.staleData) continue;
     const w = weights[result.detector] ?? 0.1;
-    if (result.signal === 'BULLISH') bullWeight += w * result.score;
-    else if (result.signal === 'BEARISH') bearWeight += w * result.score;
+    const penalty = multicollPenalties[result.detector] ?? 1.0;
+    const effectiveWeight = w * penalty;
+    if (result.signal === 'BULLISH') bullWeight += effectiveWeight * result.score;
+    else if (result.signal === 'BEARISH') bearWeight += effectiveWeight * result.score;
   }
   const direction = bullWeight > bearWeight * 1.3 ? 'BULLISH'
     : bearWeight > bullWeight * 1.3 ? 'BEARISH' : 'NEUTRAL';
@@ -116,5 +193,6 @@ export function calcBSCI(
     topDetector,
     scores,
     weights,
+    multicollPenalties,
   };
 }

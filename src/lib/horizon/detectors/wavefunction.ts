@@ -20,7 +20,10 @@
 //    - Предотвращает underflow при длинных окнах
 
 import type { DetectorInput, DetectorResult } from './types';
+import { clampScore, stalePenalty } from './guards';
 
+const DF_PRIMARY = 5; // v5.2: Увеличено с 3 до 5 (микро-уточнение #3: более гладкий likelihood)
+const DF_ROLLOUT = 7; // v5.2: Для rollout режима — ещё более гладкий (для скачков вероятностей)
 const EPS = 1e-6;
 
 // ─── Particle Filter Types ────────────────────────────────────────────────
@@ -67,8 +70,8 @@ function studentTLogLikelihood(
   priceChange: number,
   deltaChange: number,
   state: State,
+  df: number = DF_PRIMARY, // v5.2: Настраиваемые degrees of freedom
 ): number {
-  const df = 3; // degrees of freedom (heavy tails)
   const observation = deltaChange; // primary signal
 
   let mu: number;
@@ -183,14 +186,18 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
   const { prices, cumDelta, trades } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.1.2: Stale data → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    return {
-      detector: 'WAVEFUNCTION',
-      description: 'Волновая функция — циклические паттерны (устаревшие данные)',
-      score: 0, confidence: 0, signal: 'NEUTRAL',
-      metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      return {
+        detector: 'WAVEFUNCTION',
+        description: 'Волновая функция — циклические паттерны (устаревшие данные)',
+        score: 0, confidence: 0, signal: 'NEUTRAL',
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   if (prices.length < 12 || trades.length < 10) {
@@ -281,6 +288,68 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
   }
 
   metadata.resampleCount = resampleCount;
+
+  // ─── 2.5. Parallel Rollout PF (v4.2 — микро-уточнение #3) ────────────────
+  // Запускаем параллельный PF с ν=7 (более гладкий likelihood)
+  // Сравниваем с основным PF (ν=5):
+  // - Если rollout N_eff стабильнее → переключаемся на ν=7
+  // - Если rollout даёт скачки → остаёмся на ν=5
+  let rolloutParticles: Particle[] = Array.from({ length: N_PARTICLES }, () => ({
+    state: Math.floor(Math.random() * 3) as State,
+    logWeight: -Math.log(N_PARTICLES),
+  }));
+  let rolloutResampleCount = 0;
+  let rolloutNeffSum = 0;
+  let primaryNeffSum = 0;
+  let rolloutNeffCount = 0;
+
+  for (let t = 0; t < pfLength; t++) {
+    const pc = priceChanges[t] || 0;
+    const dc = deltaChanges[t] || 0;
+    const priceStd = Math.sqrt(priceChanges.reduce((s, v) => s + v * v, 0) / priceChanges.length) || 1;
+    const deltaStd = Math.sqrt(deltaChanges.reduce((s, v) => s + v * v, 0) / deltaChanges.length) || 1;
+    const normPrice = pc / priceStd;
+    const normDelta = dc / deltaStd;
+
+    // Track primary PF N_eff
+    primaryNeffSum += effectiveSampleSize(particles);
+
+    // Update rollout particles with ν=7
+    for (const p of rolloutParticles) {
+      const r = Math.random();
+      const row = TRANSITION[p.state];
+      let cumProb = 0;
+      for (let s = 0; s < 3; s++) {
+        cumProb += row[s];
+        if (r < cumProb) { p.state = s as State; break; }
+      }
+      const logLik = studentTLogLikelihood(normPrice, normDelta, p.state, DF_ROLLOUT);
+      p.logWeight += logLik;
+    }
+
+    const rollLogNorm = logSumExp(rolloutParticles.map(p => p.logWeight));
+    for (const p of rolloutParticles) p.logWeight -= rollLogNorm;
+
+    const rolloutNeff = effectiveSampleSize(rolloutParticles);
+    rolloutNeffSum += rolloutNeff;
+    rolloutNeffCount++;
+
+    if (rolloutNeff < 0.5 * N_PARTICLES) {
+      rolloutParticles = systematicResample(rolloutParticles);
+      rolloutResampleCount++;
+    }
+  }
+
+  // Compare rollout vs primary
+  const avgPrimaryNeff = rolloutNeffCount > 0 ? primaryNeffSum / rolloutNeffCount : 0;
+  const avgRolloutNeff = rolloutNeffCount > 0 ? rolloutNeffSum / rolloutNeffCount : 0;
+  const rolloutBetter = avgRolloutNeff > avgPrimaryNeff * 1.1; // rollout N_eff > 110% of primary
+
+  metadata.rolloutAvgNeff = Math.round(avgRolloutNeff * 10) / 10;
+  metadata.rolloutResampleCount = rolloutResampleCount;
+  metadata.rolloutDf = DF_ROLLOUT;
+  metadata.rolloutBetter = rolloutBetter;
+  metadata.primaryAvgNeff = Math.round(avgPrimaryNeff * 10) / 10;
 
   // ─── 3. Compute state probabilities ──────────────────────────────────
   const logWeights = particles.map(p => p.logWeight);
@@ -399,11 +468,17 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
       Math.min(1, nEff / (N_PARTICLES * 0.3))) // penalize low N_eff
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'WAVEFUNCTION',
     description: 'Волновая функция — Particle Filter + циклические паттерны',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

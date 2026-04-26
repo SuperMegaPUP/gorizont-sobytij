@@ -19,6 +19,7 @@
 //   ACCRETOR = spatial clustering (время+цена → DBSCAN)
 
 import type { DetectorInput, DetectorResult } from './types';
+import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
@@ -170,14 +171,18 @@ export function detectAccretor(input: DetectorInput): DetectorResult {
   const { cumDelta, prices, trades, candles } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.1.2: Stale data → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    return {
-      detector: 'ACCRETOR',
-      description: 'Аккреция — постепенное накопление (устаревшие данные)',
-      score: 0, confidence: 0, signal: 'NEUTRAL',
-      metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      return {
+        detector: 'ACCRETOR',
+        description: 'Аккреция — постепенное накопление (устаревшие данные)',
+        score: 0, confidence: 0, signal: 'NEUTRAL',
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   // Нужен минимум 20 сделок для DBSCAN
@@ -282,9 +287,7 @@ export function detectAccretor(input: DetectorInput): DetectorResult {
   metadata.atr = Math.round(atr * 10000) / 10000;
 
   const concentrationDenom = atr / (tickSize + EPS);
-  const concentration = concentrationDenom > EPS
-    ? avgClusterSize / concentrationDenom
-    : 0;
+  const concentration = safeDivide(avgClusterSize, concentrationDenom, 0.01);
   metadata.concentration = Math.round(concentration * 1000) / 1000;
 
   // ─── 5. Delta trend (старый компонент — сохраняем для контекста) ──────
@@ -379,11 +382,17 @@ export function detectAccretor(input: DetectorInput): DetectorResult {
     ? Math.min(1, ((hasClusters ? 0.5 : 0) + (hasDeltaTrend ? 0.3 : 0) + clusterRatio * 0.2))
     : 0;
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'ACCRETOR',
     description: 'Аккреция — кластерное накопление (DBSCAN + ATR)',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };

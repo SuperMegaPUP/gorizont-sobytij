@@ -22,6 +22,7 @@
 //    - Низкая → равномерное распределение → естественный рынок
 
 import type { DetectorInput, DetectorResult } from './types';
+import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 const ALPHABET_SIZE = 21;  // от -10 до +10
@@ -110,19 +111,23 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   // Нужны сделки с ценами для построения символьного потока
   const allTrades = trades && trades.length > 0 ? trades : recentTrades;
 
-  // v4.1.2: Stale data (рынок закрыт / сделки из прошлой сессии) → нет аномалии
+  // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
-    metadata.insufficientTrades = true;
-    metadata.staleData = true;
-    metadata.staleMinutes = input.staleMinutes ?? 0;
-    return {
-      detector: 'DECOHERENCE',
-      description: 'Декогеренция — символьный поток (устаревшие данные)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
+    const staleFactor = stalePenalty(input.staleMinutes);
+    if (staleFactor <= 0) {
+      metadata.insufficientTrades = true;
+      metadata.staleData = true;
+      metadata.staleMinutes = input.staleMinutes ?? 0;
+      return {
+        detector: 'DECOHERENCE',
+        description: 'Декогеренция — символьный поток (устаревшие данные)',
+        score: 0,
+        confidence: 0,
+        signal: 'NEUTRAL',
+        metadata,
+      };
+    }
+    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   if (allTrades.length < 20) {
@@ -257,11 +262,17 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   metadata.ofiDir = Math.sign(ofi);
   metadata.deltaDir = Math.sign(cumDelta.delta);
 
+  // Apply stale penalty (v4.2: gradual instead of binary)
+  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  const finalScore = clampScore(score * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor);
+  metadata.staleFactor = staleFactor;
+
   return {
     detector: 'DECOHERENCE',
     description: 'Декогеренция — символьный поток (Shannon entropy)',
-    score: Math.round(score * 1000) / 1000,
-    confidence: Math.round(confidence * 1000) / 1000,
+    score: finalScore,
+    confidence: finalConfidence,
     signal,
     metadata,
   };
