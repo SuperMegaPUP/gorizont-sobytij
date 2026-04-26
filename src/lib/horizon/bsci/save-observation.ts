@@ -126,6 +126,69 @@ export async function saveObservation(input: ObservationInput): Promise<SaveResu
  * Новое weight = weight - η × weight если неверный сигнал
  * Нормализация: сумма весов = 1, минимум 0.04 (повышено с 0.02 в v4.1 — быстрее восстановление «мёртвых» детекторов)
  */
+
+/**
+ * П2: Мягкий daily weight decay (Sprint 5B)
+ * w_k = 0.99 × w_k + 0.01 × (1/K)
+ * 1% в день к равновесию → за 100 дней → 63% сдвиг
+ * Решает «дрейф весов при длительном флете»
+ *
+ * Вызывать один раз в день (при первом наблюдении сессии)
+ */
+export async function applyDailyWeightDecay(): Promise<void> {
+  const DECAY_FACTOR = 0.99;
+  const EQUAL_WEIGHT = 1 / 10; // 1/K = 1/10
+
+  try {
+    const allWeights = await prisma.bsciWeight.findMany();
+    if (allWeights.length === 0) return;
+
+    // Check if already applied today (use Redis flag)
+    const redisUrl = process.env.REDIS_URL;
+    if (redisUrl) {
+      try {
+        const { default: Redis } = await import('ioredis');
+        const redis = new Redis(redisUrl, { lazyConnect: true, connectTimeout: 3000 });
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const flagKey = `horizon:weight-decay:${today}`;
+        const alreadyApplied = await redis.get(flagKey);
+        if (alreadyApplied) {
+          await redis.quit();
+          return; // Already applied today
+        }
+        await redis.setex(flagKey, 86400, '1'); // 24h TTL
+        await redis.quit();
+      } catch {
+        // Redis error — proceed anyway (idempotent operation)
+      }
+    }
+
+    // Apply decay
+    for (const w of allWeights) {
+      const newWeight = DECAY_FACTOR * w.weight + (1 - DECAY_FACTOR) * EQUAL_WEIGHT;
+      await prisma.bsciWeight.update({
+        where: { detector: w.detector },
+        data: { weight: Math.max(0.04, newWeight) },
+      });
+    }
+
+    // Renormalize
+    const updated = await prisma.bsciWeight.findMany();
+    const total = updated.reduce((sum, w) => sum + w.weight, 0);
+    if (total > 0) {
+      for (const w of updated) {
+        await prisma.bsciWeight.update({
+          where: { detector: w.detector },
+          data: { weight: Math.max(0.04, w.weight / total) },
+        });
+      }
+    }
+
+    console.log(`[BSCI] Daily weight decay applied (factor=${DECAY_FACTOR})`);
+  } catch (e: any) {
+    console.warn('[BSCI] Daily weight decay failed:', e.message);
+  }
+}
 export async function updateWeightsAfterVerification(
   observationId: string,
   actualDirection: string

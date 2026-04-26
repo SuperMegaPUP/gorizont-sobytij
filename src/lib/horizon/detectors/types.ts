@@ -62,6 +62,12 @@ export interface DetectorInput {
   // Волатильность
   rvi?: number;            // Russian Volatility Index
 
+  // ─── П2-9: Сквозная z-score нормализация ─────────────────────────────
+  // Нормализованные ценовые ряды для CIPHER, HAWKING, ACCRETOR
+  zScorePrices?: number[];    // z-score нормализованные цены
+  zScoreVolumes?: number[];   // z-score нормализованные объёмы
+  zScoreIntervals?: number[]; // z-score нормализованные интервалы (мс)
+
   // ─── Data freshness flags (v4.1.2: NO DATA = NO ANOMALY) ───────────────
   /** Данные устарели (сделки из прошлой сессии, рынок закрыт) */
   staleData?: boolean;

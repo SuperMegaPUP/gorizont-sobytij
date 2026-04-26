@@ -640,7 +640,29 @@ export async function collectMarketData(
     }
   }
 
-  // 9. Формируем DetectorInput
+  // 9. П2-9: Z-score нормализация (для CIPHER, HAWKING, ACCRETOR)
+  function zScoreNormalize(values: number[]): number[] {
+    const n = values.length;
+    if (n < 2) return values.map(() => 0);
+    const mean = values.reduce((s, v) => s + v, 0) / n;
+    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+    const std = Math.sqrt(variance);
+    if (std < 1e-6) return values.map(() => 0);
+    return values.map(v => (v - mean) / std);
+  }
+
+  const zScorePrices = zScoreNormalize(prices);
+  const zScoreVolumes = zScoreNormalize(volumes);
+
+  // Интервалы между сделками (для CIPHER)
+  const tradeIntervals: number[] = [];
+  for (let i = 1; i < trades.length; i++) {
+    const dt = (trades[i].timestamp || 0) - (trades[i - 1].timestamp || 0);
+    if (dt > 0) tradeIntervals.push(dt);
+  }
+  const zScoreIntervals = zScoreNormalize(tradeIntervals);
+
+  // 10. Формируем DetectorInput
   const detectorInput: DetectorInput = {
     ticker,
     orderbook,
@@ -659,6 +681,9 @@ export async function collectMarketData(
     candles,
     crossTickers: Object.keys(crossTickerData).length > 0 ? crossTickerData : undefined,
     rvi: rvi ?? undefined,
+    zScorePrices,
+    zScoreVolumes,
+    zScoreIntervals: zScoreIntervals.length > 0 ? zScoreIntervals : undefined,
     staleData: staleData || undefined,
     staleMinutes: staleData ? staleMinutes : undefined,
   };

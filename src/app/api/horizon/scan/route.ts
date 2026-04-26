@@ -22,6 +22,7 @@ import { calculateConvergenceScore, type ConvergenceScoreResult } from '@/lib/ho
 import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rules';
 import { calculateRobotContext, findTopDetector, isRobotConfirmed, type RobotContext } from '@/lib/horizon/robot-context';
 import { generateSignal, type TradeSignal, type SignalGeneratorInput } from '@/lib/horizon/signals/signal-generator';
+import { applyDailyWeightDecay } from '@/lib/horizon/bsci/save-observation';
 import { serializeSignal } from '@/lib/horizon/signals/signal-store';
 import { getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
 
@@ -588,6 +589,13 @@ export async function POST(request: NextRequest) {
     // This allows weekend ДСВД sessions to work properly.
 
     const sessionInfo = getSessionInfo();
+
+    // П2: Daily weight decay (один раз в день — при первом скане сессии)
+    try {
+      await applyDailyWeightDecay();
+    } catch (e: any) {
+      console.warn('[/api/horizon/scan] Daily weight decay failed:', e.message);
+    }
 
     // Check for TOP-100 mode via query param or body
     let scanMode: 'core' | 'top100' = 'core';
