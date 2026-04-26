@@ -7,6 +7,10 @@ export interface Trade {
   quantity: number;
   /** MOEX: 'B' | 'S' | '...'   Tinkoff: 'BUY' | 'SELL' | '...' */
   direction: string;
+  /** Алиас для direction (BUY/SELL) — для совместимости с robotContext */
+  side?: string;
+  /** Алиас для timestamp (ISO string) — для совместимости с robotContext */
+  time?: string;
   timestamp?: number;
 }
 

@@ -327,22 +327,33 @@ async function fetchOrderboard(config: TickerConfig): Promise<OrderbookResult | 
   }
 }
 
-/** Сделки с BUYSELL — board-aware */
+/** Сделки с BUYSELL — board-aware
+ *  MOEX ISS с reversed=1 возвращает сделки от новых к старым.
+ *  Мы РЕВЕРСИРУЕМ массив → хронологический порядок (старые → новые).
+ *  Это критично для: time-decay weightedOFI, nearTermOFI, recentTrades.
+ */
 async function fetchTrades(config: TickerConfig, limit: number = 200): Promise<TradesResult> {
   const empty: TradesResult = { trades: [], recentTrades: [] };
   try {
     const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/trades.json?limit=${limit}&reversed=1`;
     const data = await moexFetch(path);
     const rows = parseIssGrid(data.trades);
-    const trades: Trade[] = rows.map((t) => ({
-      price: Number(t.PRICE || 0),
-      quantity: Number(t.QUANTITY || 0),
-      direction: String(t.BUYSELL || ''),
-      timestamp: t.SYSTIME ? new Date(t.SYSTIME).getTime() : Date.now(),
-    }));
+    // reversed=1 → MOEX возвращает newest-first → реверсируем в хронологический порядок
+    const trades: Trade[] = rows.reverse().map((t) => {
+      const buysell = String(t.BUYSELL || '');
+      const systime = t.SYSTIME ? String(t.SYSTIME) : '';
+      return {
+        price: Number(t.PRICE || 0),
+        quantity: Number(t.QUANTITY || 0),
+        direction: buysell,
+        side: buysell === 'B' ? 'BUY' : buysell === 'S' ? 'SELL' : buysell,
+        time: systime,
+        timestamp: systime ? new Date(systime).getTime() : Date.now(),
+      };
+    });
     return {
       trades,
-      recentTrades: trades.slice(-50), // последние 50 для быстрых детекторов
+      recentTrades: trades.slice(-50), // ПОСЛЕДНИЕ 50 (самые свежие) — теперь правильно!
     };
   } catch (e: any) {
     console.warn(`[collect-market-data] trades error for ${config.moexTicker}:`, e.message);
@@ -491,7 +502,6 @@ export async function collectMarketData(
 
   // 3.5 Предыдущий снапшот стакана из Redis (для Real-time OFI)
   let orderbookPrev: OrderBookSnapshot | undefined;
-  let realtimeOFI: number | undefined;
   const obSnapshotKey = `horizon:ob-snapshot:${ticker}`;
 
   try {
@@ -501,38 +511,96 @@ export async function collectMarketData(
     }
   } catch { /* ignore Redis errors */ }
 
+  // 3.7 Проверка свежести данных — ДО расчёта OFI! (Sprint 5B)
+  // Если самая свежая сделка старше 30 минут — данные stale (рынок закрыт / перерыв)
+  let staleData = false;
+  let staleMinutes = 0;
+  const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 минут
+
+  if (trades.length > 0) {
+    const newestTradeTs = Math.max(...trades.map(t => t.timestamp || 0));
+    if (newestTradeTs > 0) {
+      const ageMs = Date.now() - newestTradeTs;
+      staleMinutes = Math.round(ageMs / 60000);
+      if (ageMs > STALE_THRESHOLD_MS) {
+        staleData = true;
+        console.log(`[collect-market-data] ${ticker}: STALE DATA — newest trade ${staleMinutes} min ago`);
+      }
+    }
+  } else {
+    staleData = true;
+    staleMinutes = 999;
+    console.log(`[collect-market-data] ${ticker}: STALE DATA — no trades at all`);
+  }
+
+  // Пустой стакан: НЕ автоматически stale!
+  if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
+    if (staleData) {
+      console.log(`[collect-market-data] ${ticker}: STALE DATA — empty orderbook + stale trades`);
+    } else {
+      console.log(`[collect-market-data] ${ticker}: Empty orderbook but trades fresh — API limitation (ДСВД?), NOT stale`);
+    }
+  }
+
   // 4. Индикаторы
   const ofiFromOB = calcOFI(orderbook);
   const weightedOFIFromOB = calcWeightedOFI(orderbook);
 
   // 4.1 Trade-based OFI — работает БЕЗ стакана (ДСВД, выходные)
-  // Ключевое улучшение: даже когда orderbook пустой, мы получаем OFI из сделок
   const tradeOFI: TradeOFIResult = calcTradeOFI(trades, 50);
 
-  // 4.2 Логика подмены: если orderbook пустой → используем tradeOFI вместо OB-based OFI
+  // 4.2 Умная логика подмены OB-OFI → Trade-OFI (Sprint 5B)
+  // Приоритет: tradeOFI используется когда:
+  //   а) стакан пустой (bids=asks=0) — API не вернул данные
+  //   б) стакан stale (нет свежих сделок) — стакан от прошлого дня/сессии
+  //   в) |tradeOFI| > 0 но OB-OFI ≈ 0 — сделки показывают дисбаланс, а стакан нет
   const obIsEmpty = orderbook.bids.length === 0 && orderbook.asks.length === 0;
-  const ofi = obIsEmpty ? tradeOFI.ofi : ofiFromOB;
-  const weightedOFI = obIsEmpty ? tradeOFI.weightedOFI : weightedOFIFromOB;
+  const tradesHaveDirection = tradeOFI.buyCount > 0 || tradeOFI.sellCount > 0;
+  const tradeOFIHasSignal = Math.abs(tradeOFI.ofi) > 0.001;
+  const useTradeOFI = obIsEmpty
+    || (staleData && tradesHaveDirection)
+    || (tradesHaveDirection && tradeOFIHasSignal && Math.abs(ofiFromOB) < 0.001 && trades.length >= 10);
 
-  // 4.5 Real-time OFI (Cont et al. 2014) — multi-level по 10 уровням
-  if (orderbookPrev && orderbook.bids.length > 0 && orderbook.asks.length > 0) {
+  const ofi = useTradeOFI ? tradeOFI.ofi : ofiFromOB;
+  const weightedOFI = useTradeOFI ? tradeOFI.weightedOFI : weightedOFIFromOB;
+
+  // 4.3 Real-time OFI (Sprint 5B)
+  let effectiveRtOFI: number | undefined;
+
+  // 4.3a OB-rtOFI: Cont et al. 2014 — multi-level по 10 уровням (из стакана)
+  if (orderbookPrev && orderbook.bids.length > 0 && orderbook.asks.length > 0 && !staleData) {
     const currentSnapshot: OrderBookSnapshot = {
       bids: orderbook.bids.map(l => ({ price: l.price, volume: l.quantity })),
       asks: orderbook.asks.map(l => ({ price: l.price, volume: l.quantity })),
       timestamp: Date.now(),
     };
-    realtimeOFI = calcRealtimeOFIMultiLevel(currentSnapshot, orderbookPrev, 10);
+    effectiveRtOFI = calcRealtimeOFIMultiLevel(currentSnapshot, orderbookPrev, 10);
+  } else if (trades.length >= 20) {
+    // 4.3b Trade-based rtOFI — из двух окон сделок
+    // Разбиваем сделки на «предыдущее» и «текущее» окна
+    // rtOFI = Δ(tradeOFI) — изменение дисбаланса между окнами
+    const halfIdx = Math.floor(trades.length / 2);
+    const prevWindowTrades = trades.slice(0, halfIdx);
+    const curWindowTrades = trades.slice(halfIdx);
+
+    const prevTradeOFI = calcTradeOFI(prevWindowTrades, Math.min(25, prevWindowTrades.length));
+    const curTradeOFI = calcTradeOFI(curWindowTrades, Math.min(25, curWindowTrades.length));
+
+    if (prevTradeOFI.buyCount + prevTradeOFI.sellCount > 0
+        && curTradeOFI.buyCount + curTradeOFI.sellCount > 0) {
+      effectiveRtOFI = curTradeOFI.weightedOFI - prevTradeOFI.weightedOFI;
+    }
   }
 
-  // Сохраняем текущий снапшот в Redis для следующего скана
-  if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
+  // Сохраняем текущий снапшот стакана в Redis (только если стакан актуален)
+  if (orderbook.bids.length > 0 && orderbook.asks.length > 0 && !staleData) {
     try {
       const currentSnapshot: OrderBookSnapshot = {
         bids: orderbook.bids.map(l => ({ price: l.price, volume: l.quantity })),
         asks: orderbook.asks.map(l => ({ price: l.price, volume: l.quantity })),
         timestamp: Date.now(),
       };
-      await redis.setex(obSnapshotKey, 300, JSON.stringify(currentSnapshot)); // 5 мин TTL
+      await redis.setex(obSnapshotKey, 300, JSON.stringify(currentSnapshot));
     } catch { /* ignore Redis errors */ }
   }
   const cumDelta: CumDeltaResult = calcCumDelta(trades);
@@ -550,7 +618,6 @@ export async function collectMarketData(
   let oi: FuturesOIResult[] = [];
 
   if (!fastMode) {
-    // results[2] = RVI, results[3] = futuresOI
     rvi = results[2]?.status === 'fulfilled' && results[2]?.value
       ? results[2].value.value : null;
     oi = results[3]?.status === 'fulfilled' ? results[3].value : [];
@@ -560,59 +627,16 @@ export async function collectMarketData(
   const defaultCrossTickers = crossTickers || ['GAZP', 'LKOH', 'GMKN', 'ROSN', 'NVTK'];
   const crossTickerData: Record<string, { priceChange: number; ofi: number }> = {};
 
-  // Собираем кросс-данные из фьючерсов OI (если есть)
   for (const f of oi.slice(0, 5)) {
     crossTickerData[f.ticker] = {
       priceChange: f.change,
-      ofi: 0, // OI не даёт OFI — заглушка
+      ofi: 0,
     };
   }
 
-  // Для полноты добавляем оценки для defaultCrossTickers
   for (const ct of defaultCrossTickers) {
     if (!crossTickerData[ct]) {
-      crossTickerData[ct] = {
-        priceChange: 0,
-        ofi: 0,
-      };
-    }
-  }
-
-  // 8.5 Проверка свежести данных (v4.1.2: NO DATA = NO ANOMALY)
-  // Если самая свежая сделка старше 30 минут — данные stale (рынок закрыт / перерыв)
-  let staleData = false;
-  let staleMinutes = 0;
-  const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 минут
-
-  if (trades.length > 0) {
-    const newestTradeTs = Math.max(...trades.map(t => t.timestamp || 0));
-    if (newestTradeTs > 0) {
-      const ageMs = Date.now() - newestTradeTs;
-      staleMinutes = Math.round(ageMs / 60000);
-      if (ageMs > STALE_THRESHOLD_MS) {
-        staleData = true;
-        console.log(`[collect-market-data] ${ticker}: STALE DATA — newest trade ${staleMinutes} min ago`);
-      }
-    }
-  } else {
-    // Вообще нет сделок — тоже stale
-    staleData = true;
-    staleMinutes = 999;
-    console.log(`[collect-market-data] ${ticker}: STALE DATA — no trades at all`);
-  }
-
-  // Пустой стакан: НЕ автоматически stale!
-  // На выходных (ДСВД) ISS возвращает HTML вместо orderbook JSON — но рынок открыт, trades свежие.
-  // Пустой стакан → staleData=TRUE только если trades ТОЖЕ stale/пустые.
-  // Если trades свежие → стакан пустой из-за ограничения API, не закрытого рынка.
-  if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
-    if (staleData) {
-      // Trades stale/пустые + стакан пустой → рынок реально закрыт
-      console.log(`[collect-market-data] ${ticker}: STALE DATA — empty orderbook + stale trades`);
-    } else {
-      // Trades свежие + стакан пустой → ограничение API (ДСВД выходные)
-      console.log(`[collect-market-data] ${ticker}: Empty orderbook but trades fresh — API limitation (ДСВД?), NOT stale`);
-      // staleData остаётся false! Детекторы получат пустой стакан, но смогут работать с trades
+      crossTickerData[ct] = { priceChange: 0, ofi: 0 };
     }
   }
 
@@ -625,8 +649,9 @@ export async function collectMarketData(
     recentTrades,
     ofi,
     weightedOFI,
-    realtimeOFI,
+    realtimeOFI: effectiveRtOFI,
     tradeOFI,
+    ofiSource: useTradeOFI ? 'trades' : 'orderbook',
     cumDelta,
     vpin,
     prices,
@@ -638,9 +663,9 @@ export async function collectMarketData(
     staleMinutes: staleData ? staleMinutes : undefined,
   };
 
-  // DATA-DEBUG: диагностика для выходных торгов (ДСВД) — HOTFIX v4.1.5
-  if (staleData || trades.length === 0 || (orderbook.bids.length === 0 && orderbook.asks.length === 0)) {
-    console.warn(`[DATA-DEBUG] ${ticker} (${config.board}/${config.type}): stale=${staleData}, trades=${trades.length}, ob_bids=${orderbook.bids.length}, ob_asks=${orderbook.asks.length}, staleMin=${staleMinutes}, board=${config.board}`);
+  // DATA-DEBUG: диагностика (Sprint 5B — добавлен ofiSource)
+  if (staleData || trades.length === 0 || (orderbook.bids.length === 0 && orderbook.asks.length === 0) || useTradeOFI) {
+    console.warn(`[DATA-DEBUG] ${ticker} (${config.board}/${config.type}): stale=${staleData}, trades=${trades.length}, ob_bids=${orderbook.bids.length}, ob_asks=${orderbook.asks.length}, ofiSource=${useTradeOFI ? 'trades' : 'orderbook'}, obOFI=${ofiFromOB.toFixed(3)}, tradeOFI=${tradeOFI.ofi.toFixed(3)}, effectiveOFI=${ofi.toFixed(3)}, rtOFI=${effectiveRtOFI?.toFixed(3) || 'N/A'}`);
   }
 
   // 10. Market snapshot для AI
@@ -661,7 +686,7 @@ export async function collectMarketData(
     ts: Date.now(),
   };
 
-  console.log(`[collect-market-data] Done: ${trades.length} trades, ${orderbook.bids.length} bids, ${orderbook.asks.length} asks, VPIN=${vpin.vpin.toFixed(3)}, OFI=${ofi.toFixed(3)}${obIsEmpty ? ' (tradeOFI)' : ''}, rtOFI=${realtimeOFI?.toFixed(1) || 'N/A'}, tradeOFI=${tradeOFI.ofi.toFixed(3)}`);
+  console.log(`[collect-market-data] Done: ${trades.length} trades, ${orderbook.bids.length} bids, ${orderbook.asks.length} asks, VPIN=${vpin.vpin.toFixed(3)}, OFI=${ofi.toFixed(3)} (${useTradeOFI ? 'trades' : 'OB'}), rtOFI=${effectiveRtOFI?.toFixed(3) || 'N/A'}, tradeOFI=${tradeOFI.ofi.toFixed(3)}`);
 
   return { detectorInput, marketSnapshot, tickerConfig: config };
 }

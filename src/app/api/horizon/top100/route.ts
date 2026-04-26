@@ -167,6 +167,7 @@ export async function POST(_request: NextRequest) {
             cumDelta: 0,
             ofi: 0,
             realtimeOFI: undefined,
+            ofiSource: undefined,
             turnover: 0,
             moexTurnover: tickerInfo.turnover,
             type: 'STOCK',

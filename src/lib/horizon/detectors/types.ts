@@ -39,10 +39,12 @@ export interface DetectorInput {
   recentTrades: Trade[];  // Последние N сделок (для быстрого анализа)
 
   // Индикаторы (предрассчитанные)
-  ofi: number;             // Простой OFI (orderbook-based)
-  weightedOFI: number;     // Взвешенный OFI (orderbook-based)
-  realtimeOFI?: number;    // Real-time OFI (Cont et al. 2014) — нужен orderbookPrev
+  ofi: number;             // OFI — лучшего источника (OB или tradeOFI)
+  weightedOFI: number;     // Взвешенный OFI — лучшего источника
+  realtimeOFI?: number;    // Real-time OFI (OB Cont et al. 2014 или trade-based Δ)
   tradeOFI?: TradeOFIResult; // Trade-based OFI — работает без стакана (ДСВД, выходные)
+  /** true = OFI вычислен из сделок, false = из стакана */
+  ofiSource?: 'orderbook' | 'trades';
   cumDelta: CumDeltaResult;
   vpin: VPINResult;
 

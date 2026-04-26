@@ -39,8 +39,8 @@ export async function GET(req: NextRequest) {
       detectorInput.trades.map(t => ({
         price: t.price,
         quantity: t.quantity,
-        side: t.side as 'BUY' | 'SELL',
-        time: t.time,
+        side: (t.side || (t.direction === 'B' ? 'BUY' : t.direction === 'S' ? 'SELL' : t.direction)) as 'BUY' | 'SELL',
+        time: t.time || t.timestamp || Date.now(),
       })),
       topDetector,
       totalVolume,

@@ -166,7 +166,8 @@ export interface TickerScanResult {
   vpin: number;
   cumDelta: number;
   ofi: number;
-  realtimeOFI?: number;   // Real-time OFI (Cont et al. 2014) — дельта стакана
+  realtimeOFI?: number;   // Real-time OFI (OB или trade-based)
+  ofiSource?: 'orderbook' | 'trades';  // Sprint 5B: источник OFI
   turnover: number;
   moexTurnover?: number;  // VALTODAY от MOEX (реальный оборот за день в рублях)
   type: 'FUTURE' | 'STOCK';
@@ -219,6 +220,7 @@ export async function scanTicker(
     cumDelta: 0,
     ofi: 0,
     realtimeOFI: undefined,
+    ofiSource: undefined,
     turnover: 0,
     moexTurnover,
     type: tickerType,
@@ -363,8 +365,8 @@ export async function scanTicker(
           detectorInput.trades.map(t => ({
             price: t.price,
             quantity: t.quantity,
-            side: t.side as 'BUY' | 'SELL',
-            time: t.time,
+            side: (t.side || (t.direction === 'B' ? 'BUY' : t.direction === 'S' ? 'SELL' : t.direction)) as 'BUY' | 'SELL',
+            time: t.time || t.timestamp || Date.now(),
           })),
           topDetector,
           totalTradeVolumeLots,
@@ -409,6 +411,7 @@ export async function scanTicker(
       cumDelta: detectorInput.cumDelta.delta,
       ofi: detectorInput.ofi,
       realtimeOFI: detectorInput.realtimeOFI,
+      ofiSource: detectorInput.ofiSource,
       turnover,
       moexTurnover,
       type: tickerType,
@@ -634,6 +637,7 @@ export async function POST(request: NextRequest) {
           cumDelta: 0,
           ofi: 0,
           realtimeOFI: undefined,
+          ofiSource: undefined,
           turnover: 0,
           moexTurnover: (tickersToScan[i] as any).moexTurnover,
           type: FUTURES_TICKERS.has(tickersToScan[i].ticker) ? 'FUTURE' as const : 'STOCK' as const,
