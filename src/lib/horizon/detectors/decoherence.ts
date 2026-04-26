@@ -51,15 +51,20 @@ function shannonEntropy(frequencies: Map<number, number>, total: number): number
  * tick_rule_direction: определяем направление сделки при нулевом изменении цены.
  * Используем CumDelta как контекст — если CumDelta > 0, значит покупки доминируют,
 // следовательно сделка скорее покупка.
+ * v5.0: Также используем tradeOFI когда ofi=0 (пустой стакан на выходных)
  */
-function getTickRuleDirection(cumDelta: number, ofi: number): number {
+function getTickRuleDirection(cumDelta: number, ofi: number, tradeOFI?: { ofi: number }): number {
   // Приоритет: CumDelta — более «честный» индикатор
   if (Math.abs(cumDelta) > EPS) {
     return Math.sign(cumDelta);
   }
-  // Fallback: OFI
+  // Fallback: OFI (может быть trade-based если стакан пустой)
   if (Math.abs(ofi) > EPS) {
     return Math.sign(ofi);
+  }
+  // v5.0: tradeOFI fallback
+  if (tradeOFI && Math.abs(tradeOFI.ofi) > EPS) {
+    return Math.sign(tradeOFI.ofi);
   }
   // Нет данных — нейтрально
   return 0;
@@ -99,7 +104,7 @@ function tradeToSymbol(
 // ─── Главный детектор ──────────────────────────────────────────────────────
 
 export function detectDecoherence(input: DetectorInput): DetectorResult {
-  const { ofi, cumDelta, prices, trades, recentTrades } = input;
+  const { ofi, cumDelta, prices, trades, recentTrades, tradeOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
   // Нужны сделки с ценами для построения символьного потока
@@ -134,7 +139,7 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
 
   // ─── 1. Строим символьный поток ────────────────────────────────────────
 
-  const tickRuleDir = getTickRuleDirection(cumDelta.delta, ofi);
+  const tickRuleDir = getTickRuleDirection(cumDelta.delta, ofi, tradeOFI);
   const symbols: number[] = [];
 
   for (let i = 0; i < allTrades.length; i++) {

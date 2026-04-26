@@ -2,7 +2,7 @@
 // Типы и интерфейсы для 10 детекторов аномалий «Горизонт Событий»
 // Каждый детектор — чистая функция: данные → DetectorResult
 
-import type { OrderBookData, OrderBookSnapshot } from '../calculations/ofi';
+import type { OrderBookData, OrderBookSnapshot, TradeOFIResult } from '../calculations/ofi';
 import type { Trade, CumDeltaResult } from '../calculations/delta';
 import type { Candle, VPINResult } from '../calculations/vpin';
 
@@ -39,9 +39,10 @@ export interface DetectorInput {
   recentTrades: Trade[];  // Последние N сделок (для быстрого анализа)
 
   // Индикаторы (предрассчитанные)
-  ofi: number;             // Простой OFI
-  weightedOFI: number;     // Взвешенный OFI
+  ofi: number;             // Простой OFI (orderbook-based)
+  weightedOFI: number;     // Взвешенный OFI (orderbook-based)
   realtimeOFI?: number;    // Real-time OFI (Cont et al. 2014) — нужен orderbookPrev
+  tradeOFI?: TradeOFIResult; // Trade-based OFI — работает без стакана (ДСВД, выходные)
   cumDelta: CumDeltaResult;
   vpin: VPINResult;
 

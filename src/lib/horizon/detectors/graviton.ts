@@ -1,6 +1,6 @@
 // ─── GRAVITON — Гравитационная линза ──────────────────────────────────────
 // Крупный игрок «стягивает» объём к себе — как чёрная дыра искривляет
-// пространство.OFI multi-level показывает концентрацию на ближних уровнях.
+// пространство. OFI multi-level показывает концентрацию на ближних уровнях.
 //
 // Признаки:
 // - OFIByLevel: ближние уровни >> дальние (асимметрия)
@@ -8,12 +8,15 @@
 // - Бид/аск объём резко несбалансирован на лучшем уровне
 //
 // Score: lensingRatio × concentration × directionalBias
+//
+// v5.0: Trade-based OFI fallback — когда orderbook пуст (ДСВД выходные),
+// используем tradeOFI для lensing ratio и directional bias
 
 import type { DetectorInput, DetectorResult } from './types';
 import { calcOFIByLevel } from '../calculations/ofi';
 
 export function detectGraviton(input: DetectorInput): DetectorResult {
-  const { orderbook, ofi, weightedOFI } = input;
+  const { orderbook, ofi, weightedOFI, tradeOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
   // v4.1.2: Stale data → нет аномалии (стакан из прошлой сессии — не актуален)
@@ -26,20 +29,76 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
     };
   }
 
-  // ─── Проверка достаточности данных ────────────────────────────────────
-  // Нет стакана → нет данных для линзирования. Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ
-  if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
-    metadata.insufficientData = true;
+  const obIsEmpty = orderbook.bids.length === 0 && orderbook.asks.length === 0;
+
+  // ─── Режим 1: Нет стакана — используем Trade-based OFI ────────────────
+  // На выходных (ДСВД) ISS возвращает HTML для orderbook, но trades свежие.
+  // tradeOFI даёт direction + weighted direction → можем считать lensing ratio
+  if (obIsEmpty) {
+    // Нужны сделки для расчёта
+    if (!tradeOFI || (tradeOFI.buyCount + tradeOFI.sellCount) < 5) {
+      metadata.insufficientData = true;
+      metadata.tradeOFI = true;
+      return {
+        detector: 'GRAVITON',
+        description: 'Гравитационная линза — нет стакана и мало сделок для tradeOFI',
+        score: 0,
+        confidence: 0,
+        signal: 'NEUTRAL',
+        metadata,
+      };
+    }
+
+    // Lensing ratio: weightedTradeOFI / (|tradeOFI| + ε)
+    // Если weighted >> simple → свежие сделки доминируют → крупный игрок активен сейчас
+    const tradeOfiSimple = tradeOFI.ofi;
+    const tradeOfiWeighted = tradeOFI.weightedOFI;
+    const lensingRatio = Math.abs(tradeOfiWeighted) / (Math.abs(tradeOfiSimple) + 0.01);
+    metadata.lensingRatio = Math.round(lensingRatio * 100) / 100;
+    metadata.ofiSource = 'trades';
+
+    // Concentration: доля покупок/продаж среди недавних сделок
+    // nearTermOFI показывает "сейчас" лучше, чем общий OFI
+    const nearTermConcentration = Math.abs(tradeOFI.nearTermOFI);
+    metadata.nearTermConcentration = Math.round(nearTermConcentration * 1000) / 1000;
+
+    // Trade intensity ratio: buyCount / (buyCount + sellCount)
+    const totalTrades = tradeOFI.buyCount + tradeOFI.sellCount;
+    const tradeImbalance = totalTrades > 0
+      ? Math.abs(tradeOFI.buyCount - tradeOFI.sellCount) / totalTrades
+      : 0;
+    metadata.tradeImbalance = Math.round(tradeImbalance * 1000) / 1000;
+
+    // Score calculation (упрощённый для trade-based режима)
+    const lensingScore = Math.min(1, Math.max(0, (lensingRatio - 1) / 3));
+    const concentrationScore = Math.min(1, Math.max(0, (nearTermConcentration - 0.15) / 0.5));
+    const imbalanceScore = Math.min(1, Math.max(0, (tradeImbalance - 0.1) / 0.5));
+
+    const rawScore = lensingScore * 0.4 + concentrationScore * 0.35 + imbalanceScore * 0.25;
+    const score = Math.min(1, Math.max(0, rawScore));
+
+    // Confidence ниже в trade-based режиме (нет стакана → менее точно)
+    const agreement = [lensingScore, concentrationScore, imbalanceScore]
+      .filter(s => s > 0.3).length / 3;
+    const confidence = score > 0.2 ? Math.min(0.8, agreement * 1.2) : 0; // макс 0.8 без стакана
+
+    // Direction
+    let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+    if (score > 0.2) {
+      signal = tradeOfiSimple > 0.1 ? 'BULLISH' : tradeOfiSimple < -0.1 ? 'BEARISH' : 'NEUTRAL';
+    }
+
     return {
       detector: 'GRAVITON',
-      description: 'Гравитационная линза — нет данных стакана',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
+      description: 'Гравитационная линза — крупный игрок (trade-based OFI, нет стакана)',
+      score: Math.round(score * 1000) / 1000,
+      confidence: Math.round(confidence * 1000) / 1000,
+      signal,
       metadata,
     };
   }
-  // Минимум 2 уровня с каждой стороны для осмысленного анализа
+
+  // ─── Режим 2: Минимум 2 уровня с каждой стороны — полноценный анализ ──
   if (orderbook.bids.length < 2 || orderbook.asks.length < 2) {
     metadata.insufficientData = true;
     return {

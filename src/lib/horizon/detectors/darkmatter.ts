@@ -1,6 +1,9 @@
 // ─── DARKMATTER — Тёмная материя (скрытая ликвидность) ──────────────────────
 // Обнаружение скрытых ордеров (айсбергов) через два механизма:
 //
+// v5.0: Trade-based fallback — когда orderbook пуст (ДСВД выходные),
+// работаем только через iceberg detection из сделок + tradeOFI для направления
+//
 // v4.1 Формула:
 // 1) expected_entropy:
 //    - median_entropy_sessions (пересчитывается ежедневно)
@@ -109,12 +112,10 @@ function countConsecutiveRuns(tradeVolumes: number[]): number[] {
 // ─── Главный детектор ──────────────────────────────────────────────────────
 
 export function detectDarkmatter(input: DetectorInput): DetectorResult {
-  const { orderbook, cumDelta, ofi, recentTrades, trades } = input;
+  const { orderbook, cumDelta, ofi, recentTrades, trades, tradeOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
   // ─── 0. Проверка достаточности данных ────────────────────────────────────
-  // Нет стакана → нет данных для энтропии. Нет сделок → нет iceberg detection.
-  // Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ = score ≈ 0
   const allTrades = trades && trades.length > 0 ? trades : recentTrades;
 
   // v4.1.2: Stale data (рынок закрыт / сделки из прошлой сессии) → нет аномалии
@@ -132,17 +133,6 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
     };
   }
 
-  if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
-    metadata.insufficientData = true;
-    return {
-      detector: 'DARKMATTER',
-      description: 'Тёмная материя — скрытая ликвидность (нет данных стакана)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
-  }
   if (allTrades.length < 10) {
     metadata.insufficientData = true;
     return {
@@ -154,6 +144,108 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
       metadata,
     };
   }
+
+  const obIsEmpty = orderbook.bids.length === 0 && orderbook.asks.length === 0;
+
+  // ─── Режим 1: Нет стакана — только iceberg detection из сделок ─────────
+  if (obIsEmpty) {
+    metadata.ofiSource = 'trades';
+
+    // Entropy score = 0 (нет стакана — не можем считать энтропию уровней)
+    const entropyScore = 0;
+    metadata.entropyScore = 0;
+    metadata.noOrderbook = true;
+
+    // Iceberg score — полностью из сделок (тот же алгоритм, но mid из trades)
+    const dailyTurnover = allTrades.reduce((s, t) => s + t.quantity * t.price, 0);
+    const minIcebergVolume = dailyTurnover * MIN_ICEBERG_VOLUME_RATIO;
+    metadata.dailyTurnover = Math.round(dailyTurnover);
+    metadata.minIcebergVolume = Math.round(minIcebergVolume);
+
+    // Группируем сделки по ценовым уровням
+    const priceLevelTrades = new Map<number, number[]>();
+    for (const t of allTrades) {
+      const rounded = Math.round(t.price * 100) / 100;
+      if (!priceLevelTrades.has(rounded)) {
+        priceLevelTrades.set(rounded, []);
+      }
+      priceLevelTrades.get(rounded)!.push(t.quantity);
+    }
+
+    // Средняя цена как "mid" для расстояния
+    const prices = allTrades.map(t => t.price).filter(p => p > 0);
+    const avgPrice = prices.length > 0 ? prices.reduce((s, p) => s + p, 0) / prices.length : 0;
+
+    let icebergScoreWeightedSum = 0;
+    let icebergScoreWeightTotal = 0;
+    let levelsWithIceberg = 0;
+    let totalConsecutiveRuns = 0;
+
+    for (const [price, tradeVolumes] of priceLevelTrades) {
+      const levelVolume = tradeVolumes.reduce((s, v) => s + v, 0);
+      if (levelVolume < minIcebergVolume) continue;
+
+      const runs = countConsecutiveRuns(tradeVolumes);
+      totalConsecutiveRuns += runs.length;
+      if (runs.length === 0) continue;
+
+      const maxRun = Math.max(...runs);
+      const icebergAtLevel = maxRun / (tradeVolumes.length + EPS);
+
+      const distance = avgPrice > 0 ? Math.abs(price - avgPrice) / (avgPrice + EPS) : 0;
+      const weight = 1 / (1 + distance * 10);
+
+      icebergScoreWeightedSum += icebergAtLevel * weight;
+      icebergScoreWeightTotal += weight;
+      levelsWithIceberg++;
+    }
+
+    const icebergScore = icebergScoreWeightTotal > EPS
+      ? icebergScoreWeightedSum / icebergScoreWeightTotal
+      : 0;
+
+    metadata.icebergScore = Math.round(icebergScore * 1000) / 1000;
+    metadata.levelsWithIceberg = levelsWithIceberg;
+    metadata.totalConsecutiveRuns = totalConsecutiveRuns;
+
+    // Score: 0% entropy + 100% iceberg (нет стакана — энтропия невозможна)
+    const darkmatterScore = icebergScore;
+    const score = Math.min(1, Math.max(0, darkmatterScore));
+
+    // Signal direction — используем tradeOFI если есть, иначе cumDelta
+    let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+    const effectiveOFI = tradeOFI ? tradeOFI.ofi : ofi;
+
+    const deltaSign = Math.sign(cumDelta.delta);
+    const ofiSign = Math.sign(effectiveOFI);
+    const deltaDiscrepancy = deltaSign !== 0 && ofiSign !== 0 && deltaSign !== ofiSign;
+
+    if (score > 0.15) {
+      if (deltaDiscrepancy) {
+        signal = cumDelta.delta > 0 ? 'BULLISH' : 'BEARISH';
+      } else {
+        signal = effectiveOFI > 0.1 ? 'BULLISH' : effectiveOFI < -0.1 ? 'BEARISH' : 'NEUTRAL';
+      }
+    }
+
+    // Confidence ниже без стакана (только iceberg, нет entropy)
+    const confidence = score > 0.15
+      ? Math.min(0.8, icebergScore / 1.0)
+      : 0;
+
+    metadata.deltaDiscrepancy = deltaDiscrepancy;
+
+    return {
+      detector: 'DARKMATTER',
+      description: 'Тёмная материя — скрытая ликвидность (trade-based, нет стакана)',
+      score: Math.round(score * 1000) / 1000,
+      confidence: Math.round(confidence * 1000) / 1000,
+      signal,
+      metadata,
+    };
+  }
+
+  // ─── Режим 2: Полноценный анализ с стаканом ────────────────────────────
 
   // ─── 1. ΔH_norm — Shannon entropy score ────────────────────────────────
 

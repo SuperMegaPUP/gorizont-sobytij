@@ -1,7 +1,7 @@
 // ─── Horizon Calculations — Тесты ────────────────────────────────────────
 // OFI, Cumulative Delta, VPIN, RealtimeOFI, Divergence
 
-import { calcOFI, calcWeightedOFI, calcOFIByLevel, calcRealtimeOFI, calcRealtimeOFIMultiLevel } from '@/lib/horizon/calculations/ofi';
+import { calcOFI, calcWeightedOFI, calcOFIByLevel, calcRealtimeOFI, calcRealtimeOFIMultiLevel, calcTradeOFI } from '@/lib/horizon/calculations/ofi';
 import type { OrderBookData, OrderBookSnapshot } from '@/lib/horizon/calculations/ofi';
 import {
   calcCumDelta,
@@ -568,5 +568,114 @@ describe('VPIN BVC with timeDelta', () => {
   it('sliceIntoVolumeBuckets with empty trades', () => {
     const buckets = sliceIntoVolumeBuckets([], 500);
     expect(buckets).toHaveLength(0);
+  });
+});
+
+// ─── Trade-based OFI ─────────────────────────────────────────────────────
+
+describe('Horizon: Trade-based OFI', () => {
+  test('TradeOFI = (V_buy - V_sell) / (V_buy + V_sell)', () => {
+    const trades = [
+      { price: 100, quantity: 10, direction: 'B', timestamp: 1000 },
+      { price: 100, quantity: 5, direction: 'S', timestamp: 2000 },
+      { price: 101, quantity: 20, direction: 'B', timestamp: 3000 },
+      { price: 101, quantity: 15, direction: 'S', timestamp: 4000 },
+    ];
+    const result = calcTradeOFI(trades);
+    // buy: 10+20=30, sell: 5+15=20, total=50
+    // ofi = (30-20)/50 = 0.2
+    expect(result.ofi).toBeCloseTo(0.2, 3);
+    expect(result.buyVolume).toBe(30);
+    expect(result.sellVolume).toBe(20);
+    expect(result.source).toBe('trades');
+  });
+
+  test('TradeOFI = 0 при пустом массиве', () => {
+    const result = calcTradeOFI([]);
+    expect(result.ofi).toBe(0);
+    expect(result.weightedOFI).toBe(0);
+    expect(result.buyVolume).toBe(0);
+    expect(result.sellVolume).toBe(0);
+  });
+
+  test('TradeOFI ∈ [-1, 1]', () => {
+    // Все покупки → OFI = 1
+    const allBuys = Array.from({ length: 10 }, (_, i) => ({
+      price: 100, quantity: 10, direction: 'B', timestamp: i * 1000,
+    }));
+    expect(calcTradeOFI(allBuys).ofi).toBe(1);
+
+    // Все продажи → OFI = -1
+    const allSells = Array.from({ length: 10 }, (_, i) => ({
+      price: 100, quantity: 10, direction: 'S', timestamp: i * 1000,
+    }));
+    expect(calcTradeOFI(allSells).ofi).toBe(-1);
+
+    // Balanced
+    const balanced = Array.from({ length: 20 }, (_, i) => ({
+      price: 100, quantity: 10, direction: i % 2 === 0 ? 'B' : 'S', timestamp: i * 1000,
+    }));
+    const ofi = calcTradeOFI(balanced).ofi;
+    expect(ofi).toBeGreaterThanOrEqual(-1);
+    expect(ofi).toBeLessThanOrEqual(1);
+  });
+
+  test('TradeOFI BUYSELL: B → buy, S → sell, BUY → buy, SELL → sell', () => {
+    const trades = [
+      { price: 100, quantity: 100, direction: 'B' },
+      { price: 100, quantity: 100, direction: 'S' },
+    ];
+    expect(calcTradeOFI(trades).ofi).toBeCloseTo(0, 3);
+
+    const trades2 = [
+      { price: 100, quantity: 100, direction: 'BUY' },
+      { price: 100, quantity: 100, direction: 'SELL' },
+    ];
+    expect(calcTradeOFI(trades2).ofi).toBeCloseTo(0, 3);
+  });
+
+  test('Weighted TradeOFI: свежие сделки важнее', () => {
+    const now = Date.now();
+    // Старые продажи (5 мин назад) + свежие покупки (сейчас)
+    const trades = [
+      { price: 100, quantity: 100, direction: 'S', timestamp: now - 300000 }, // 5 min ago
+      { price: 100, quantity: 100, direction: 'S', timestamp: now - 280000 }, // 4.7 min ago
+      { price: 101, quantity: 50, direction: 'B', timestamp: now - 1000 },    // 1 sec ago
+      { price: 101, quantity: 50, direction: 'B', timestamp: now },            // now
+    ];
+    const result = calcTradeOFI(trades);
+    // Простой OFI: buy=100, sell=200 → (100-200)/300 = -0.333
+    expect(result.ofi).toBeLessThan(0);
+    // Weighted OFI: свежие покупки весят больше → ближе к 0 или даже положительный
+    expect(result.weightedOFI).toBeGreaterThan(result.ofi);
+  });
+
+  test('Near-term OFI: по последним N сделкам', () => {
+    // Первые 100 сделок — продажи, последние 50 — покупки
+    const trades = [
+      ...Array.from({ length: 100 }, (_, i) => ({
+        price: 100, quantity: 10, direction: 'S', timestamp: i * 100,
+      })),
+      ...Array.from({ length: 50 }, (_, i) => ({
+        price: 101, quantity: 10, direction: 'B', timestamp: (100 + i) * 100,
+      })),
+    ];
+    const result = calcTradeOFI(trades, 50); // nearTerm = последние 50
+    // Общий OFI: buy=500, sell=1000 → (500-1500) нет, (500-1000)/1500 = -0.333
+    expect(result.ofi).toBeLessThan(0);
+    // Near-term: последние 50 — все покупки → nearTermOFI = 1
+    expect(result.nearTermOFI).toBe(1);
+  });
+
+  test('Unknown direction игнорируется', () => {
+    const trades = [
+      { price: 100, quantity: 100, direction: 'B' },
+      { price: 100, quantity: 50, direction: 'X' }, // unknown
+    ];
+    const result = calcTradeOFI(trades);
+    // Только B учтён: buy=100, sell=0 → OFI = 1
+    expect(result.ofi).toBe(1);
+    expect(result.buyVolume).toBe(100);
+    expect(result.sellVolume).toBe(0);
   });
 });

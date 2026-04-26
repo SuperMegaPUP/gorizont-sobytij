@@ -3,6 +3,7 @@
 // Взвешенный: Weighted_OFI = Σ(w_i × (V_bid_i - V_ask_i)) / Σ(w_i × (V_bid_i + V_ask_i))
 // w_i = 1 / (1 + distance_i) — ближние уровни важнее
 // Real-time OFI (Cont, Kukanov, Stoikov 2014) — учитывает движение ценовых уровней
+// Trade-based OFI — считает OFI из сделок (BUY/SELL direction), работает без стакана
 
 export interface OrderBookLevel {
   price: number;
@@ -198,4 +199,134 @@ export function calcRealtimeOFIMultiLevel(
   }
 
   return totalOfi;
+}
+
+// ─── Trade-based OFI ──────────────────────────────────────────────────────
+// Считает OFI из сделок, используя направление BUY/SELL.
+// Работает БЕЗ стакана — критически важно на выходных (ДСВД), когда
+// ISS orderbook возвращает HTML, но trades доступны через reversed=1.
+//
+// Формула:
+//   TradeOFI = (V_buy - V_sell) / (V_buy + V_sell)
+//   Взвешенный: w_i = exp(-α × age_i), где age = время от самой свежей сделки
+//
+// Это даёт нормализованный OFI ∈ [-1, +1], аналогичный orderbook OFI,
+// но основанный на РЕАЛЬНЫХ сделках, а не лимитных ордерах.
+
+export interface TradeOFIResult {
+  /** Простой trade-based OFI ∈ [-1, +1] */
+  ofi: number;
+  /** Взвешенный (time-decay) trade-based OFI ∈ [-1, +1] */
+  weightedOFI: number;
+  /** Общий объём покупок */
+  buyVolume: number;
+  /** Общий объём продаж */
+  sellVolume: number;
+  /** Количество сделок покупки */
+  buyCount: number;
+  /** Количество сделок продажи */
+  sellCount: number;
+  /** Дисбаланс по последним N сделкам (near-term) */
+  nearTermOFI: number;
+  /** Источник данных */
+  source: 'trades';
+}
+
+/**
+ * Классифицирует сделку: buy или sell
+ * MOEX ISS: BUYSELL = 'B' → buy, 'S' → sell
+ */
+function classifyTradeDirection(direction: string): 'buy' | 'sell' | 'unknown' {
+  const d = direction.toUpperCase().trim();
+  if (d === 'B' || d === 'BUY') return 'buy';
+  if (d === 'S' || d === 'SELL') return 'sell';
+  return 'unknown';
+}
+
+/**
+ * Trade-based OFI — простой дисбаланс объёмов покупок/продаж
+ * ofi = (V_buy - V_sell) / (V_buy + V_sell) ∈ [-1, +1]
+ *
+ * @param trades — массив сделок с направлением (BUYSELL)
+ * @param recentCount — сколько последних сделок использовать для near-term (default 50)
+ */
+export function calcTradeOFI(
+  trades: Array<{ quantity: number; direction: string; timestamp?: number }>,
+  recentCount: number = 50
+): TradeOFIResult {
+  const empty: TradeOFIResult = {
+    ofi: 0, weightedOFI: 0,
+    buyVolume: 0, sellVolume: 0,
+    buyCount: 0, sellCount: 0,
+    nearTermOFI: 0, source: 'trades',
+  };
+
+  if (!trades || trades.length === 0) return empty;
+
+  let buyVol = 0, sellVol = 0;
+  let buyCnt = 0, sellCnt = 0;
+
+  // Считаем общий OFI по всем сделкам
+  for (const t of trades) {
+    const side = classifyTradeDirection(t.direction);
+    if (side === 'buy') {
+      buyVol += t.quantity;
+      buyCnt++;
+    } else if (side === 'sell') {
+      sellVol += t.quantity;
+      sellCnt++;
+    }
+  }
+
+  const totalVol = buyVol + sellVol;
+  const ofi = totalVol > 0 ? (buyVol - sellVol) / totalVol : 0;
+
+  // Near-term OFI — по последним N сделкам (более чувствителен к текущему моменту)
+  const recentTrades = trades.slice(-recentCount);
+  let recentBuyVol = 0, recentSellVol = 0;
+  for (const t of recentTrades) {
+    const side = classifyTradeDirection(t.direction);
+    if (side === 'buy') recentBuyVol += t.quantity;
+    else if (side === 'sell') recentSellVol += t.quantity;
+  }
+  const recentTotalVol = recentBuyVol + recentSellVol;
+  const nearTermOFI = recentTotalVol > 0
+    ? (recentBuyVol - recentSellVol) / recentTotalVol
+    : 0;
+
+  // Weighted OFI с time-decay (экспоненциальное затухание по возрасту сделки)
+  // w_i = exp(-α × age_seconds / 600)  — период полураспада ≈ 10 минут
+  const ALPHA = 0.001; // per second, ~10 min half-life: ln(2)/600 ≈ 0.00116
+  const newestTs = Math.max(...trades.map(t => t.timestamp || 0));
+
+  let wNum = 0, wDen = 0;
+  for (const t of trades) {
+    const side = classifyTradeDirection(t.direction);
+    if (side === 'unknown') continue;
+
+    const ageSec = newestTs > 0 ? Math.max(0, (newestTs - (t.timestamp || 0)) / 1000) : 0;
+    const weight = Math.exp(-ALPHA * ageSec);
+    const vol = t.quantity;
+
+    if (side === 'buy') {
+      wNum += weight * vol;
+      wDen += weight * vol;
+    } else {
+      wNum -= weight * vol;
+      wDen += weight * vol;
+    }
+  }
+
+  const weightedOFI = wDen > 0 ? wNum / wDen : 0;
+
+  return {
+    ofi: Math.round(ofi * 10000) / 10000,
+    weightedOFI: Math.round(weightedOFI * 10000) / 10000,
+    buyVolume: buyVol,
+    sellVolume: sellVol,
+    buyCount: buyCnt,
+    sellCount: sellCnt,
+    nearTermOFI: Math.round(nearTermOFI * 10000) / 10000,
+    source: 'trades',
+  };
 }

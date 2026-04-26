@@ -16,7 +16,8 @@ import type { DetectorInput } from '../detectors/types';
 import type { OrderBookData, OrderBookSnapshot } from '../calculations/ofi';
 import type { Trade, CumDeltaResult } from '../calculations/delta';
 import type { Candle, VPINResult } from '../calculations/vpin';
-import { calcOFI, calcWeightedOFI, calcRealtimeOFIMultiLevel } from '../calculations/ofi';
+import { calcOFI, calcWeightedOFI, calcRealtimeOFIMultiLevel, calcTradeOFI } from '../calculations/ofi';
+import type { TradeOFIResult } from '../calculations/ofi';
 import { calcCumDelta } from '../calculations/delta';
 import { calcVPIN, sliceIntoVolumeBuckets } from '../calculations/vpin';
 import redis from '@/lib/redis';
@@ -501,8 +502,17 @@ export async function collectMarketData(
   } catch { /* ignore Redis errors */ }
 
   // 4. Индикаторы
-  const ofi = calcOFI(orderbook);
-  const weightedOFI = calcWeightedOFI(orderbook);
+  const ofiFromOB = calcOFI(orderbook);
+  const weightedOFIFromOB = calcWeightedOFI(orderbook);
+
+  // 4.1 Trade-based OFI — работает БЕЗ стакана (ДСВД, выходные)
+  // Ключевое улучшение: даже когда orderbook пустой, мы получаем OFI из сделок
+  const tradeOFI: TradeOFIResult = calcTradeOFI(trades, 50);
+
+  // 4.2 Логика подмены: если orderbook пустой → используем tradeOFI вместо OB-based OFI
+  const obIsEmpty = orderbook.bids.length === 0 && orderbook.asks.length === 0;
+  const ofi = obIsEmpty ? tradeOFI.ofi : ofiFromOB;
+  const weightedOFI = obIsEmpty ? tradeOFI.weightedOFI : weightedOFIFromOB;
 
   // 4.5 Real-time OFI (Cont et al. 2014) — multi-level по 10 уровням
   if (orderbookPrev && orderbook.bids.length > 0 && orderbook.asks.length > 0) {
@@ -616,6 +626,7 @@ export async function collectMarketData(
     ofi,
     weightedOFI,
     realtimeOFI,
+    tradeOFI,
     cumDelta,
     vpin,
     prices,
@@ -650,7 +661,7 @@ export async function collectMarketData(
     ts: Date.now(),
   };
 
-  console.log(`[collect-market-data] Done: ${trades.length} trades, ${orderbook.bids.length} bids, ${orderbook.asks.length} asks, VPIN=${vpin.vpin.toFixed(3)}, OFI=${ofi.toFixed(3)}, rtOFI=${realtimeOFI?.toFixed(1) || 'N/A'}`);
+  console.log(`[collect-market-data] Done: ${trades.length} trades, ${orderbook.bids.length} bids, ${orderbook.asks.length} asks, VPIN=${vpin.vpin.toFixed(3)}, OFI=${ofi.toFixed(3)}${obIsEmpty ? ' (tradeOFI)' : ''}, rtOFI=${realtimeOFI?.toFixed(1) || 'N/A'}, tradeOFI=${tradeOFI.ofi.toFixed(3)}`);
 
   return { detectorInput, marketSnapshot, tickerConfig: config };
 }
