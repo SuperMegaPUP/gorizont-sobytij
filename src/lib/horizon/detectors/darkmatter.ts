@@ -112,6 +112,33 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   const { orderbook, cumDelta, ofi, recentTrades, trades } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // ─── 0. Проверка достаточности данных ────────────────────────────────────
+  // Нет стакана → нет данных для энтропии. Нет сделок → нет iceberg detection.
+  // Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ = score ≈ 0
+  const allTrades = trades && trades.length > 0 ? trades : recentTrades;
+  if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
+    metadata.insufficientData = true;
+    return {
+      detector: 'DARKMATTER',
+      description: 'Тёмная материя — скрытая ликвидность (нет данных стакана)',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+  if (allTrades.length < 10) {
+    metadata.insufficientData = true;
+    return {
+      detector: 'DARKMATTER',
+      description: 'Тёмная материя — скрытая ликвидность (мало сделок)',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+
   // ─── 1. ΔH_norm — Shannon entropy score ────────────────────────────────
 
   // Собираем объёмы по уровням стакана (bid + ask)
@@ -149,7 +176,6 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   // ─── 2. Iceberg score — consecutive runs одинакового объёма ────────────
 
   // Считаем дневной оборот из recentTrades
-  const allTrades = trades && trades.length > 0 ? trades : recentTrades;
   const dailyTurnover = allTrades.reduce((s, t) => s + t.quantity * t.price, 0);
   const minIcebergVolume = dailyTurnover * MIN_ICEBERG_VOLUME_RATIO;
 

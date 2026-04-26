@@ -23,9 +23,20 @@ export function detectEntangle(input: DetectorInput): DetectorResult {
     };
   }
 
-  // 1. Price correlation: наш тикер vs каждый другой
+  // v4.1.1: Если все кросс-тикеры имеют нулевые данные (рынок закрыт),
+  // корреляция на нулях бессмысленна → НЕТ ДАННЫХ = НЕТ АНОМАЛИИ
+  const allZeroChanges = Object.values(crossTickers).every(
+    d => Math.abs(d.priceChange) < 0.01 && Math.abs(d.ofi) < 0.01
+  );
   const currentPriceChange = prices.length >= 2
     ? (prices[prices.length - 1] - prices[0]) / (prices[0] || 1) * 100 : 0;
+
+  if (allZeroChanges && Math.abs(currentPriceChange) < 0.01) {
+    return {
+      detector: 'ENTANGLE', description: 'Запутанность — нет рыночных данных',
+      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true, allZeroChanges: true },
+    };
+  }
   metadata.currentPriceChange = Math.round(currentPriceChange * 100) / 100;
 
   let maxCorrelation = 0;

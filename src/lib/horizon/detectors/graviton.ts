@@ -16,6 +16,32 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   const { orderbook, ofi, weightedOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // ─── Проверка достаточности данных ────────────────────────────────────
+  // Нет стакана → нет данных для линзирования. Принцип: НЕТ ДАННЫХ = НЕТ АНОМАЛИИ
+  if (orderbook.bids.length === 0 && orderbook.asks.length === 0) {
+    metadata.insufficientData = true;
+    return {
+      detector: 'GRAVITON',
+      description: 'Гравитационная линза — нет данных стакана',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+  // Минимум 2 уровня с каждой стороны для осмысленного анализа
+  if (orderbook.bids.length < 2 || orderbook.asks.length < 2) {
+    metadata.insufficientData = true;
+    return {
+      detector: 'GRAVITON',
+      description: 'Гравитационная линза — мало уровней стакана',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+
   // 1. Lensing ratio: weightedOFI / (|simpleOFI| + ε)
   // Если weighted >> simple → ближние уровни доминируют
   const lensingRatio = Math.abs(weightedOFI) / (Math.abs(ofi) + 0.01);
