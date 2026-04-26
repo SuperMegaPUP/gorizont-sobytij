@@ -16,6 +16,7 @@ import { fetchTop100Tickers } from '@/lib/horizon/observer/collect-market-data';
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import { crossSectionNormalize } from '@/lib/horizon/detectors/cross-section-normalize';
 import { applyScannerRules } from '@/lib/horizon/scanner/rules';
+import { canGenerateSignals, getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
 
 // Redis keys
 const CACHE_KEY = 'horizon:scanner:top100';
@@ -83,6 +84,38 @@ export async function POST(_request: NextRequest) {
   const MAX_SCAN_TIME = 240_000; // 4 min max (leave 1 min buffer for Vercel 5 min limit)
 
   try {
+    // ─── Market closed check ──────────────────────────────────────────
+    // When market is closed (weekends, nights), DON'T re-scan.
+    // Return cached data from last trading session instead.
+    const sessionInfo = getSessionInfo();
+    if (!canGenerateSignals()) {
+      try {
+        const cached = await redis.get(CACHE_KEY);
+        if (cached) {
+          const data = JSON.parse(cached);
+          console.log(`[/api/horizon/top100] Market closed (${sessionInfo.description}), returning cached data (${data.length} tickers)`);
+          return NextResponse.json({
+            success: true,
+            count: data.length,
+            data,
+            marketClosed: true,
+            sessionInfo: sessionInfo.description,
+            ts: Date.now(),
+          });
+        }
+      } catch { /* ignore */ }
+
+      console.log(`[/api/horizon/top100] Market closed, no cached data`);
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        data: [],
+        marketClosed: true,
+        sessionInfo: sessionInfo.description,
+        ts: Date.now(),
+      });
+    }
+
     console.log('[/api/horizon/top100] Starting TOP-100 incremental scan...');
 
     // 1. Get dynamic top-100 tickers from MOEX by turnover

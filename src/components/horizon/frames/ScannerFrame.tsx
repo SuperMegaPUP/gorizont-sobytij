@@ -108,6 +108,8 @@ export function HorizonScannerFrame() {
   const setScannerSortBy = useHorizonStore((s) => s.setScannerSortBy);
   const loading = useHorizonStore((s) => s.loading);
   const lastScannerUpdate = useHorizonStore((s) => s.lastScannerUpdate);
+  const marketClosed = useHorizonStore((s) => s.marketClosed);
+  const sessionInfo = useHorizonStore((s) => s.sessionInfo);
 
   const [filter, setFilter] = useState<FilterMode>('all');
   const [countdown, setCountdown] = useState(30);
@@ -267,6 +269,18 @@ export function HorizonScannerFrame() {
           {timeStr}
         </span>
       </div>
+
+      {/* Market closed banner */}
+      {marketClosed && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/10 border-b border-blue-500/20 shrink-0">
+          <span className="text-[8px] text-blue-400 font-mono">🔒</span>
+          <span className="text-[7px] text-blue-300 font-mono">Рынок закрыт</span>
+          {sessionInfo && (
+            <span className="text-[6px] text-blue-400/70 font-mono">({sessionInfo})</span>
+          )}
+          <span className="text-[6px] text-[var(--terminal-muted)] font-mono ml-1">— данные за последний торговый день</span>
+        </div>
+      )}
 
       {/* Filter + Sort bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-[var(--terminal-border)] shrink-0">

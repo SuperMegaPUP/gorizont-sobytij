@@ -579,6 +579,45 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
+    // ─── Market closed check ──────────────────────────────────────────
+    // When market is closed (weekends, nights), DON'T re-scan.
+    // Return cached data from last trading session instead.
+    // This prevents overwriting Friday's BSCI values with zeros.
+    const sessionInfo = getSessionInfo();
+    const marketClosed = !canGenerateSignals();
+
+    if (marketClosed) {
+      const redisKey = 'horizon:scanner:latest';
+      try {
+        const cached = await redis.get(redisKey);
+        if (cached) {
+          const data = JSON.parse(cached);
+          console.log(`[/api/horizon/scan] Market closed (${sessionInfo.description}), returning cached data (${data.length} tickers)`);
+          return NextResponse.json({
+            success: true,
+            mode: 'core',
+            count: data.length,
+            data,
+            marketClosed: true,
+            sessionInfo: sessionInfo.description,
+            ts: Date.now(),
+          });
+        }
+      } catch { /* ignore Redis errors */ }
+
+      // No cached data and market closed — return empty with marketClosed flag
+      console.log(`[/api/horizon/scan] Market closed, no cached data`);
+      return NextResponse.json({
+        success: true,
+        mode: 'core',
+        count: 0,
+        data: [],
+        marketClosed: true,
+        sessionInfo: sessionInfo.description,
+        ts: Date.now(),
+      });
+    }
+
     // Check for TOP-100 mode via query param or body
     let scanMode: 'core' | 'top100' = 'core';
     let customTickers: { ticker: string; name: string }[] | null = null;
@@ -653,7 +692,7 @@ export async function POST(request: NextRequest) {
 
     // Save to Redis
     const redisKey = scanMode === 'top100' ? 'horizon:scanner:top100' : 'horizon:scanner:latest';
-    const redisTTL = scanMode === 'top100' ? 1800 : 3600; // TOP-100: 30 min, Core: 1 hour
+    const redisTTL = scanMode === 'top100' ? 7200 : 14400; // TOP-100: 2 hours, Core: 4 hours (longer TTL preserves data over weekends)
 
     try {
       await redis.setex(

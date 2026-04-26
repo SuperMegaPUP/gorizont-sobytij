@@ -198,6 +198,8 @@ export interface HorizonState {
   top100Loading: boolean;
   top100Error: string | null;
   lastTop100Update: number | null;
+  marketClosed: boolean;
+  sessionInfo: string;
 
   // ── Original Actions ──
   setActiveTicker: (ticker: string) => void;
@@ -279,6 +281,8 @@ const initialState = {
   top100Loading: false,
   top100Error: null,
   lastTop100Update: null,
+  marketClosed: false,
+  sessionInfo: '',
 };
 
 // ─── Store ─────────────────────────────────────────────────────────────────
@@ -326,6 +330,8 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
         scannerData: json.data || [],
         lastScannerUpdate: Date.now(),
         loading: false,
+        marketClosed: json.marketClosed || false,
+        sessionInfo: json.sessionInfo || '',
       });
     } catch (error: any) {
       set({ error: error.message, loading: false });
@@ -474,6 +480,8 @@ export const useHorizonStore = create<HorizonState>((set, get) => ({
         top100Data: json.data || [],
         lastTop100Update: Date.now(),
         top100Loading: false,
+        marketClosed: json.marketClosed || false,
+        sessionInfo: json.sessionInfo || '',
       });
     } catch (error: any) {
       set({ top100Error: error.message, top100Loading: false });
