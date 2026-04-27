@@ -90,8 +90,8 @@ function takensEmbedding(series: number[], d: number, tau: number): number[][] {
 }
 
 /**
- * Silverman's rule for KDE bandwidth:
- * h = 1.06 × σ × N^(-1/5)
+ * Silverman's robust rule for KDE bandwidth:
+ * h = 1.06 × min(σ, IQR/1.34) × N^(-1/5)
  */
 function silvermanBandwidth(values: number[]): number {
   const n = values.length;
@@ -100,7 +100,12 @@ function silvermanBandwidth(values: number[]): number {
   const mean = values.reduce((s, v) => s + v, 0) / n;
   const std = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
 
-  return 1.06 * std * Math.pow(n, -0.2);
+  const sorted = [...values].sort((a, b) => a - b);
+  const q1 = sorted[Math.floor(n * 0.25)];
+  const q3 = sorted[Math.floor(n * 0.75)];
+  const iqr = q3 - q1;
+
+  return 1.06 * Math.min(std, iqr / 1.34) * Math.pow(n, -0.2);
 }
 
 /**
@@ -256,7 +261,7 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
     // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
-  if (prices.length < 12 || trades.length < 5) {
+  if (prices.length < 20 || trades.length < 5) {
     return {
       detector: 'ATTRACTOR',
       description: 'Аттрактор — цена прилипает к уровню',
@@ -264,8 +269,17 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
     };
   }
 
+  // ─── 0. Detrended prices (CRITICAL — raw prices = random walk artifact) ─
+  const sma20: number[] = [];
+  for (let i = 0; i < prices.length; i++) {
+    const start = Math.max(0, i - 19);
+    const window = prices.slice(start, i + 1);
+    sma20.push(window.reduce((s, v) => s + v, 0) / window.length);
+  }
+  const detrended = prices.map((p, i) => p - sma20[i]);
+
   // ─── 1. Takens convergence ────────────────────────────────────────────
-  const takens = takensConvergence(prices);
+  const takens = takensConvergence(detrended);
   metadata.takensConvergence = Math.round(takens.convergence * 1000) / 1000;
   metadata.takensTau = takens.tau;
   metadata.takensPoints = takens.nPoints;
@@ -293,33 +307,25 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   metadata.attractionRatio = Math.round(vProfile.attractionRatio * 1000) / 1000;
   metadata.profileEntropy = Math.round(vProfile.profileEntropy * 100) / 100;
 
-  // Volume profile score: attraction > 0.6 → strong attractor
-  const volumeProfileScore = vProfile.attractionRatio > 0.7 ? 1
-    : vProfile.attractionRatio > 0.5 ? 0.8
-    : vProfile.attractionRatio > 0.35 ? 0.5
-    : vProfile.attractionRatio > 0.2 ? 0.2 : 0;
-
   // ─── 3. Price stickiness ──────────────────────────────────────────────
-  // sticky = |price[t] - price[t-1]| < 0.5 × current_spread
-  // Use orderbook spread if available, else estimate from prices
-  let spread = 0;
-  if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
-    spread = orderbook.asks[0].price - orderbook.bids[0].price;
-  } else if (prices.length >= 2) {
-    // Estimate spread from price differences
-    const priceDiffs: number[] = [];
-    for (let i = 1; i < prices.length; i++) {
-      priceDiffs.push(Math.abs(prices[i] - prices[i - 1]));
-    }
-    priceDiffs.sort((a, b) => a - b);
-    // Spread ≈ median non-zero price difference
-    const nonZero = priceDiffs.filter(d => d > EPS);
-    spread = nonZero.length > 0 ? nonZero[Math.floor(nonZero.length / 2)] : 0.01;
-  } else {
-    spread = 0.01;
+  // sticky = |price[t] - price[t-1]| < 0.5 × EMA(spread, 10)
+  // Use EMA(spread, 10) — adapts to spread widening
+  const priceDiffs: number[] = [];
+  for (let i = 1; i < prices.length; i++) {
+    priceDiffs.push(Math.abs(prices[i] - prices[i - 1]));
+  }
+  const sortedDiffs = [...priceDiffs].sort((a, b) => a - b);
+  const nonZero = sortedDiffs.filter(d => d > EPS);
+  const medianSpread = nonZero.length > 0 ? nonZero[Math.floor(nonZero.length / 2)] : 0.01;
+
+  // EMA(spread, 10)
+  let emaSpread = medianSpread;
+  const alpha = 2 / (10 + 1);
+  for (const diff of priceDiffs) {
+    emaSpread = alpha * diff + (1 - alpha) * emaSpread;
   }
 
-  const stickyThreshold = 0.5 * spread;
+  const stickyThreshold = 0.5 * emaSpread;
   let stickyCount = 0;
   for (let i = 1; i < prices.length; i++) {
     if (Math.abs(prices[i] - prices[i - 1]) < stickyThreshold + EPS) {
@@ -327,7 +333,7 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
     }
   }
   const stickinessRatio = prices.length > 1 ? stickyCount / (prices.length - 1) : 0;
-  metadata.spread = Math.round(spread * 10000) / 10000;
+  metadata.emaSpread = Math.round(emaSpread * 10000) / 10000;
   metadata.stickyThreshold = Math.round(stickyThreshold * 10000) / 10000;
   metadata.stickinessRatio = Math.round(stickinessRatio * 1000) / 1000;
   metadata.stickyCount = stickyCount;
@@ -337,6 +343,21 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
     : stickinessRatio > 0.5 ? 0.8
     : stickinessRatio > 0.3 ? 0.5
     : stickinessRatio > 0.15 ? 0.2 : 0;
+
+  // ─── 3.5. POC distance guard (smooth decay) ───────────────────────────
+  const currentPrice = prices[prices.length - 1];
+  const pocDistance = vProfile.poc > 0 ? Math.abs(vProfile.poc - currentPrice) / Math.max(emaSpread, EPS) : 0;
+  metadata.pocDistance = Math.round(pocDistance * 1000) / 1000;
+
+  let volumeProfileScore = vProfile.attractionRatio > 0.7 ? 1
+    : vProfile.attractionRatio > 0.5 ? 0.8
+    : vProfile.attractionRatio > 0.35 ? 0.5
+    : vProfile.attractionRatio > 0.2 ? 0.2 : 0;
+
+  // Smooth decay for far POC (С7): distance > 0.5 ATR → gradual decay
+  if (pocDistance > 0.5) {
+    volumeProfileScore *= Math.max(0, 1 - (pocDistance - 0.5) / 1.5);
+  }
 
   // ─── 4. Composite score ───────────────────────────────────────────────
   // attractor_score = 0.4 × takens + 0.3 × volume_profile + 0.3 × stickiness
