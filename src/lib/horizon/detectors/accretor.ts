@@ -1,177 +1,144 @@
-// ─── ACCRETOR — Аккреция v5.1 (П2 — DBSCAN + ATR нормализация) ─────────────
-// Крупный игрок методично набирает позицию, не двигая цену.
-// Мелкие сделки кластеризуются во времени и цене → «аккреционный диск»
+// ─── ACCRETOR — Аккреция v4.2 ──────────────────────────────────────────────
+// Обнаружение кластерного накопления через DBSCAN на нормированных признаках.
 //
-// v5.1 П2 Правка (согласно спецификации v4):
-// 1) Фильтруем сделки: volume < 0.3 × avg_lot_size (мелкие = скрытые)
-// 2) DBSCAN к множеству {(time, price)} мелких сделок:
-//    - eps_time = 60 секунд
-//    - eps_price = 1 tick (оцениваем через ATR)
-//    - min_samples = 5
-//    - Окно: 200 последних сделок
-// 3) accretor_score = (n_clustered / n_small) × cluster_concentration
-//    - concentration = avg_cluster_size / (ATR(14) / (tick_size + ε))
-//    - ATR-нормализация делает метрику сравнимой между тикерами
-// 4) >60% мелких сделок кластеризовано → крупный игрок дробит заявку
-//
-// НЕ дублирует DECOHERENCE:
-//   DECOHERENCE = символьный поток (частоты символов)
-//   ACCRETOR = spatial clustering (время+цена → DBSCAN)
+// v4.2 Формула:
+// 1) Guard: n_trades < 30 → score = 0
+// 2) Feature normalization (КРИТИЧЕСКИ — С8):
+//    scaled = [(time-t0)/60000, (price-p0)/tickSize]
+//    eps=1.0 — безразмерный! (1 минута × 1 тик)
+// 3) DBSCAN: eps=1.0, minSamples=5
+// 4) Trade value filter: trade_value = volume × price
+//    small = trade_value < 0.3 × median_trade_value
+// 5) Cluster concentration = totalVolume / area
+//    area = max(priceRange/ATR, 0.001) × max(timeRangeSec/60, 0.1)
+// 6) Score: sigmoid centered on best cluster concentration
 
 import type { DetectorInput, DetectorResult } from './types';
 import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
-// ─── DBSCAN Implementation ────────────────────────────────────────────────
+// ─── DBSCAN на нормированных 2D точках ──────────────────────────────────────
 
 interface DBSCANPoint {
-  time: number;    // milliseconds
-  price: number;
+  x: number;  // нормированное время (мин)
+  y: number;  // нормированная цена (тики)
   volume: number;
-  index: number;
+  price: number;
+  time: number;
 }
 
 interface DBSCANCluster {
   points: DBSCANPoint[];
-  avgSize: number;
-  timeSpan: number;
-  priceSpan: number;
+  totalVolume: number;
+  timeRangeSec: number;
+  priceRange: number;
+  nTrades: number;
 }
 
-/**
- * DBSCAN clustering algorithm
- * @param points — array of data points
- * @param epsTime — max time distance (ms) for neighbors
- * @param epsPrice — max price distance for neighbors
- * @param minSamples — minimum points to form a cluster
- */
-function dbscan(
-  points: DBSCANPoint[],
-  epsTime: number,
-  epsPrice: number,
-  minSamples: number = 5,
-): DBSCANCluster[] {
+function dbscan(points: DBSCANPoint[], eps: number, minSamples: number): DBSCANCluster[] {
   const n = points.length;
   if (n < minSamples) return [];
 
-  // Pre-compute neighbor lists
+  // Pre-compute neighbors (Euclidean distance)
   const neighbors: number[][] = Array.from({ length: n }, () => []);
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      const dt = Math.abs(points[i].time - points[j].time);
-      const dp = Math.abs(points[i].price - points[j].price);
-      if (dt <= epsTime && dp <= epsPrice) {
+      const dx = points[i].x - points[j].x;
+      const dy = points[i].y - points[j].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= eps) {
         neighbors[i].push(j);
         neighbors[j].push(i);
       }
     }
   }
 
-  // DBSCAN core algorithm
-  const labels: number[] = new Array(n).fill(-1); // -1 = unvisited, -2 = noise
+  const labels: number[] = new Array(n).fill(-1);
   let clusterId = 0;
 
   for (let i = 0; i < n; i++) {
-    if (labels[i] !== -1) continue; // already visited
-
+    if (labels[i] !== -1) continue;
     if (neighbors[i].length < minSamples - 1) {
-      labels[i] = -2; // noise
+      labels[i] = -2;
       continue;
     }
-
-    // Start new cluster
     labels[i] = clusterId;
     const queue = [...neighbors[i]];
     let qi = 0;
-
     while (qi < queue.length) {
       const j = queue[qi++];
-      if (labels[j] === -2) {
-        labels[j] = clusterId; // change noise to border point
-      }
-      if (labels[j] !== -1) continue; // already assigned
-
+      if (labels[j] === -2) labels[j] = clusterId;
+      if (labels[j] !== -1) continue;
       labels[j] = clusterId;
-
       if (neighbors[j].length >= minSamples - 1) {
-        // j is a core point — expand cluster
         for (const k of neighbors[j]) {
-          if (labels[k] === -1 || labels[k] === -2) {
-            queue.push(k);
-          }
+          if (labels[k] === -1 || labels[k] === -2) queue.push(k);
         }
       }
     }
-
     clusterId++;
   }
 
-  // Group into clusters
-  const clusters: Map<number, DBSCANPoint[]> = new Map();
+  const groups = new Map<number, DBSCANPoint[]>();
   for (let i = 0; i < n; i++) {
-    const label = labels[i];
-    if (label < 0) continue; // noise
-    if (!clusters.has(label)) clusters.set(label, []);
-    clusters.get(label)!.push(points[i]);
+    if (labels[i] >= 0) {
+      if (!groups.has(labels[i])) groups.set(labels[i], []);
+      groups.get(labels[i])!.push(points[i]);
+    }
   }
 
-  // Build cluster info
-  return Array.from(clusters.values()).map(pts => {
+  return Array.from(groups.values()).map(pts => {
     const times = pts.map(p => p.time);
     const prices = pts.map(p => p.price);
-    const avgSize = pts.reduce((s, p) => s + p.volume, 0) / pts.length;
     return {
       points: pts,
-      avgSize,
-      timeSpan: Math.max(...times) - Math.min(...times),
-      priceSpan: Math.max(...prices) - Math.min(...prices),
+      totalVolume: pts.reduce((s, p) => s + p.volume, 0),
+      timeRangeSec: (Math.max(...times) - Math.min(...times)) / 1000,
+      priceRange: Math.max(...prices) - Math.min(...prices),
+      nTrades: pts.length,
     };
   });
 }
 
-// ─── ATR Calculation ──────────────────────────────────────────────────────
-
-/**
- * Average True Range (Wilder's smoothing)
- * ATR(14) for normalizing cluster sizes across tickers
- */
-function calcATR(candles: Array<{ high: number; low: number; close: number }>, period: number = 14): number {
-  if (candles.length < 2) return 0;
-
-  const trueRanges: number[] = [];
-  for (let i = 1; i < candles.length; i++) {
-    const high = candles[i].high;
-    const low = candles[i].low;
-    const prevClose = candles[i - 1].close;
-    const tr = Math.max(
-      high - low,
-      Math.abs(high - prevClose),
-      Math.abs(low - prevClose),
-    );
-    trueRanges.push(tr);
-  }
-
-  if (trueRanges.length === 0) return 0;
-
-  // Wilder's smoothing
-  let atr = trueRanges.slice(0, Math.min(period, trueRanges.length))
-    .reduce((s, v) => s + v, 0) / Math.min(period, trueRanges.length);
-
-  for (let i = period; i < trueRanges.length; i++) {
-    atr = (atr * (period - 1) + trueRanges[i]) / period;
-  }
-
-  return atr;
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-// ─── Main Detector ────────────────────────────────────────────────────────
+function iqr(values: number[]): number {
+  if (values.length < 2) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const q1 = sorted[Math.floor(sorted.length * 0.25)];
+  const q3 = sorted[Math.floor(sorted.length * 0.75)];
+  return q3 - q1;
+}
+
+function robustNormalize(value: number, med: number, iqrVal: number): number {
+  return (value - med) / Math.max(iqrVal, 1e-8);
+}
+
+function sigmoid(x: number): number {
+  return 1 / (1 + Math.exp(-x));
+}
+
+function getTickSize(price: number): number {
+  if (price > 1000) return 0.1;
+  if (price > 100) return 0.05;
+  return 0.01;
+}
+
+// ─── Главный детектор ───────────────────────────────────────────────────────
 
 export function detectAccretor(input: DetectorInput): DetectorResult {
-  const { cumDelta, prices, trades, candles } = input;
+  const { trades, candles, prices } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // v4.2: Gradual stale penalty instead of binary stale→0
+  const allTrades = trades && trades.length > 0 ? trades : [];
+
+  // Stale guard
   if (input.staleData) {
     const staleFactor = stalePenalty(input.staleMinutes);
     if (staleFactor <= 0) {
@@ -182,218 +149,122 @@ export function detectAccretor(input: DetectorInput): DetectorResult {
         metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
       };
     }
-    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
-  // Нужен минимум 20 сделок для DBSCAN
-  if (trades.length < 20 || prices.length < 5) {
+  // Guard: min 30 trades
+  if (allTrades.length < 30) {
+    metadata.insufficientData = true;
     return {
       detector: 'ACCRETOR',
-      description: 'Аккреция — постепенное накопление',
-      score: 0, confidence: 0, signal: 'NEUTRAL', metadata: { insufficientData: true },
+      description: 'Аккреция — недостаточно сделок (<30)',
+      score: 0, confidence: 0, signal: 'NEUTRAL', metadata,
     };
   }
 
-  // ─── 1. Filter small trades ────────────────────────────────────────────
-  // volume < 0.3 × avg_lot_size → считаем «мелкими» (скрытыми)
-  const avgLotSize = trades.reduce((s, t) => s + t.quantity, 0) / trades.length;
-  const smallTradeThreshold = 0.3 * avgLotSize;
-  const smallTrades = trades.filter(t => t.quantity <= smallTradeThreshold + EPS);
-  const largeTrades = trades.filter(t => t.quantity > smallTradeThreshold);
+  // ─── 1. Trade value filter ──────────────────────────────────────────────
+  const tradeValues = allTrades.map(t => t.price * t.quantity);
+  const medianTradeValue = median(tradeValues);
+  const smallThreshold = 0.3 * medianTradeValue;
+  const nSmallTrades = tradeValues.filter(v => v < smallThreshold).length;
+  const nTotalTrades = allTrades.length;
 
-  metadata.avgLotSize = Math.round(avgLotSize * 100) / 100;
-  metadata.smallTradeThreshold = Math.round(smallTradeThreshold * 100) / 100;
-  metadata.smallTradeCount = smallTrades.length;
-  metadata.largeTradeCount = largeTrades.length;
-  metadata.smallTradeRatio = trades.length > 0
-    ? Math.round(smallTrades.length / trades.length * 1000) / 1000 : 0;
+  metadata.medianTradeValue = Math.round(medianTradeValue * 100) / 100;
+  metadata.smallThreshold = Math.round(smallThreshold * 100) / 100;
+  metadata.nSmallTrades = nSmallTrades;
+  metadata.smallRatio = Math.round((nSmallTrades / nTotalTrades) * 1000) / 1000;
 
-  // ─── 2. DBSCAN clustering on {(time, price)} ──────────────────────────
-  // Окно: 200 последних сделок
-  const windowTrades = trades.slice(-200);
-  const windowSmallTrades = windowTrades.filter(t => t.quantity <= smallTradeThreshold + EPS);
-
-  // eps_time = 60 секунд, eps_price = estimated tick size
-  const epsTime = 60 * 1000; // 60 seconds in ms
-
-  // Estimate tick size from price data
-  const sortedPrices = [...new Set(windowTrades.map(t => t.price))].sort((a, b) => a - b);
-  let tickSize = 0.01; // default
-  if (sortedPrices.length >= 2) {
-    const diffs: number[] = [];
-    for (let i = 1; i < sortedPrices.length; i++) {
-      const diff = sortedPrices[i] - sortedPrices[i - 1];
-      if (diff > 0) diffs.push(diff);
-    }
-    if (diffs.length > 0) {
-      diffs.sort((a, b) => a - b);
-      tickSize = diffs[0]; // minimum price increment
-    }
+  // ─── 2. Feature normalization (КРИТИЧЕСКИ — С8) ─────────────────────────
+  const windowTrades = allTrades.slice(-200);
+  if (windowTrades.length === 0) {
+    metadata.insufficientData = true;
+    return { detector: 'ACCRETOR', description: 'Аккреция — пустое окно', score: 0, confidence: 0, signal: 'NEUTRAL', metadata };
   }
-  const epsPrice = Math.max(tickSize, 0.01); // at least 1 tick
 
-  metadata.tickSize = Math.round(tickSize * 10000) / 10000;
-  metadata.epsTime = 60000;
-  metadata.epsPrice = Math.round(epsPrice * 10000) / 10000;
+  const t0 = windowTrades[0].timestamp || 0;
+  const p0 = windowTrades[0].price;
+  const tickSize = getTickSize(p0);
 
-  // Prepare DBSCAN points
-  const dbscanPoints: DBSCANPoint[] = windowSmallTrades
+  const scaled: DBSCANPoint[] = windowTrades
     .filter(t => t.timestamp && t.timestamp > 0 && t.price > 0)
-    .map((t, idx) => ({
-      time: t.timestamp!,
-      price: t.price,
+    .map(t => ({
+      x: ((t.timestamp || 0) - t0) / 60000,   // минуты
+      y: (t.price - p0) / tickSize,             // тики
       volume: t.quantity,
-      index: idx,
+      price: t.price,
+      time: t.timestamp || 0,
     }));
 
-  metadata.dbscanInputPoints = dbscanPoints.length;
+  metadata.tickSize = tickSize;
+  metadata.nScaledPoints = scaled.length;
 
-  const minSamples = Math.min(5, Math.max(3, Math.floor(dbscanPoints.length / 20)));
-  const clusters = dbscan(dbscanPoints, epsTime, epsPrice, minSamples);
+  // ─── 3. DBSCAN ──────────────────────────────────────────────────────────
+  const clusters = dbscan(scaled, 1.0, 5);
+  metadata.nClusters = clusters.length;
 
-  metadata.clusterCount = clusters.length;
-  metadata.clusteredPoints = clusters.reduce((s, c) => s + c.points.length, 0);
-  metadata.minSamples = minSamples;
+  if (clusters.length === 0) {
+    return {
+      detector: 'ACCRETOR',
+      description: 'Аккреция — кластеры не найдены',
+      score: 0, confidence: 0, signal: 'NEUTRAL',
+      metadata: { ...metadata, reason: 'no_clusters' },
+    };
+  }
 
-  // ─── 3. Cluster analysis ──────────────────────────────────────────────
-  const nClustered = clusters.reduce((s, c) => s + c.points.length, 0);
-  const nSmallTrades = dbscanPoints.length;
-
-  // Cluster ratio: доля мелких сделок, попавших в кластеры
-  const clusterRatio = nSmallTrades > 0 ? nClustered / nSmallTrades : 0;
-  metadata.clusterRatio = Math.round(clusterRatio * 1000) / 1000;
-
-  // Average cluster size
-  const avgClusterSize = clusters.length > 0
-    ? clusters.reduce((s, c) => s + c.points.length, 0) / clusters.length
-    : 0;
-  metadata.avgClusterSize = Math.round(avgClusterSize * 10) / 10;
-
-  // ─── 4. ATR normalization ─────────────────────────────────────────────
-  // concentration = avg_cluster_size / (ATR(14) / (tick_size + ε))
-  // ATR-нормализация делает метрику сравнимой между тикерами
-  let atr = 0;
-  if (candles && candles.length >= 2) {
-    atr = calcATR(candles as Array<{ high: number; low: number; close: number }>, 14);
+  // ─── 4. ATR ─────────────────────────────────────────────────────────────
+  let atr = 0.01 * p0;
+  if (candles && candles.length >= 14) {
+    const ranges = candles.slice(-14).map(c => c.high - c.low);
+    atr = ranges.reduce((s, r) => s + r, 0) / 14;
   } else if (prices.length >= 5) {
-    // Fallback: estimate ATR from price differences
     const diffs: number[] = [];
-    for (let i = 1; i < prices.length; i++) {
-      diffs.push(Math.abs(prices[i] - prices[i - 1]));
-    }
+    for (let i = 1; i < prices.length; i++) diffs.push(Math.abs(prices[i] - prices[i - 1]));
     atr = diffs.reduce((s, v) => s + v, 0) / diffs.length;
   }
-
   metadata.atr = Math.round(atr * 10000) / 10000;
 
-  const concentrationDenom = atr / (tickSize + EPS);
-  const concentration = safeDivide(avgClusterSize, concentrationDenom, 0.01);
-  metadata.concentration = Math.round(concentration * 1000) / 1000;
-
-  // ─── 5. Delta trend (старый компонент — сохраняем для контекста) ──────
-  const runningDelta: number[] = [];
-  let cumSum = 0;
-  for (const t of trades) {
-    const side = t.direction.toUpperCase().trim();
-    if (side === 'B' || side === 'BUY') cumSum += t.quantity;
-    else if (side === 'S' || side === 'SELL') cumSum -= t.quantity;
-    runningDelta.push(cumSum);
+  // ─── 5. Cluster analysis — concentration ────────────────────────────────
+  for (const cluster of clusters) {
+    const area = Math.max(cluster.priceRange / atr, 0.001) * Math.max(cluster.timeRangeSec / 60, 0.1);
+    (cluster as any).concentration = cluster.totalVolume / area;
+    (cluster as any).avgTradeValue = cluster.totalVolume * cluster.priceRange / cluster.nTrades;
   }
 
-  // Simple linear regression for delta trend
-  const n = runningDelta.length;
-  let sx = 0, sy = 0, sxy = 0, sx2 = 0;
-  for (let i = 0; i < n; i++) {
-    sx += i; sy += runningDelta[i]; sxy += i * runningDelta[i]; sx2 += i * i;
-  }
-  const den = n * sx2 - sx * sx;
-  const deltaSlope = den !== 0 ? (n * sxy - sx * sy) / den : 0;
-  const deltaR2 = (() => {
-    if (den === 0 || n < 3) return 0;
-    const meanY = sy / n;
-    let ssTot = 0, ssRes = 0;
-    for (let i = 0; i < n; i++) {
-      ssTot += (runningDelta[i] - meanY) ** 2;
-      ssRes += (runningDelta[i] - (deltaSlope * i + (sy - deltaSlope * sx) / n)) ** 2;
-    }
-    return ssTot > 0 ? Math.max(0, 1 - ssRes / ssTot) : 0;
-  })();
+  const concentrations = clusters.map(c => (c as any).concentration as number);
+  const bestCluster = clusters.reduce((a, b) =>
+    ((a as any).concentration > (b as any).concentration ? a : b)
+  );
 
-  metadata.deltaSlope = Math.round(deltaSlope * 100) / 100;
-  metadata.deltaR2 = Math.round(deltaR2 * 1000) / 1000;
+  const medConc = median(concentrations);
+  const iqrConc = iqr(concentrations);
+  const concNorm = robustNormalize((bestCluster as any).concentration, medConc, iqrConc);
 
-  // ─── 6. Score calculation ─────────────────────────────────────────────
-  // accretor_score = (cluster_ratio) × (cluster_concentration)
-  // + delta_trend_bonus (если R² > 0.5 и cluster_ratio > 0.3)
+  metadata.bestConcentration = Math.round((bestCluster as any).concentration * 100) / 100;
+  metadata.medConcentration = Math.round(medConc * 100) / 100;
+  metadata.iqrConcentration = Math.round(iqrConc * 100) / 100;
 
-  // Cluster-based score (primary)
-  const clusterScore = clusterRatio > 0.6 ? 1
-    : clusterRatio > 0.4 ? 0.8
-    : clusterRatio > 0.2 ? 0.5
-    : clusterRatio > 0.1 ? 0.2 : 0;
+  // ─── 6. Score ───────────────────────────────────────────────────────────
+  const rawSigmoid = sigmoid(concNorm);
+  const score = clampScore(Math.max(0, 2 * rawSigmoid - 1));
 
-  // Concentration boost: tight clusters (high concentration) → stronger signal
-  const concentrationBoost = concentration > 5 ? 1.2
-    : concentration > 2 ? 1.0
-    : concentration > 1 ? 0.8
-    : 0.5;
+  metadata.concNorm = Math.round(concNorm * 1000) / 1000;
 
-  const dbscanScore = Math.min(1, clusterScore * concentrationBoost);
-
-  // Delta trend bonus: если кластеры + монотонная дельта → сильный сигнал
-  const deltaTrendBonus = (deltaR2 > 0.5 && clusterRatio > 0.2)
-    ? Math.min(0.3, deltaR2 * 0.3)
-    : 0;
-
-  // Final score
-  const rawScore = dbscanScore * 0.75 + deltaTrendBonus * 0.25;
-  const score = Math.min(1, Math.max(0, rawScore));
-
-  // ─── 7. Signal direction ──────────────────────────────────────────────
+  // ─── 7. Signal direction ────────────────────────────────────────────────
   let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   if (score > 0.15) {
-    // Direction from delta trend + cluster buy/sell ratio
-    const deltaDirection = deltaSlope > 0 ? 1 : deltaSlope < 0 ? -1 : 0;
-
-    // Cluster buy/sell ratio
-    let clusterBuyVol = 0, clusterSellVol = 0;
-    for (const cl of clusters) {
-      for (const pt of cl.points) {
-        const trade = windowSmallTrades[pt.index];
-        if (trade) {
-          const d = trade.direction.toUpperCase().trim();
-          if (d === 'B' || d === 'BUY') clusterBuyVol += pt.volume;
-          else if (d === 'S' || d === 'SELL') clusterSellVol += pt.volume;
-        }
-      }
-    }
-    const clusterDirection = clusterBuyVol > clusterSellVol * 1.2 ? 1
-      : clusterSellVol > clusterBuyVol * 1.2 ? -1 : 0;
-
-    // Combined vote
-    const vote = deltaDirection * 0.5 + clusterDirection * 0.5;
-    signal = vote > 0.15 ? 'BULLISH' : vote < -0.15 ? 'BEARISH' : 'NEUTRAL';
+    const buyVol = bestCluster.points.filter(p => p.price >= p0).reduce((s, p) => s + p.volume, 0);
+    const sellVol = bestCluster.points.filter(p => p.price < p0).reduce((s, p) => s + p.volume, 0);
+    signal = buyVol > sellVol * 1.2 ? 'BULLISH' : sellVol > buyVol * 1.2 ? 'BEARISH' : 'NEUTRAL';
   }
 
-  // ─── 8. Confidence ────────────────────────────────────────────────────
-  const hasClusters = clusters.length >= 2;
-  const hasDeltaTrend = deltaR2 > 0.5;
-  const confidence = score > 0.15
-    ? Math.min(1, ((hasClusters ? 0.5 : 0) + (hasDeltaTrend ? 0.3 : 0) + clusterRatio * 0.2))
-    : 0;
-
-  // Apply stale penalty (v4.2: gradual instead of binary)
+  const confidence = score > 0.15 ? Math.min(1, score * 1.2) : 0;
   const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
-  const finalScore = clampScore(score * staleFactor);
-  const finalConfidence = clampScore(confidence * staleFactor);
-  metadata.staleFactor = staleFactor;
 
   return {
     detector: 'ACCRETOR',
-    description: 'Аккреция — кластерное накопление (DBSCAN + ATR)',
-    score: finalScore,
-    confidence: finalConfidence,
+    description: 'Аккреция — кластерное накопление (DBSCAN v4.2)',
+    score: clampScore(score * staleFactor),
+    confidence: clampScore(confidence * staleFactor),
     signal,
-    metadata,
+    metadata: { ...metadata, staleFactor, reason: score > 0 ? 'accumulation_detected' : 'no_accumulation' },
   };
 }

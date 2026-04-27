@@ -222,42 +222,51 @@ describe('DARKMATTER', () => {
 
 describe('ACCRETOR', () => {
   test('обнаруживает кластерное накопление (DBSCAN)', () => {
-    // П2: v5.1 использует DBSCAN кластеризацию мелких сделок
-    // Создаём много мелких сделок + несколько крупных
+    // v4.2: DBSCAN на нормированных признаках (time/60s, price/tick)
     const trades: Trade[] = [];
-    // 20 мелких кластеризованных сделок (одна цена, близкое время)
-    for (let i = 0; i < 20; i++) {
+    // 25 мелких кластеризованных сделок (одна цена, близкое время)
+    for (let i = 0; i < 25; i++) {
       trades.push({
         price: 100,
-        quantity: 3, // мелкие
+        quantity: 3,
         direction: 'BUY',
-        timestamp: 1000000 + i * 50, // плотный кластер
+        timestamp: 1000000 + i * 50, // плотный кластер, 50мс
       });
     }
-    // 10 крупных
-    for (let i = 0; i < 10; i++) {
+    // 15 крупных разбросанных
+    for (let i = 0; i < 15; i++) {
       trades.push({
-        price: 100.1 + Math.random() * 0.5,
+        price: 100.5 + i * 0.1,
         quantity: 100,
         direction: i % 2 === 0 ? 'BUY' : 'SELL',
-        timestamp: 1002000 + i * 500,
+        timestamp: 1005000 + i * 5000, // далеко от кластера
       });
     }
-    const input = makeInput({
-      trades,
-      prices: Array.from({ length: 30 }, () => 100), // цена стоит
-    });
+    const input = makeInput({ trades, prices: Array.from({ length: 30 }, () => 100) });
     const result = detectAccretor(input);
     expect(result.detector).toBe('ACCRETOR');
-    // DBSCAN должен найти кластер или delta-trend даёт score > 0
-    expect(result.score).toBeGreaterThanOrEqual(0); // может быть 0 если кластер не найден
-    expect(result.metadata.clusterCount).toBeDefined();
+    expect(result.metadata.nClusters as number).toBeGreaterThanOrEqual(1);
   });
 
-  test('нет данных → score = 0', () => {
+  test('< 30 сделок → score = 0', () => {
     const input = makeInput({ trades: [], prices: [100] });
     const result = detectAccretor(input);
     expect(result.score).toBe(0);
+    expect(result.metadata.insufficientData).toBe(true);
+  });
+
+  test('равномерное распределение → нет кластеров', () => {
+    // 40 сделок равномерно по цене и времени
+    const trades: Trade[] = Array.from({ length: 40 }, (_, i) => ({
+      price: 100 + i * 0.02, // каждая следующая на 2 тика
+      quantity: 10,
+      direction: i % 2 === 0 ? 'BUY' : 'SELL',
+      timestamp: 1000000 + i * 60000, // каждая минута
+    }));
+    const input = makeInput({ trades, prices: Array.from({ length: 40 }, () => 100) });
+    const result = detectAccretor(input);
+    // eps=1.0 = 1 минута × 1 тик; сделки далеко друг от друга → кластеров нет
+    expect(result.score).toBeLessThan(0.3);
   });
 });
 
