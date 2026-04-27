@@ -287,11 +287,12 @@ export function detectEntangle(input: DetectorInput): DetectorResult {
 
   if (sig1 && sig2) {
     const minP = Math.min(test1.pValue, test2.pValue);
-    entangleScore = minP / P_THRESHOLD;
+    // Меньший p-value = сильнее evidence → БОЛЬШИЙ score
+    entangleScore = 1 - minP / P_THRESHOLD;
     reason = 'strong_cross_flow';
   } else if (sig1 || sig2) {
     const sigP = sig1 ? test1.pValue : test2.pValue;
-    entangleScore = 0.5 * sigP / P_THRESHOLD;
+    entangleScore = 0.5 * (1 - sigP / P_THRESHOLD);
     reason = 'weak_cross_flow';
   }
 

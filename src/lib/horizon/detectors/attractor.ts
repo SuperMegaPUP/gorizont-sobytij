@@ -346,7 +346,17 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
 
   // ─── 3.5. POC distance guard (smooth decay) ───────────────────────────
   const currentPrice = prices[prices.length - 1];
-  const pocDistance = vProfile.poc > 0 ? Math.abs(vProfile.poc - currentPrice) / Math.max(emaSpread, EPS) : 0;
+  // ATR(14) для нормировки POC distance (С7)
+  let atr = 0.01;
+  if (input.candles && input.candles.length >= 14) {
+    const ranges = input.candles.slice(-14).map(c => c.high - c.low);
+    atr = ranges.reduce((s, r) => s + r, 0) / 14;
+  } else if (prices.length >= 14) {
+    const diffs = [];
+    for (let i = 1; i < prices.length; i++) diffs.push(Math.abs(prices[i] - prices[i - 1]));
+    atr = diffs.reduce((s, v) => s + v, 0) / diffs.length;
+  }
+  const pocDistance = vProfile.poc > 0 ? Math.abs(vProfile.poc - currentPrice) / Math.max(atr, EPS) : 0;
   metadata.pocDistance = Math.round(pocDistance * 1000) / 1000;
 
   let volumeProfileScore = vProfile.attractionRatio > 0.7 ? 1

@@ -54,6 +54,9 @@ interface PredatorState {
   preAttackPrice: number;
   cumDeltaAtAttack: number;
   attackStartTime: number;
+  priceAtPhaseEntry: number;
+  prevCumDelta: number;
+  prevCumDeltaVelocity: number;
 }
 
 const stateCache = new Map<string, PredatorState>();
@@ -68,6 +71,9 @@ function getState(ticker: string): PredatorState {
       preAttackPrice: 0,
       cumDeltaAtAttack: 0,
       attackStartTime: 0,
+      priceAtPhaseEntry: 0,
+      prevCumDelta: 0,
+      prevCumDeltaVelocity: 0,
     });
   }
   return stateCache.get(ticker)!;
@@ -188,14 +194,27 @@ function checkHerding(
 
 function checkAttack(
   cumDelta: { delta: number; buyVolume: number; sellVolume: number },
-  atr: number, prevPrice: number, currPrice: number,
+  atr: number, state: PredatorState, currPrice: number,
 ): boolean {
-  const aggRatio = cumDelta.sellVolume > EPS
-    ? cumDelta.buyVolume / cumDelta.sellVolume
-    : cumDelta.buyVolume > 0 ? 10 : 0;
+  // БАГ 1 FIX: aggression_ratio = max(buy,sell) / min(buy,sell)
+  const minVol = Math.min(cumDelta.buyVolume, cumDelta.sellVolume);
+  const aggRatio = minVol > EPS
+    ? Math.max(cumDelta.buyVolume, cumDelta.sellVolume) / minVol
+    : (cumDelta.buyVolume + cumDelta.sellVolume > 0 ? 100 : 0);
   if (aggRatio <= AGGRESSION_THRESHOLD) return false;
-  if (Math.abs(currPrice - prevPrice) <= ATTACK_ATR_MULT * atr) return false;
-  if (cumDelta.delta <= 0) return false;
+
+  // БАГ 4 FIX: price_change относительно входа в фазу, не 1 тик
+  const priceChange = Math.abs(currPrice - state.priceAtPhaseEntry);
+  if (priceChange <= ATTACK_ATR_MULT * atr) return false;
+
+  // БАГ 2 FIX: cumDelta_accel > 0 (вторая производная)
+  const cumDeltaVelocity = cumDelta.delta - state.prevCumDelta;
+  const cumDeltaAccel = cumDeltaVelocity - state.prevCumDeltaVelocity;
+  if (cumDeltaAccel <= 0) return false;
+
+  // Update history for next tick
+  state.prevCumDeltaVelocity = cumDeltaVelocity;
+  state.prevCumDelta = cumDelta.delta;
   return true;
 }
 
@@ -205,25 +224,37 @@ function checkDeltaFlip(
   cumDeltaNow: number, cumDeltaAtAttack: number,
 ): { flipped: boolean; zDelta: number } {
   const flowDuring = cumDeltaNow - cumDeltaAtAttack;
-  const flowAfter = cumDeltaNow;
   const afterTrades = trades.filter(t => t.timestamp >= attackStartTime);
 
-  const flowSeries: number[] = [];
-  let running = 0;
-  for (let i = 1; i < afterTrades.length; i++) {
-    running += afterTrades[i].direction === 'BUY' ? afterTrades[i].quantity : -afterTrades[i].quantity;
-    flowSeries.push(running);
+  if (afterTrades.length < 2) {
+    return { flipped: false, zDelta: 0 };
   }
 
-  if (flowSeries.length >= MIN_TRADES_FOR_FLOW) {
-    const mean = flowSeries.reduce((s, v) => s + v, 0) / flowSeries.length;
-    const std = Math.sqrt(flowSeries.reduce((s, v) => s + (v - mean) ** 2, 0) / flowSeries.length);
-    const zDelta = std > EPS ? (flowAfter - mean) / std : 0;
+  // БАГ 3 FIX: периодические flow-наблюдения (5-сек интервалы), не cumulative
+  const FLOW_INTERVAL_MS = 5000;
+  const intervalFlows = new Map<number, number>();
+  for (const t of afterTrades) {
+    const intervalIdx = Math.floor((t.timestamp - attackStartTime) / FLOW_INTERVAL_MS);
+    const delta = t.direction === 'BUY' ? t.quantity : -t.quantity;
+    intervalFlows.set(intervalIdx, (intervalFlows.get(intervalIdx) || 0) + delta);
+  }
+
+  const flowObservations = [...intervalFlows.values()];
+  const lastInterval = Math.max(...intervalFlows.keys());
+  const flowAfter = intervalFlows.get(lastInterval) || 0;
+
+  if (flowObservations.length >= MIN_TRADES_FOR_FLOW) {
+    const meanFlow = flowObservations.reduce((s, v) => s + v, 0) / flowObservations.length;
+    const stdFlow = Math.sqrt(
+      flowObservations.reduce((s, v) => s + (v - meanFlow) ** 2, 0) / flowObservations.length
+    );
+    const zDelta = stdFlow > EPS ? (flowAfter - meanFlow) / stdFlow : 0;
     const flipped = Math.abs(zDelta) > FLOW_Z_THRESHOLD
       && Math.sign(flowAfter) !== Math.sign(flowDuring)
       && Math.sign(flowDuring) !== 0;
     return { flipped, zDelta };
   }
+
   const flipped = Math.sign(flowAfter) !== Math.sign(flowDuring) && Math.sign(flowDuring) !== 0;
   return { flipped, zDelta: 0 };
 }
@@ -258,7 +289,6 @@ export function detectPredator(input: DetectorInput): DetectorResult {
   const { atr, atrPct, midPrice } = getATR(input);
   const tickSize = estimateTickSize(midPrice);
   const currentPrice = allTrades[allTrades.length - 1].price;
-  const prevPrice = allTrades.length > 1 ? allTrades[allTrades.length - 2].price : currentPrice;
 
   metadata.atr = Math.round(atr * 1000) / 1000;
   metadata.atrPct = Math.round(atrPct * 1000) / 1000;
@@ -288,6 +318,7 @@ export function detectPredator(input: DetectorInput): DetectorResult {
     case PredatorPhase.IDLE: {
       const stalk = checkStalk(currentPrice, stops, atr);
       if (stalk.triggered) {
+        state.priceAtPhaseEntry = currentPrice;
         transitionTo(state, PredatorPhase.STALK, now);
         signalDirection = stalk.direction;
         metadata.phaseTransition = 'IDLE→STALK';
@@ -302,8 +333,15 @@ export function detectPredator(input: DetectorInput): DetectorResult {
         break;
       }
       if (herding) {
+        state.priceAtPhaseEntry = currentPrice;
         transitionTo(state, PredatorPhase.HERDING, now);
         metadata.phaseTransition = 'STALK→HERDING';
+        break;
+      }
+      // Прямой переход STALK → ATTACK (агрессия без предварительного HERDING)
+      if (checkAttack(cumDelta, atr, state, currentPrice)) {
+        enterAttack(state, now, state.priceAtPhaseEntry, cumDelta.delta, currentPrice);
+        metadata.phaseTransition = 'STALK→ATTACK';
       }
       break;
     }
@@ -314,8 +352,8 @@ export function detectPredator(input: DetectorInput): DetectorResult {
         metadata.phaseTransition = 'HERDING→IDLE (timeout)';
         break;
       }
-      if (checkAttack(cumDelta, atr, prevPrice, currentPrice)) {
-        enterAttack(state, now, prevPrice, cumDelta.delta, currentPrice);
+      if (checkAttack(cumDelta, atr, state, currentPrice)) {
+        enterAttack(state, now, state.priceAtPhaseEntry, cumDelta.delta, currentPrice);
         metadata.phaseTransition = 'HERDING→ATTACK';
       }
       break;

@@ -56,9 +56,9 @@ function mad(values: number[]): number {
   return absDeviations.sort((a, b) => a - b)[Math.floor(absDeviations.length / 2)];
 }
 
-// ─── Level 2 hysteresis state ─────────────────────────────────────────────
+// ─── Level 2 hysteresis state (per-ticker) ────────────────────────────────
 
-let _level2Active = false;
+const cipherStateCache = new Map<string, boolean>();
 
 // ─── Z-score normalization (legacy — используется внутри CIPHER для features) ──
 
@@ -339,11 +339,15 @@ function fastICA(data: number[][], nComponents: number = 3, maxIter: number = 20
 // ─── Main Detector ────────────────────────────────────────────────────────
 
 export function detectCipher(input: DetectorInput): DetectorResult {
-  const { recentTrades, trades } = input;
+  const { recentTrades, trades, ticker } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
   // Reset seeded random for reproducibility
   resetSeed();
+
+  // Per-ticker Level 2 hysteresis state
+  if (!cipherStateCache.has(ticker)) cipherStateCache.set(ticker, false);
+  let level2Active = cipherStateCache.get(ticker)!;
 
   // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
@@ -475,13 +479,14 @@ export function detectCipher(input: DetectorInput): DetectorResult {
 
   // ─── LEVEL 2: ICA deep analysis with hysteresis ───────────────────────
   // v4.2: Hysteresis — Level 2 start at >0.5, stop at <0.4
-  if (!_level2Active && cipherQuick > 0.5) _level2Active = true;
-  if (_level2Active && cipherQuick < 0.4) _level2Active = false;
+  if (!level2Active && cipherQuick > 0.5) level2Active = true;
+  if (level2Active && cipherQuick < 0.4) level2Active = false;
+  cipherStateCache.set(ticker, level2Active);
 
   let cipherScore = cipherQuick;
   let level: 1 | 2 = 1;
 
-  if (_level2Active) {
+  if (level2Active) {
     level = 2;
     // Check condition number before ICA
     if (pcaResult.conditionNumber > 1000) {

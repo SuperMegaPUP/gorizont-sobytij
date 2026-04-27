@@ -58,3 +58,30 @@
 ### Следующий шаг
 - ATTRACTOR v4.2 или синтетические тесты
 
+---
+
+## 2026-04-27 | Сессия #3 | ЭТАП 2 ЗАВЕРШЕН — 5 детекторов П2
+
+### Запрос пользователя
+- Пользователь: "продолжай" (продолжение после PREDATOR)
+- Задача: реализовать 5 оставшихся детекторов v4.2
+
+### Что сделано
+- **ACCRETOR v4.2**: DBSCAN на нормированных признаках (time/60s, price/tick), eps=1.0, minSamples=5, window=200. Trade value filter. Cluster concentration = totalVolume/area. Sigmoid-centered scoring.
+- **CIPHER v4.2**: Hysteresis 0.5/0.4 для Level 2. Seeded random (seed=42). MAD-based kurtosis threshold с rolling window (≥20 наблюдений).
+- **WAVEFUNCTION v4.2**: Observation vector z=[cumDelta, OFI, imbalance]. Student-t likelihood. Jitter после resampling. Stale guard (HOLD boost + ν→7). N_PARTICLES=200.
+- **ATTRACTOR v4.2**: Detrended prices SMA(20) → Takens embedding. Silverman robust bandwidth (min(σ, IQR/1.34)). EMA(spread,10) stickiness. POC distance guard.
+- **ENTANGLE v4.2**: Intra-ticker bid/ask flows. ADF-only stationarity. Granger bid→ask + ask→bid. Bonferroni p_threshold=0.025. Schwert lag cap=10.
+- **Тесты**: все 40 тестов проходят. Обновлены тесты ACCRETOR и ENTANGLE.
+
+### Коммиты
+- `c0dba9d` — feat(accretor)
+- `3f42ba3` — feat(cipher)
+- `305f6c8` — feat(wavefunction)
+- `3836563` — feat(attractor)
+- `12df389` — feat(entangle)
+
+### Следующий шаг
+- Этап 3: Интеграция (Dynamic TTL, Confidence v4.2, Fallback guards, Migration)
+- Синтетические тесты для всех 10 детекторов
+

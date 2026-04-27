@@ -51,7 +51,7 @@ const STATE_MU: Record<State, number[]> = {
   [State.HOLD]:       [ 0.0,  0.0,  0.0],
 };
 
-const STATE_NU: Record<State, number> = {
+const BASE_NU: Record<State, number> = {
   [State.ACCUMULATE]: 5,
   [State.DISTRIBUTE]: 5,
   [State.HOLD]:       4,
@@ -82,10 +82,11 @@ function logSumExp(values: number[]): number {
 function studentTLogLikelihood(
   z: number[], // observation vector [cumDelta_norm, ofi_norm, trade_imbalance_norm]
   state: State,
+  currentNu: Record<State, number>,
   sigma: number[] = [1, 1, 1], // diagonal covariance
 ): number {
   const mu = STATE_MU[state];
-  const nu = STATE_NU[state];
+  const nu = currentNu[state];
   const d = z.length;
 
   let delta = 0;
@@ -215,6 +216,9 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
     };
   }
 
+  // Local ν per call (resets each tick)
+  let currentNu = { ...BASE_NU };
+
   // ─── 1. Prepare delta series for particle filter ──────────────────────
   // Running cumulative delta from trades
   const runningDelta: number[] = [];
@@ -286,7 +290,7 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
         cumProb += row[s];
         if (r < cumProb) { p.state = s as State; break; }
       }
-      const logLik = studentTLogLikelihood(z, p.state);
+      const logLik = studentTLogLikelihood(z, p.state, currentNu);
       p.logWeight += logLik;
     }
 
@@ -317,9 +321,9 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
     for (const p of particles) {
       if (p.state === State.HOLD) p.logWeight += Math.log(1.5);
     }
-    STATE_NU[State.ACCUMULATE] = Math.max(STATE_NU[State.ACCUMULATE], 7);
-    STATE_NU[State.DISTRIBUTE] = Math.max(STATE_NU[State.DISTRIBUTE], 7);
-    STATE_NU[State.HOLD] = Math.max(STATE_NU[State.HOLD], 7);
+    currentNu[State.ACCUMULATE] = Math.max(currentNu[State.ACCUMULATE], 7);
+    currentNu[State.DISTRIBUTE] = Math.max(currentNu[State.DISTRIBUTE], 7);
+    currentNu[State.HOLD] = Math.max(currentNu[State.HOLD], 7);
   }
 
   // ν expansion on large price change
@@ -328,14 +332,14 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
     ? prices.slice(-14).reduce((s, p, i, arr) => s + (i > 0 ? Math.abs(p - arr[i-1]) : 0), 0) / 13
     : 0.01;
   if (priceChange > 0.3 * atr) {
-    STATE_NU[State.ACCUMULATE] = Math.max(STATE_NU[State.ACCUMULATE], 7);
-    STATE_NU[State.DISTRIBUTE] = Math.max(STATE_NU[State.DISTRIBUTE], 7);
-    STATE_NU[State.HOLD] = Math.max(STATE_NU[State.HOLD], 7);
+    currentNu[State.ACCUMULATE] = Math.max(currentNu[State.ACCUMULATE], 7);
+    currentNu[State.DISTRIBUTE] = Math.max(currentNu[State.DISTRIBUTE], 7);
+    currentNu[State.HOLD] = Math.max(currentNu[State.HOLD], 7);
   }
 
-  metadata.nuAccumulate = STATE_NU[State.ACCUMULATE];
-  metadata.nuDistribute = STATE_NU[State.DISTRIBUTE];
-  metadata.nuHold = STATE_NU[State.HOLD];
+  metadata.nuAccumulate = currentNu[State.ACCUMULATE];
+  metadata.nuDistribute = currentNu[State.DISTRIBUTE];
+  metadata.nuHold = currentNu[State.HOLD];
 
   // ─── 3. Compute state probabilities ──────────────────────────────────
   const logWeights = particles.map(p => p.logWeight);

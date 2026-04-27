@@ -33,12 +33,12 @@
 | ID | Фича | Статус | Прогресс | Файлы | Примечание |
 |---|---|---|---|---|---|
 | F-2A | PREDATOR v4.2 | ✅ | 100% | `predator.ts` | 5-фазные триггеры, delta_flip FLOW+z-score, ATR-reversion, window_confirm, timeouts |
-| F-2B | ATTRACTOR v4.2 | ⏳ | 0% | `attractor.ts` | detrended prices, Silverman robust, EMA(spread,10), POC distance guard, regime trigger |
-| F-2C | ENTANGLE v4.2 | ⏳ | 0% | `entangle.ts` | Bonferroni, intra-ticker only, bid/ask flows, ADF-only |
-| F-2D | WAVEFUNCTION v4.2 | ⚠️ | 50% | `wavefunction.ts` | Student-t obs model, observation vector z, Σ rolling, jitter, stale guard |
+| F-2B | ATTRACTOR v4.2 | ✅ | 100% | `attractor.ts` | detrended prices, Silverman robust, EMA(spread,10), POC distance guard, regime trigger |
+| F-2C | ENTANGLE v4.2 | ✅ | 100% | `entangle.ts` | Bonferroni, intra-ticker only, bid/ask flows, ADF-only |
+| F-2D | WAVEFUNCTION v4.2 | ✅ | 100% | `wavefunction.ts` | Student-t obs model, observation vector z, Σ rolling, jitter, stale guard |
 | F-2E | GRAVITON v4.2 | ✅ | 100% | `graviton.ts` | COM+walls+sigmoid, ATR-separation, empty side guard, median_depth, cutoffLevel export |
-| F-2F | CIPHER v4.2 | ⏳ | 0% | `cipher.ts` | Гистерезис, fixed seed, baseline kurtosis MAD |
-| F-2G | ACCRETOR v4.2 | ⏳ | 0% | `accretor.ts` | Feature normalization DBSCAN |
+| F-2F | CIPHER v4.2 | ✅ | 100% | `cipher.ts` | Гистерезис, fixed seed, baseline kurtosis MAD |
+| F-2G | ACCRETOR v4.2 | ✅ | 100% | `accretor.ts` | Feature normalization DBSCAN |
 
 ### ЭТАП 3: ИНТЕГРАЦИЯ И FEEDBACK LOOP
 
@@ -80,11 +80,11 @@
 
 ```
 Спринт 5: v4.2
-├─ Этап 1 (П1.5):    0% ████░░░░░░ 4 фичи
-├─ Этап 2 (П2):      0% █░░░░░░░░░ 7 фич
+├─ Этап 1 (П1.5):    75% ████████░░ 4 фичи (3✅ 1⏳)
+├─ Этап 2 (П2):     100% ██████████ 7 фич (7✅)
 ├─ Этап 3 (Интеграция): 0% █░░░░░░░░░ 8 фич
 └─ Этап 4 (Калибровка): 0% ░░░░░░░░░░ 4 фичи
 
-Всего: 23 фичи, 0✅ 2⚠️ 21⏳ 5🚫
+Всего: 23 фичи, 10✅ 2⚠️ 6⏳ 5🚫
 ```
 
