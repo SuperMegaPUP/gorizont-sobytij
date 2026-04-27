@@ -29,7 +29,7 @@ import { calculateTTL, calculateExpiresAt, canGenerateSignals, getSessionInfo } 
  * Старый порог 0.55 → 0 сигналов. Новый 0.45 → 4 сигнала (редкость=ценность).
  * При П2 правках (Sprint 5) BSCI дискриминация улучшится → пересмотреть.
  */
-export const SIGNAL_BSCI_THRESHOLD = 0.45;
+export const SIGNAL_BSCI_THRESHOLD = 0.40;
 
 /** Конвергенция порог для генерации сигнала.
  * Калибровка 2026-04-26: Max conv=9, conv>=5 у 32%, conv>=7 у 2%.
@@ -470,7 +470,7 @@ export function generateSignal(input: SignalGeneratorInput): SignalGeneratorOutp
   const atrCompressed = taIndicators.atrZone === 'COMPRESSED';
 
   // Cross-filter: если менее 3 детекторов с высоким скором → нет сигнала
-  const nHighDetectors = Object.values(detectorScores).filter(s => s > 0.5).length;
+  const nHighDetectors = Object.values(detectorScores).filter(s => s > 0.6).length;
   const hasEnoughSupport = nHighDetectors >= 3;
 
   let signalType: SignalType | null = null;

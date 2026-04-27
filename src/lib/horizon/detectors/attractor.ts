@@ -377,16 +377,16 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   const pocDistance = vProfile.poc > 0 ? Math.abs(vProfile.poc - currentPrice) / Math.max(atr, EPS) : 0;
   metadata.pocDistance = Math.round(pocDistance * 1000) / 1000;
 
-  // Volume profile score: sigmoid-centered (центр 0.5)
-  const volProfileNorm = sigmoidCentered(vProfile.attractionRatio, 0.5, 0.15);
+  // Volume profile score: sigmoid-centered (центр 0.7)
+  const volProfileNorm = sigmoidCentered(vProfile.attractionRatio, 0.7, 0.15);
   // Smooth decay for far POC (С7): distance > 0.5 ATR → gradual decay
   const volProfileScore = pocDistance > 0.5
     ? volProfileNorm * Math.max(0, 1 - (pocDistance - 0.5) / 1.5)
     : volProfileNorm;
   metadata.volProfileNorm = Math.round(volProfileNorm * 1000) / 1000;
 
-  // Takens convergence: sigmoid-centered (центр 0.3)
-  const takensNorm = sigmoidCentered(takens.convergence, 0.3, 0.15);
+  // Takens convergence: sigmoid-centered (центр 0.6)
+  const takensNorm = sigmoidCentered(takens.convergence, 0.6, 0.15);
   metadata.takensNorm = Math.round(takensNorm * 1000) / 1000;
 
   // ─── 4. Composite score ───────────────────────────────────────────────

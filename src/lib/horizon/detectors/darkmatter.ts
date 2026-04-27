@@ -276,6 +276,18 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   entropyScore = cutoffDepth < 5 ? 0 : Math.min(1, Math.max(0, entropyScore));
   metadata.deltaH_norm = Math.round(entropyScore * 1000) / 1000;
 
+  // Data quality penalty: если мало данных — энтропия ненадёжна
+  const DATA_MIN_POINTS = 100;
+  const dataPoints = allTrades ? allTrades.length : cutoffDepth;
+  if (dataPoints < DATA_MIN_POINTS) {
+    const penalty = dataPoints / DATA_MIN_POINTS;
+    entropyScore *= penalty;
+    metadata.dataQualityPenalty = 1 - penalty;
+  } else {
+    metadata.dataQualityPenalty = 0;
+  }
+  metadata.dataPoints = dataPoints;
+
   // ─── 4. Iceberg score ───────────────────────────────────────────────────
   const dailyTurnover = allTrades.reduce((s, t) => s + t.quantity * t.price, 0);
   const medianTradeSize = median(allTrades.map(t => t.quantity));
