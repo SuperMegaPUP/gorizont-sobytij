@@ -551,29 +551,27 @@ describe('CIPHER', () => {
 // ─── ENTANGLE ─────────────────────────────────────────────────────────────
 
 describe('ENTANGLE', () => {
-  test('обнаруживает кросс-тикерную корреляцию', () => {
-    // П2: v5.1 требует стационарный ряд (ADF-тест)
-    // Используем стационарный ряд (mean-reverting, не трендовый)
-    const input = makeInput({
-      prices: Array.from({ length: 30 }, (_, i) =>
-        100 + Math.sin(i / 3) * 2 + Math.random() * 0.5 // стационарный (mean-reverting)
-      ),
-      crossTickers: {
-        GAZP: { priceChange: 2.0, ofi: 0.3 },
-        LKOH: { priceChange: 1.8, ofi: 0.25 },
-      },
-    });
+  test('обнаруживает запутанность bid/ask flows (Granger)', () => {
+    // v4.2: intra-ticker only, требуется ≥60 trades
+    const trades = Array.from({ length: 80 }, (_, i) => ({
+      price: 100 + (i % 10) * 0.1,
+      quantity: 10 + (i % 5) * 2,
+      direction: i % 2 === 0 ? 'BUY' : 'SELL' as const,
+      timestamp: 1000000 + i * 1000,
+    }));
+    const input = makeInput({ trades });
     const result = detectEntangle(input);
     expect(result.detector).toBe('ENTANGLE');
-    // ADF может пройти или нет — проверяем что детектор запустился
-    expect(result.metadata.isStationary).toBeDefined();
+    expect(result.metadata.nObservations as number).toBeGreaterThan(0);
+    // ADF может пройти или нет в зависимости от случайности — проверяем что детектор запустился
+    expect(result.metadata.nObservations as number).toBeGreaterThanOrEqual(15);
   });
 
-  test('нет кросс-тикерных данных → score = 0', () => {
-    const input = makeInput({ crossTickers: undefined });
+  test('< 60 trades → score = 0 (guard)', () => {
+    const input = makeInput({ trades: [] });
     const result = detectEntangle(input);
     expect(result.score).toBe(0);
-    expect(result.metadata.noCrossData).toBe(true);
+    expect(result.metadata.insufficientData).toBe(true);
   });
 });
 
