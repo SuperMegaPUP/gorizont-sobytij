@@ -46,8 +46,28 @@
 - PREDATOR v4.2 (5-фазный автомат: STALK→HERDING→ATTACK→CONSUME/FALSE_BREAKOUT)
 - Синтетические тесты (iceberg + accumulator + predator)
 
+---
+
+## 2026-04-27 | Сессия 2 | main | GRAVITON fixes + PREDATOR v4.2
+
+**Задача:** Исправить 3 бага GRAVITON, реализовать PREDATOR v4.2
+
+**Что сделано:**
+- **GRAVITON fixes**: separationNorm инвертирован (exp(-separation/atrPct)), wallProximity инвертирован (1/(1+minWallDepth)), medianDepth /4 вместо /2. Все 38 тестов проходят.
+- **PREDATOR v4.2** — 5-фазный автомат (IDLE→STALK→HERDING→ATTACK→CONSUME/FALSE_BREAKOUT→AWAIT). State cache per ticker с таймаутами (30/15/5/10 мин). estimated_stops: 4 компонента. delta_flip через z-scored FLOW (n≥20) с sign fallback. reversion_threshold адаптивный по ATR_pct. window_confirm [2,10] мин.
+- **Тесты**: 39/39 проходят.
+
+**Коммиты:**
+- `a106d7b` — fix(graviton): invert separationNorm + wallProximity, fix medianDepth scale
+- `149b728` — feat(predator): implement PREDATOR v4.2 5-phase state machine
+
+**Следующий шаг:**
+- ATTRACTOR v4.2 (detrended prices, Takens embedding, Silverman bandwidth)
+- ENTANGLE v4.2 (Granger causality, ADF-only, Bonferroni)
+- Синтетические тесты
+
 **Контекст:**
-- Покрытие v4.2: ~25✅ + 3⚠️ + 43❌ = 71 пункт
+- Покрытие v4.2: ~30✅ + 3⚠️ + 38❌ = 71 пункт
 - Спринт 5: ФИНАЛЬНЫЙ АКЦЕПТОВАННЫЙ ПЛАН v4.2
 - PROD: robot-detect-v3.vercel.app | LAB: robot-lab-v3.vercel.app
 

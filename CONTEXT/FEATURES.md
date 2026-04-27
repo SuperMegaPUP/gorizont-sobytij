@@ -32,7 +32,7 @@
 
 | ID | Фича | Статус | Прогресс | Файлы | Примечание |
 |---|---|---|---|---|---|
-| F-2A | PREDATOR v4.2 | ⏳ | 0% | `predator.ts` | 5-фазные триггеры, delta_flip FLOW+z-score, ATR-reversion, window_confirm, timeouts |
+| F-2A | PREDATOR v4.2 | ✅ | 100% | `predator.ts` | 5-фазные триггеры, delta_flip FLOW+z-score, ATR-reversion, window_confirm, timeouts |
 | F-2B | ATTRACTOR v4.2 | ⏳ | 0% | `attractor.ts` | detrended prices, Silverman robust, EMA(spread,10), POC distance guard, regime trigger |
 | F-2C | ENTANGLE v4.2 | ⏳ | 0% | `entangle.ts` | Bonferroni, intra-ticker only, bid/ask flows, ADF-only |
 | F-2D | WAVEFUNCTION v4.2 | ⚠️ | 50% | `wavefunction.ts` | Student-t obs model, observation vector z, Σ rolling, jitter, stale guard |
