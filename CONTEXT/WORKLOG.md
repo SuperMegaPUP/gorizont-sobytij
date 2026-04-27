@@ -126,3 +126,30 @@
 ### Следующий шаг
 - PROD деплой или следующие задачи?
 
+---
+
+## 2026-04-27 | Сессия #5 | Score Inflation FIX — ПОБЕДА
+
+### Запрос пользователя
+- Пользователь: патчи не работают! 79/80 ALERT, BSCI=0.58
+- Диагноз: .next кэш + старые формулы в confidence
+
+### Что сделано
+- **HAWKING**: исправлена confidence formula (была старая periodicity+noiseRatio)
+- **ACCRETOR**: добавлены MIN_CLUSTER_SIZE=8 + MIN_CLUSTER_VOLUME_PCT=0.05
+- **CIPHER**: добавлены CIPHER_DECAY=0.95 + CIPHER_MAX_SCORE=0.85 + newPatternDetected tracking
+- **Signal Generator**: добавлен nHighDetectors >= 3 фильтр
+- **PREDATOR**: уже имеет drift reset (проверено)
+- **Кэш**: очищен .next перед билдом
+
+### Результат (после fresh scan!)
+- ALERT: 5/9 (было 79/80!) ✅
+- Top BSCI: 0.549 (было 0.561) ✅
+- Детекторы: HAWKING 0.70, ACCRETOR filtered, CIPHER capped
+
+### Коммит
+- `4a9f94a` — fix(inflation): HAWKING confidence + ACCRETOR cluster thresholds + CIPHER decay/cap + signal cross-filter
+
+### Следующий шаг
+- PROD деплой?
+
