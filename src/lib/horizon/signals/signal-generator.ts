@@ -469,17 +469,21 @@ export function generateSignal(input: SignalGeneratorInput): SignalGeneratorOutp
   const hawkingScore = detectorScores['HAWKING'] || 0;
   const atrCompressed = taIndicators.atrZone === 'COMPRESSED';
 
+  // Cross-filter: если менее 3 детекторов с высоким скором → нет сигнала
+  const nHighDetectors = Object.values(detectorScores).filter(s => s > 0.5).length;
+  const hasEnoughSupport = nHighDetectors >= 3;
+
   let signalType: SignalType | null = null;
   let signalDirection: SignalDirection;
   let reason = '';
 
-  // BREAKOUT: BSCI≥SIGNAL_BSCI_THRESHOLD + HAWKING≥0.7 + ATR сжат
-  if (bsciPass && hawkingScore >= SIGNAL_BREAKOUT_HAWKING_THRESHOLD && atrCompressed) {
+  // BREAKOUT: BSCI≥SIGNAL_BSCI_THRESHOLD + HAWKING≥0.7 + ATR сжат + ≥3 детекторов
+  if (bsciPass && hasEnoughSupport && hawkingScore >= SIGNAL_BREAKOUT_HAWKING_THRESHOLD && atrCompressed) {
     signalType = 'BREAKOUT';
     signalDirection = direction === 'BEARISH' ? 'SHORT' : 'LONG';
   }
-  // LONG / SHORT: все пороги пройдены
-  else if (bsciPass && convPass && topDetPass) {
+  // LONG / SHORT: все пороги пройдены + ≥3 детекторов
+  else if (bsciPass && hasEnoughSupport && convPass && topDetPass) {
     signalDirection = direction === 'BEARISH' ? 'SHORT' : 'LONG';
 
     if (direction === 'BULLISH' || direction === 'BEARISH') {

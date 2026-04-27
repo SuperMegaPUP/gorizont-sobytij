@@ -360,7 +360,7 @@ export function detectHawking(input: DetectorInput): DetectorResult {
   }
 
   const confidence = score > 0.2
-    ? Math.min(1, (periodicity + (1 - noiseRatio)) / 1.5)
+    ? Math.min(1, (periodicityCapped + (1 - effectiveNoiseRatio) + fwhmNorm) / 2.5)
     : 0;
 
   // ─── 9. Stale penalty ───────────────────────────────────────────────────

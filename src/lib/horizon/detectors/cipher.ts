@@ -34,6 +34,8 @@ import { robustNormalize } from './cross-section-normalize';
 import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
+const CIPHER_DECAY = 0.95;
+const CIPHER_MAX_SCORE = 0.85;
 
 // ─── Seeded random (seed=42 для воспроизводимости ICA/PCA) ────────────────
 
@@ -479,8 +481,10 @@ export function detectCipher(input: DetectorInput): DetectorResult {
 
   // ─── LEVEL 2: ICA deep analysis with hysteresis ───────────────────────
   // v4.2: Hysteresis — Level 2 start at >0.5, stop at <0.4
+  const wasLevel2Active = level2Active;
   if (!level2Active && cipherQuick > 0.5) level2Active = true;
   if (level2Active && cipherQuick < 0.4) level2Active = false;
+  const newPatternDetected = !wasLevel2Active && level2Active;
   cipherStateCache.set(ticker, level2Active);
 
   let cipherScore = cipherQuick;
@@ -530,7 +534,15 @@ export function detectCipher(input: DetectorInput): DetectorResult {
   }
 
   metadata.level = level;
-  const score = clampScore(cipherScore);
+  let score = clampScore(cipherScore);
+
+  // Decay: если новый паттерн НЕ обнаружен, снижаем скор
+  if (!newPatternDetected) {
+    score *= CIPHER_DECAY;
+  }
+  // Cap: максимальный скор CIPHER
+  score = Math.min(score, CIPHER_MAX_SCORE);
+  score = clampScore(score);
 
   // ─── Signal direction ──────────────────────────────────────────────────
   let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';

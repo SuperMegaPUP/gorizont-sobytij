@@ -17,6 +17,8 @@ import type { DetectorInput, DetectorResult } from './types';
 import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
+const MIN_CLUSTER_SIZE = 8;
+const MIN_CLUSTER_VOLUME_PCT = 0.05;
 
 // ─── DBSCAN на нормированных 2D точках ──────────────────────────────────────
 
@@ -223,14 +225,31 @@ export function detectAccretor(input: DetectorInput): DetectorResult {
   metadata.atr = Math.round(atr * 10000) / 10000;
 
   // ─── 5. Cluster analysis — concentration ────────────────────────────────
-  for (const cluster of clusters) {
+  const totalVolume = clusters.reduce((s, c) => s + c.totalVolume, 0);
+  const validClusters = clusters.filter(cluster => {
+    const clusterVolumePct = totalVolume > 0 ? cluster.totalVolume / totalVolume : 0;
+    const isBigEnough = cluster.nTrades >= MIN_CLUSTER_SIZE;
+    const isVolumeSignificant = clusterVolumePct >= MIN_CLUSTER_VOLUME_PCT;
+    return isBigEnough && isVolumeSignificant;
+  });
+
+  if (validClusters.length === 0) {
+    return {
+      detector: 'ACCRETOR',
+      description: 'Аккреция — кластеры слишком малы',
+      score: 0, confidence: 0, signal: 'NEUTRAL',
+      metadata: { ...metadata, reason: 'clusters_too_small', nClusters: clusters.length },
+    };
+  }
+
+  for (const cluster of validClusters) {
     const area = Math.max(cluster.priceRange / atr, 0.001) * Math.max(cluster.timeRangeSec / 60, 0.1);
     (cluster as any).concentration = cluster.totalVolume / area;
     (cluster as any).avgTradeValue = cluster.totalVolume * cluster.priceRange / cluster.nTrades;
   }
 
-  const concentrations = clusters.map(c => (c as any).concentration as number);
-  const bestCluster = clusters.reduce((a, b) =>
+  const concentrations = validClusters.map(c => (c as any).concentration as number);
+  const bestCluster = validClusters.reduce((a, b) =>
     ((a as any).concentration > (b as any).concentration ? a : b)
   );
 
