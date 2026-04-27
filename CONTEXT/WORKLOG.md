@@ -106,3 +106,23 @@
 ### Следующий шаг
 - Этап 3: Интеграция и Feedback Loop
 
+---
+
+## 2026-04-27 | Сессия #4 | ATTRACTOR fix + Deploy LAB
+
+### Запрос пользователя
+- Пользователь: "продолжай" → исправить ATTRACTOR → задеплоить в LAB → push на GitHub
+
+### Что сделано
+- **ATTRACTOR**: исправлен confidence calculation — `volumeProfileScore, stickinessScore` → `volProfileNorm, stickinessNorm`
+- **Tests**: 196/197 pass (env-check предупреждает о missing TINVEST_TOKEN — OK)
+- **Build**: Next.js build успешен (патчен node version check для Node 18)
+- **Deploy**: LAB — https://robot-lab-v3.vercel.app
+- **Push**: GitHub commit `72217ce`
+
+### Коммит
+- `72217ce` — fix(attractor): normalize volProfile and stickiness in confidence calc v4.2
+
+### Следующий шаг
+- PROD деплой или следующие задачи?
+
