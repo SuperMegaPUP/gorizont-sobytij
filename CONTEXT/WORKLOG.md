@@ -85,3 +85,24 @@
 - Этап 3: Интеграция (Dynamic TTL, Confidence v4.2, Fallback guards, Migration)
 - Синтетические тесты для всех 10 детекторов
 
+---
+
+## 2026-04-27 | Сессия #3.5 | ЭКСПЕРТНЫЙ АУДИТ — 8 критических багов
+
+### Запрос пользователя
+- Пользователь прислал экспертный анализ с 8 критическими багами
+
+### Что сделано
+- **PREDATOR**: aggression_ratio max/min, cumDelta_accel > 0, delta_flip periodic flows, price_change from phase entry, STALK→ATTACK direct transition
+- **CIPHER**: _level2Active global → per-ticker Map
+- **WAVEFUNCTION**: STATE_NU mutable global → local currentNu + BASE_NU
+- **ATTRACTOR**: POC distance / ATR(14) вместо emaSpread
+- **ENTANGLE**: score formula inverted → 1 - minP/P_THRESHOLD
+- **Тесты**: все 40 тестов проходят
+
+### Коммит
+- `777a61c` — fix(detectors): 8 critical bugs from expert audit
+
+### Следующий шаг
+- Этап 3: Интеграция и Feedback Loop
+

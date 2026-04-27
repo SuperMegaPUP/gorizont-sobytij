@@ -101,3 +101,34 @@
 - Спринт 5: Этап 1 (75%) + Этап 2 (100%) + Этап 3 (0%) + Этап 4 (0%)
 - PROD: robot-detect-v3.vercel.app | LAB: robot-lab-v3.vercel.app
 
+---
+
+## 2026-04-27 | Сессия 3.5 | main | ЭКСПЕРТНЫЙ АУДИТ — 8 критических багов
+
+**Задача:** Исправить 8 критических багов, найденных экспертной проверкой
+
+**Что сделано:**
+- **PREDATOR (5 багов):**
+  1. `aggression_ratio`: buy/sell → max/min (ловит и LONG, и SHORT атаки)
+  2. `cumDelta_accel`: добавлена проверка второй производной (ускорение > 0)
+  3. `delta_flip`: cumulative sum → периодические 5-секундные flow-наблюдения
+  4. `price_change`: 1 тик → цена относительно входа в фазу
+  5. `STALK→ATTACK`: добавлен прямой переход без HERDING
+- **CIPHER (1 баг):** `_level2Active` глобальный → `cipherStateCache` per-ticker Map
+- **WAVEFUNCTION (1 баг):** `STATE_NU` mutable global → локальный `currentNu` + `BASE_NU`
+- **ATTRACTOR (1 баг):** POC distance / `emaSpread` → / `ATR(14)`
+- **ENTANGLE (1 баг):** Score формула инвертирована: `minP/P_THRESHOLD` → `1 - minP/P_THRESHOLD`
+- **Тесты**: все 40 тестов проходят
+
+**Коммит:**
+- `777a61c` — fix(detectors): 8 critical bugs from expert audit
+
+**Следующий шаг:**
+- Этап 3: Интеграция и Feedback Loop
+- Синтетические тесты для всех 10 детекторов
+
+**Контекст:**
+- Все 10 детекторов v4.2 реализованы и протестированы
+- Покрытие v4.2: ~65✅ + 3⚠️ + 3❌ = 71 пункт
+- PROD: robot-detect-v3.vercel.app | LAB: robot-lab-v3.vercel.app
+
