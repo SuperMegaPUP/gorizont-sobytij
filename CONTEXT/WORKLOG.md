@@ -38,3 +38,45 @@
 - Этап 1: П1.5 — DECOHERENCE, HAWKING, DARKMATTER v4.2
 - Начать с DECOHERENCE
 
+---
+
+## 2026-04-27 | Сессия #1 | Реализация v4.2 детекторов
+
+### Запрос пользователя
+- Пользователь: "ЭКСПЕРТНАЯ ПРОВЕРКА: DECOHERENCE v4.2..." + "ДАВАЙ ИДЕМ ДАЛЬШЕ ТОГДА ПО ПЛАНУ"
+- Задача: исправить 4 бага DECOHERENCE, затем реализовать HAWKING, DARKMATTER, GRAVITON v4.2
+
+### Что сделано
+- **Bug fixes DECOHERENCE**: priceChangeCount в окне (не по всем сделкам), алго-тест с ≥5 символами, детерминированный PRNG вместо Math.random(), удалены остатки flowDivergence
+- **HAWKING v4.2**: полная замена trade_intervals → 100ms activity series, adaptive algo_zone с Nyquist clip, double guard
+- **DARKMATTER v4.2**: 80% cutoff, Miller-Madow, depth guard, iceberg 5% tolerance, exp weight
+- **GRAVITON v4.2**: COM + walls + sigmoid (centered), ATR-normalization, empty side guard, median_depth, cutoffLevel export
+- **Тесты**: 38/38 проходят, все детерминированные
+
+### Коммит
+- `1c4e218` — feat(detectors): implement v4.2 for DECOHERENCE, HAWKING, DARKMATTER, GRAVITON
+
+### Следующий шаг
+- PREDATOR v4.2 (5-фазный автомат) или синтетические тесты
+
+---
+
+## 2026-04-27 | Сессия #1 | Реализация v4.2 детекторов
+
+### Запрос пользователя
+- Пользователь: "ЭКСПЕРТНАЯ ПРОВЕРКА: DECOHERENCE v4.2..." + "ДАВАЙ ИДЕМ ДАЛЬШЕ ТОГДА ПО ПЛАНУ"
+- Задача: исправить 4 бага DECOHERENCE, затем реализовать HAWKING, DARKMATTER, GRAVITON v4.2
+
+### Что сделано
+- **Bug fixes DECOHERENCE**: priceChangeCount в окне (не по всем сделкам), алго-тест с ≥5 символами, детерминированный PRNG вместо Math.random(), удалены остатки flowDivergence
+- **HAWKING v4.2**: полная замена trade_intervals → 100ms activity series, adaptive algo_zone с Nyquist clip, double guard
+- **DARKMATTER v4.2**: 80% cutoff, Miller-Madow, depth guard, iceberg 5% tolerance, exp weight
+- **GRAVITON v4.2**: COM + walls + sigmoid (centered), ATR-normalization, empty side guard, median_depth, cutoffLevel export
+- **Тесты**: 38/38 проходят, все детерминированные
+
+### Коммит
+- `1c4e218` — feat(detectors): implement v4.2 for DECOHERENCE, HAWKING, DARKMATTER, GRAVITON
+
+### Следующий шаг
+- PREDATOR v4.2 (5-фазный автомат) или синтетические тесты
+
