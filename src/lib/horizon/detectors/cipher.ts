@@ -35,6 +35,31 @@ import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
+// ─── Seeded random (seed=42 для воспроизводимости ICA/PCA) ────────────────
+
+let _seed = 42;
+function seededRandom(): number {
+  _seed = (_seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+  return (_seed >>> 0) / 0xFFFFFFFF;
+}
+
+function resetSeed(): void { _seed = 42; }
+
+// ─── Kurtosis history (rolling window для MAD-based threshold) ────────────
+
+const kurtosisHistory: number[] = [];
+const MAX_KURTOSIS_HISTORY = 50;
+
+function mad(values: number[]): number {
+  const med = values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const absDeviations = values.map(v => Math.abs(v - med));
+  return absDeviations.sort((a, b) => a - b)[Math.floor(absDeviations.length / 2)];
+}
+
+// ─── Level 2 hysteresis state ─────────────────────────────────────────────
+
+let _level2Active = false;
+
 // ─── Z-score normalization (legacy — используется внутри CIPHER для features) ──
 
 function zScoreNormalize(values: number[]): number[] {
@@ -132,8 +157,8 @@ function pca(data: number[][], nComponents: number = 3): PCAResult {
   const covWork = corr.map(row => [...row]);
 
   for (let c = 0; c < actualComponents; c++) {
-    // Random initial vector
-    let v = Array.from({ length: m }, () => Math.random() - 0.5);
+    // Random initial vector (seeded for reproducibility)
+    let v = Array.from({ length: m }, () => seededRandom() - 0.5);
     const vNorm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
     v = v.map(x => x / vNorm);
 
@@ -224,8 +249,8 @@ function fastICA(data: number[][], nComponents: number = 3, maxIter: number = 20
 
   // For each component, use fixed-point ICA iteration
   for (let c = 0; c < actualComponents; c++) {
-    // Random initial weight vector
-    let w = Array.from({ length: m }, () => Math.random() - 0.5);
+    // Random initial weight vector (seeded for reproducibility)
+    let w = Array.from({ length: m }, () => seededRandom() - 0.5);
     const wNorm = Math.sqrt(w.reduce((s, x) => s + x * x, 0)) || 1;
     w = w.map(x => x / wNorm);
 
@@ -316,6 +341,9 @@ function fastICA(data: number[][], nComponents: number = 3, maxIter: number = 20
 export function detectCipher(input: DetectorInput): DetectorResult {
   const { recentTrades, trades } = input;
   const metadata: Record<string, number | string | boolean> = {};
+
+  // Reset seeded random for reproducibility
+  resetSeed();
 
   // v4.2: Gradual stale penalty instead of binary stale→0
   if (input.staleData) {
@@ -445,38 +473,59 @@ export function detectCipher(input: DetectorInput): DetectorResult {
   const volumeUniformity = maxVolFreq / volumes.length;
   metadata.volumeUniformity = Math.round(volumeUniformity * 1000) / 1000;
 
-  // ─── LEVEL 2: ICA deep analysis (only if cipher_quick > 0.5) ──────────
-  let cipherScore = cipherQuick;
+  // ─── LEVEL 2: ICA deep analysis with hysteresis ───────────────────────
+  // v4.2: Hysteresis — Level 2 start at >0.5, stop at <0.4
+  if (!_level2Active && cipherQuick > 0.5) _level2Active = true;
+  if (_level2Active && cipherQuick < 0.4) _level2Active = false;
 
-  if (cipherQuick > 0.5) {
+  let cipherScore = cipherQuick;
+  let level: 1 | 2 = 1;
+
+  if (_level2Active) {
+    level = 2;
     // Check condition number before ICA
     if (pcaResult.conditionNumber > 1000) {
-      // Ill-conditioned matrix → skip ICA
       metadata.icaSkipped = true;
       metadata.icaSkipReason = 'high_condition_number';
       cipherScore = cipherQuick;
     } else {
-      // Run ICA
+      // Run ICA (seeded, max_iterations=200)
       const icaResult = fastICA(normalizedFeatures, 3, 200);
       metadata.icaConverged = icaResult.converged;
       metadata.icaKurtosis = Math.round(icaResult.kurtosis * 100) / 100;
 
+      // Update kurtosis history for MAD-based threshold
+      if (icaResult.kurtosis > EPS) {
+        kurtosisHistory.push(icaResult.kurtosis);
+        if (kurtosisHistory.length > MAX_KURTOSIS_HISTORY) kurtosisHistory.shift();
+      }
+
+      // MAD-based threshold (v4.2: financial data is ALWAYS leptokurtic)
+      let kurtosisThreshold = 2.0; // fallback
+      if (kurtosisHistory.length >= 20) {
+        const medKurt = kurtosisHistory.sort((a, b) => a - b)[Math.floor(kurtosisHistory.length / 2)];
+        const madKurt = mad([...kurtosisHistory]);
+        kurtosisThreshold = medKurt + 2 * madKurt;
+      }
+      metadata.kurtosisThreshold = Math.round(kurtosisThreshold * 100) / 100;
+
       if (!icaResult.converged || icaResult.kurtosis < EPS) {
-        // ICA failed → fallback to cipher_quick
         metadata.icaFallback = true;
         cipherScore = cipherQuick;
       } else {
-        // Kurtosis > 3 → non-Gaussian → multiple independent algorithms
-        // Normalize kurtosis: kurt=3 → 0.5, kurt=6 → 1.0
-        const kurtosisNorm = Math.min(1, Math.max(0, (icaResult.kurtosis - 1) / 5));
+        // Kurtosis excess over baseline
+        const excessKurtosis = icaResult.kurtosis - 3;
+        const kurtosisNorm = kurtosisHistory.length >= 20
+          ? (Math.abs(excessKurtosis) > 2 * mad([...kurtosisHistory]) ? 1 : 0)
+          : Math.min(1, Math.max(0, (icaResult.kurtosis - 1) / 5));
         metadata.kurtosisNormalized = Math.round(kurtosisNorm * 1000) / 1000;
-
         cipherScore = (cipherQuick + kurtosisNorm) / 2;
       }
     }
   }
 
-  const score = Math.min(1, Math.max(0, cipherScore));
+  metadata.level = level;
+  const score = clampScore(cipherScore);
 
   // ─── Signal direction ──────────────────────────────────────────────────
   let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
