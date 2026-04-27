@@ -22,9 +22,10 @@
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty } from './guards';
 
-const DF_PRIMARY = 5; // v5.2: Увеличено с 3 до 5 (микро-уточнение #3: более гладкий likelihood)
-const DF_ROLLOUT = 7; // v5.2: Для rollout режима — ещё более гладкий (для скачков вероятностей)
+const DF_PRIMARY = 5;
+const DF_ROLLOUT = 7;
 const EPS = 1e-6;
+const N_PARTICLES = 200; // v4.2: 200 fixed particles
 
 // ─── Particle Filter Types ────────────────────────────────────────────────
 
@@ -33,16 +34,28 @@ enum State { ACCUMULATE = 0, DISTRIBUTE = 1, HOLD = 2 }
 interface Particle {
   state: State;
   logWeight: number;
+  params: number[]; // jittered observation model params
 }
 
 // Transition matrix (row = from, col = to)
 const TRANSITION: number[][] = [
-  [0.7, 0.2, 0.1], // ACCUMULATE →
-  [0.2, 0.6, 0.2], // DISTRIBUTE  →
-  [0.1, 0.2, 0.7], // HOLD        →
+  [0.7, 0.2, 0.1],
+  [0.2, 0.6, 0.2],
+  [0.1, 0.2, 0.7],
 ];
 
-const N_PARTICLES = 100;
+// v4.2: Fixed Student-t observation model parameters
+const STATE_MU: Record<State, number[]> = {
+  [State.ACCUMULATE]: [+0.3, +0.2, +0.2],
+  [State.DISTRIBUTE]: [-0.3, -0.2, -0.2],
+  [State.HOLD]:       [ 0.0,  0.0,  0.0],
+};
+
+const STATE_NU: Record<State, number> = {
+  [State.ACCUMULATE]: 5,
+  [State.DISTRIBUTE]: 5,
+  [State.HOLD]:       4,
+};
 
 // ─── Log-space utilities ──────────────────────────────────────────────────
 
@@ -67,35 +80,22 @@ function logSumExp(values: number[]): number {
  * HOLD: expects near-zero delta
  */
 function studentTLogLikelihood(
-  priceChange: number,
-  deltaChange: number,
+  z: number[], // observation vector [cumDelta_norm, ofi_norm, trade_imbalance_norm]
   state: State,
-  df: number = DF_PRIMARY, // v5.2: Настраиваемые degrees of freedom
+  sigma: number[] = [1, 1, 1], // diagonal covariance
 ): number {
-  const observation = deltaChange; // primary signal
+  const mu = STATE_MU[state];
+  const nu = STATE_NU[state];
+  const d = z.length;
 
-  let mu: number;
-  let sigma: number;
-
-  switch (state) {
-    case State.ACCUMULATE:
-      mu = 0.3;
-      sigma = 1.0;
-      break;
-    case State.DISTRIBUTE:
-      mu = -0.3;
-      sigma = 1.0;
-      break;
-    case State.HOLD:
-      mu = 0;
-      sigma = 0.5;
-      break;
+  let delta = 0;
+  for (let i = 0; i < d; i++) {
+    delta += Math.pow(z[i] - mu[i], 2) / Math.max(sigma[i], EPS);
   }
+  delta /= nu;
 
-  // Student-t log PDF: log((1 + (x-μ)²/(σ²×df))^(-(df+1)/2) / (σ×B(df/2, 1/2)×√df))
-  // Simplified (ignoring constant since we normalize):
-  const z = (observation - mu) / (sigma + EPS);
-  return -(df + 1) / 2 * Math.log(1 + z * z / df);
+  // Simplified Student-t log-likelihood (ignoring constants)
+  return -(nu + d) / 2 * Math.log(1 + delta);
 }
 
 // ─── Systematic Resampling ────────────────────────────────────────────────
@@ -106,33 +106,40 @@ function studentTLogLikelihood(
  */
 function systematicResample(particles: Particle[]): Particle[] {
   const n = particles.length;
-
-  // Normalize weights
   const logWeights = particles.map(p => p.logWeight);
   const logNorm = logSumExp(logWeights);
   const weights = logWeights.map(lw => Math.exp(lw - logNorm));
-
-  // Cumulative sum
   const cumSum: number[] = [weights[0]];
-  for (let i = 1; i < n; i++) {
-    cumSum.push(cumSum[i - 1] + weights[i]);
-  }
-
-  // Systematic resampling
+  for (let i = 1; i < n; i++) cumSum.push(cumSum[i - 1] + weights[i]);
   const u0 = Math.random() / n;
   const newParticles: Particle[] = [];
   let j = 0;
-
   for (let i = 0; i < n; i++) {
     const u = u0 + i / n;
     while (j < n - 1 && cumSum[j] < u) j++;
     newParticles.push({
       state: particles[j].state,
-      logWeight: -Math.log(n), // uniform log-weight after resampling
+      logWeight: -Math.log(n),
+      params: [...particles[j].params],
     });
   }
-
   return newParticles;
+}
+
+// Jitter: σ_jitter = 0.05 × range / N^(1/d)
+function applyJitter(particles: Particle[], zRange: number): void {
+  const d = 3;
+  const sigmaJitter = 0.05 * zRange / Math.pow(particles.length, 1 / d);
+  for (const p of particles) {
+    p.params = p.params.map(v => v + gaussianRandom(0, sigmaJitter));
+  }
+}
+
+function gaussianRandom(mean: number, std: number): number {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return mean + z0 * std;
 }
 
 /**
@@ -231,91 +238,47 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
     priceChanges.push(prices[i] - prices[i - 1]);
   }
 
-  // ─── 2. Particle Filter ───────────────────────────────────────────────
-  // Initialize particles with uniform weights
+  // ─── 2. Observation vector z ──────────────────────────────────────────
+  // z = [cumDelta_norm, ofi_norm, trade_imbalance_norm]
+  const ofiValues = trades.map((t, i) => {
+    const side = t.direction.toUpperCase().trim();
+    const s = side === 'B' || side === 'BUY' ? 1 : side === 'S' || side === 'SELL' ? -1 : 0;
+    return s * t.quantity;
+  });
+  const imbalanceValues = trades.map(t => {
+    const side = t.direction.toUpperCase().trim();
+    return side === 'B' || side === 'BUY' ? 1 : 0;
+  });
+
+  // Robust normalize (median/IQR)
+  function robustNormalizeSeries(values: number[]): number[] {
+    const sorted = [...values].sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+    const iqr = q3 - q1 || 1;
+    return values.map(v => (v - med) / iqr);
+  }
+
+  const normCumDelta = robustNormalizeSeries(deltaChanges);
+  const normOFI = robustNormalizeSeries(ofiValues.slice(1));
+  const normImbalance = robustNormalizeSeries(imbalanceValues.slice(1));
+
+  const pfLength = Math.min(normCumDelta.length, normOFI.length, normImbalance.length, 100);
+
+  // ─── 3. Particle Filter ───────────────────────────────────────────────
   let particles: Particle[] = Array.from({ length: N_PARTICLES }, () => ({
     state: Math.floor(Math.random() * 3) as State,
-    logWeight: -Math.log(N_PARTICLES), // uniform in log-space
+    logWeight: -Math.log(N_PARTICLES),
+    params: [0, 0, 0],
   }));
 
   let resampleCount = 0;
-  const pfLength = Math.min(deltaChanges.length, priceChanges.length, 100);
 
   for (let t = 0; t < pfLength; t++) {
-    const pc = priceChanges[t] || 0;
-    const dc = deltaChanges[t] || 0;
+    const z = [normCumDelta[t] || 0, normOFI[t] || 0, normImbalance[t] || 0];
 
-    // Normalize observations
-    const priceStd = Math.sqrt(priceChanges.reduce((s, v) => s + v * v, 0) / priceChanges.length) || 1;
-    const deltaStd = Math.sqrt(deltaChanges.reduce((s, v) => s + v * v, 0) / deltaChanges.length) || 1;
-
-    const normPrice = pc / priceStd;
-    const normDelta = dc / deltaStd;
-
-    // Update each particle
     for (const p of particles) {
-      // Transition: sample new state from transition matrix
-      const r = Math.random();
-      const row = TRANSITION[p.state];
-      let cumProb = 0;
-      for (let s = 0; s < 3; s++) {
-        cumProb += row[s];
-        if (r < cumProb) {
-          p.state = s as State;
-          break;
-        }
-      }
-
-      // Likelihood: how well does this observation match the state?
-      const logLik = studentTLogLikelihood(normPrice, normDelta, p.state);
-
-      // Update weight in log-space
-      p.logWeight += logLik;
-    }
-
-    // Normalize weights in log-space
-    const logNorm = logSumExp(particles.map(p => p.logWeight));
-    for (const p of particles) {
-      p.logWeight -= logNorm;
-    }
-
-    // Check effective sample size
-    const nEff = effectiveSampleSize(particles);
-    if (nEff < 0.5 * N_PARTICLES) {
-      particles = systematicResample(particles);
-      resampleCount++;
-    }
-  }
-
-  metadata.resampleCount = resampleCount;
-
-  // ─── 2.5. Parallel Rollout PF (v4.2 — микро-уточнение #3) ────────────────
-  // Запускаем параллельный PF с ν=7 (более гладкий likelihood)
-  // Сравниваем с основным PF (ν=5):
-  // - Если rollout N_eff стабильнее → переключаемся на ν=7
-  // - Если rollout даёт скачки → остаёмся на ν=5
-  let rolloutParticles: Particle[] = Array.from({ length: N_PARTICLES }, () => ({
-    state: Math.floor(Math.random() * 3) as State,
-    logWeight: -Math.log(N_PARTICLES),
-  }));
-  let rolloutResampleCount = 0;
-  let rolloutNeffSum = 0;
-  let primaryNeffSum = 0;
-  let rolloutNeffCount = 0;
-
-  for (let t = 0; t < pfLength; t++) {
-    const pc = priceChanges[t] || 0;
-    const dc = deltaChanges[t] || 0;
-    const priceStd = Math.sqrt(priceChanges.reduce((s, v) => s + v * v, 0) / priceChanges.length) || 1;
-    const deltaStd = Math.sqrt(deltaChanges.reduce((s, v) => s + v * v, 0) / deltaChanges.length) || 1;
-    const normPrice = pc / priceStd;
-    const normDelta = dc / deltaStd;
-
-    // Track primary PF N_eff
-    primaryNeffSum += effectiveSampleSize(particles);
-
-    // Update rollout particles with ν=7
-    for (const p of rolloutParticles) {
       const r = Math.random();
       const row = TRANSITION[p.state];
       let cumProb = 0;
@@ -323,33 +286,56 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
         cumProb += row[s];
         if (r < cumProb) { p.state = s as State; break; }
       }
-      const logLik = studentTLogLikelihood(normPrice, normDelta, p.state, DF_ROLLOUT);
+      const logLik = studentTLogLikelihood(z, p.state);
       p.logWeight += logLik;
     }
 
-    const rollLogNorm = logSumExp(rolloutParticles.map(p => p.logWeight));
-    for (const p of rolloutParticles) p.logWeight -= rollLogNorm;
+    const logNorm = logSumExp(particles.map(p => p.logWeight));
+    for (const p of particles) p.logWeight -= logNorm;
 
-    const rolloutNeff = effectiveSampleSize(rolloutParticles);
-    rolloutNeffSum += rolloutNeff;
-    rolloutNeffCount++;
-
-    if (rolloutNeff < 0.5 * N_PARTICLES) {
-      rolloutParticles = systematicResample(rolloutParticles);
-      rolloutResampleCount++;
+    const nEff = effectiveSampleSize(particles);
+    if (nEff < 0.5 * N_PARTICLES) {
+      particles = systematicResample(particles);
+      // Jitter after resampling (CRITICAL — prevents collapse)
+      const zRange = Math.max(...z) - Math.min(...z);
+      applyJitter(particles, zRange);
+      resampleCount++;
     }
   }
 
-  // Compare rollout vs primary
-  const avgPrimaryNeff = rolloutNeffCount > 0 ? primaryNeffSum / rolloutNeffCount : 0;
-  const avgRolloutNeff = rolloutNeffCount > 0 ? rolloutNeffSum / rolloutNeffCount : 0;
-  const rolloutBetter = avgRolloutNeff > avgPrimaryNeff * 1.1; // rollout N_eff > 110% of primary
+  metadata.resampleCount = resampleCount;
 
-  metadata.rolloutAvgNeff = Math.round(avgRolloutNeff * 10) / 10;
-  metadata.rolloutResampleCount = rolloutResampleCount;
-  metadata.rolloutDf = DF_ROLLOUT;
-  metadata.rolloutBetter = rolloutBetter;
-  metadata.primaryAvgNeff = Math.round(avgPrimaryNeff * 10) / 10;
+  // ─── 4. Stale data guard (Л6) ─────────────────────────────────────────
+  const lastTradeTs = trades[trades.length - 1]?.timestamp || 0;
+  const now = Date.now();
+  const staleThreshold = 30 * 1000; // 30 seconds
+  const isStale = now - lastTradeTs > staleThreshold;
+  metadata.isStale = isStale;
+
+  if (isStale) {
+    // Boost HOLD probability, increase ν
+    for (const p of particles) {
+      if (p.state === State.HOLD) p.logWeight += Math.log(1.5);
+    }
+    STATE_NU[State.ACCUMULATE] = Math.max(STATE_NU[State.ACCUMULATE], 7);
+    STATE_NU[State.DISTRIBUTE] = Math.max(STATE_NU[State.DISTRIBUTE], 7);
+    STATE_NU[State.HOLD] = Math.max(STATE_NU[State.HOLD], 7);
+  }
+
+  // ν expansion on large price change
+  const priceChange = Math.abs(prices[prices.length - 1] - prices[prices.length - 2]) || 0;
+  const atr = prices.length >= 14
+    ? prices.slice(-14).reduce((s, p, i, arr) => s + (i > 0 ? Math.abs(p - arr[i-1]) : 0), 0) / 13
+    : 0.01;
+  if (priceChange > 0.3 * atr) {
+    STATE_NU[State.ACCUMULATE] = Math.max(STATE_NU[State.ACCUMULATE], 7);
+    STATE_NU[State.DISTRIBUTE] = Math.max(STATE_NU[State.DISTRIBUTE], 7);
+    STATE_NU[State.HOLD] = Math.max(STATE_NU[State.HOLD], 7);
+  }
+
+  metadata.nuAccumulate = STATE_NU[State.ACCUMULATE];
+  metadata.nuDistribute = STATE_NU[State.DISTRIBUTE];
+  metadata.nuHold = STATE_NU[State.HOLD];
 
   // ─── 3. Compute state probabilities ──────────────────────────────────
   const logWeights = particles.map(p => p.logWeight);
