@@ -29,7 +29,7 @@ function makeInput(overrides: Partial<DetectorInput> = {}): DetectorInput {
 
   const trades: Trade[] = Array.from({ length: 50 }, (_, i) => ({
     price: 100 + (i % 5) * 0.1,
-    quantity: 10,
+    quantity: [1, 2, 4, 8, 16][i % 5],
     direction: i % 3 === 0 ? 'SELL' : 'BUY',
     timestamp: 1000000 + i * 100,
   }));
@@ -142,9 +142,11 @@ describe('DARKMATTER', () => {
     for (let i = 0; i < 5; i++) {
       icebergTrades.push({ price: 100, quantity: 100, direction: 'BUY', timestamp: Date.now() + i * 100 });
     }
-    // Дополнительные сделки для дневного оборота
+    // Дополнительные сделки для дневного оборота (детерминированные)
+    let seed = 7;
+    const pr = () => { seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF; return (seed >>> 0) / 0xFFFFFFFF; };
     for (let i = 0; i < 20; i++) {
-      icebergTrades.push({ price: 100 + Math.random(), quantity: 10 + Math.floor(Math.random() * 30), direction: i % 2 === 0 ? 'BUY' : 'SELL', timestamp: Date.now() + (5 + i) * 100 });
+      icebergTrades.push({ price: 100 + pr(), quantity: 10 + Math.floor(pr() * 30), direction: i % 2 === 0 ? 'BUY' : 'SELL', timestamp: Date.now() + (5 + i) * 100 });
     }
     const input = makeInput({
       orderbook: {
@@ -175,10 +177,43 @@ describe('DARKMATTER', () => {
         bids: Array.from({ length: 20 }, (_, i) => ({ price: 100 - i * 0.1, quantity: 500 })),
         asks: Array.from({ length: 20 }, (_, i) => ({ price: 100.1 + i * 0.1, quantity: 500 })),
       },
+      trades: [],
       recentTrades: Array.from({ length: 5 }, () => ({ price: 100, quantity: 1, direction: 'BUY', timestamp: Date.now() })),
     });
     const result = detectDarkmatter(input);
     expect(result.score).toBeLessThan(0.5);
+  });
+
+  test('cutoff_depth < 5 → entropy_score = 0', () => {
+    // Мало уровней в стакане → guard срабатывает
+    const input = makeInput({
+      orderbook: {
+        bids: [
+          { price: 100, quantity: 500 },
+          { price: 99.9, quantity: 100 },
+        ],
+        asks: [
+          { price: 100.1, quantity: 500 },
+          { price: 100.2, quantity: 100 },
+        ],
+      },
+      trades: Array.from({ length: 10 }, (_, i) => ({
+        price: 100, quantity: 50, direction: 'BUY', timestamp: Date.now() + i * 100,
+      })),
+    });
+    const result = detectDarkmatter(input);
+    expect(result.metadata.cutoffDepth as number).toBeLessThan(5);
+    expect(result.metadata.deltaH_norm as number).toBe(0);
+  });
+
+  test('Miller-Madow: H_MM > H_ML', () => {
+    const input = makeInput();
+    const result = detectDarkmatter(input);
+    const H_ML = result.metadata.H_ML as number;
+    const H_MM = result.metadata.H_MM as number;
+    expect(H_ML).toBeDefined();
+    expect(H_MM).toBeDefined();
+    expect(H_MM).toBeGreaterThan(H_ML);
   });
 });
 
@@ -225,26 +260,126 @@ describe('ACCRETOR', () => {
   });
 });
 
-// ─── DECOHERENCE ──────────────────────────────────────────────────────────
+// ─── DECOHERENCE v4.2 ─────────────────────────────────────────────────────
 
 describe('DECOHERENCE', () => {
-  test('обнаруживает расхождение OFI и CumDelta', () => {
-    const input = makeInput({
-      ofi: 0.5,  // стакан бычий
-      cumDelta: { delta: -300, buyVolume: 200, sellVolume: 500, totalVolume: 700 }, // дельта медвежья
-    });
+  test('score ∈ [0, 1], корректная структура', () => {
+    const input = makeInput();
     const result = detectDecoherence(input);
     expect(result.detector).toBe('DECOHERENCE');
-    expect(result.metadata.flowDivergence).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(1);
+    expect(result.confidence).toBeGreaterThanOrEqual(0);
+    expect(result.confidence).toBeLessThanOrEqual(1);
+    expect(['BULLISH', 'BEARISH', 'NEUTRAL']).toContain(result.signal);
   });
 
-  test('нет расхождения → низкий score', () => {
-    const input = makeInput({
-      ofi: 0.5,
-      cumDelta: { delta: 300, buyVolume: 500, sellVolume: 200, totalVolume: 700 },
-    });
+  test('alphabet guard: <5 символов → score = 0', () => {
+    // Все сделки с одинаковым объёмом и направлением → 1-2 символа
+    const monoTrades: Trade[] = Array.from({ length: 50 }, (_, i) => ({
+      price: 100 + (i % 2) * 0.01, // почти нулевое изменение
+      quantity: 10,
+      direction: 'BUY',
+      timestamp: 1000000 + i * 100,
+    }));
+    const input = makeInput({ trades: monoTrades, recentTrades: monoTrades });
     const result = detectDecoherence(input);
-    expect(result.metadata.flowDivergence).toBe(false);
+    expect(result.score).toBe(0);
+    expect(result.metadata.guardTriggered).toBe('alphabet_lt_5');
+  });
+
+  test('low activity guard: <30% price changes → score = 0', () => {
+    // Цена не меняется вообще → 0% price changes
+    // Широкий диапазон объёмов чтобы alphabet guard НЕ сработал раньше
+    const flatTrades: Trade[] = Array.from({ length: 50 }, (_, i) => ({
+      price: 100,
+      quantity: [1, 2, 4, 8, 16, 32, 64][i % 7],
+      direction: i % 2 === 0 ? 'BUY' : 'SELL',
+      timestamp: 1000000 + i * 100,
+    }));
+    const input = makeInput({ trades: flatTrades, recentTrades: flatTrades });
+    const result = detectDecoherence(input);
+    expect(result.score).toBe(0);
+    expect(result.metadata.guardTriggered).toBe('low_activity');
+  });
+
+  test('volume=0 skip — нет crash', () => {
+    const zeroVolTrades: Trade[] = Array.from({ length: 50 }, (_, i) => ({
+      price: 100 + (i % 3) * 0.1,
+      quantity: i % 5 === 0 ? 0 : 10 + i, // каждая 5-я сделка с volume=0
+      direction: i % 2 === 0 ? 'BUY' : 'SELL',
+      timestamp: 1000000 + i * 100,
+    }));
+    const input = makeInput({ trades: zeroVolTrades, recentTrades: zeroVolTrades });
+    const result = detectDecoherence(input);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(1);
+    // Должно быть меньше символов из-за skip
+    expect(result.metadata.totalSymbols).toBeLessThanOrEqual(40);
+  });
+
+  test('Miller-Madow: H_MM > H_ML (коррекция увеличивает энтропию)', () => {
+    const input = makeInput();
+    const result = detectDecoherence(input);
+    const H_ML = result.metadata.H_ML as number;
+    const H_MM = result.metadata.H_MM as number;
+    expect(H_ML).toBeDefined();
+    expect(H_MM).toBeDefined();
+    expect(H_MM).toBeGreaterThan(H_ML);
+  });
+
+  test('H_max floor: effective_H_max >= log2(7) ≈ 2.807', () => {
+    const input = makeInput();
+    const result = detectDecoherence(input);
+    const hMax = result.metadata.effective_H_max as number;
+    expect(hMax).toBeGreaterThanOrEqual(2.8);
+  });
+
+  test('алгоритмический паттерн → высокий score (>0.3)', () => {
+    // 95% сделок с одним объёмом → низкая энтропия → высокий score
+    // Несколько редких объёмов чтобы alphabet guard прошёл (≥5 символов)
+    const algoTrades: Trade[] = Array.from({ length: 100 }, (_, i) => {
+      let quantity = 16;
+      if (i === 10) quantity = 1;   // symbol 0
+      if (i === 20) quantity = 2;   // symbol ±1
+      if (i === 30) quantity = 4;   // symbol ±2
+      if (i === 40) quantity = 8;   // symbol ±3
+      return {
+        price: 100 + (i % 2 === 0 ? 0.1 : 0), // чередование +0.1 / 0
+        quantity,
+        direction: i % 2 === 0 ? 'BUY' : 'SELL',
+        timestamp: 1000000 + i * 500,
+      };
+    });
+    const input = makeInput({ trades: algoTrades, recentTrades: algoTrades });
+    const result = detectDecoherence(input);
+    expect(result.score).toBeGreaterThan(0.3);
+  });
+
+  test('случайные данные → низкий score (<0.5)', () => {
+    // Равномерное распределение → высокая энтропия → низкая декогерентность
+    // Детерминированный LCG вместо Math.random() для воспроизводимости в CI
+    let seed = 42;
+    const pseudoRandom = () => {
+      seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+      return (seed >>> 0) / 0xFFFFFFFF;
+    };
+    const randomTrades: Trade[] = Array.from({ length: 100 }, (_, i) => ({
+      price: 100 + Math.sin(i) * 2,
+      quantity: 1 + Math.floor(pseudoRandom() * 100),
+      direction: i % 2 === 0 ? 'BUY' : 'SELL',
+      timestamp: 1000000 + i * 100,
+    }));
+    const input = makeInput({ trades: randomTrades, recentTrades: randomTrades });
+    const result = detectDecoherence(input);
+    expect(result.score).toBeLessThan(0.5);
+  });
+
+  test('мало сделок → insufficientData', () => {
+    const input = makeInput({ trades: [], recentTrades: [] });
+    const result = detectDecoherence(input);
+    expect(result.score).toBe(0);
+    expect(result.metadata.insufficientData).toBe(true);
   });
 });
 
@@ -252,41 +387,65 @@ describe('DECOHERENCE', () => {
 
 describe('HAWKING', () => {
   test('периодичные сделки → высокий score', () => {
-    // v4.1: HAWKING теперь использует ACF + PSD вместо VPIN-only
-    // Создаём 60+ сделок с периодичными интервалами (алгоритмический паттерн)
+    // v4.2: activity series (100ms bins), period = 4 bins = 400ms → 2.5 Hz
     const periodicTrades: Trade[] = [];
     for (let i = 0; i < 80; i++) {
       periodicTrades.push({
-        price: 100 + Math.sin(i / 3) * 0.5, // цена с периодичностью
+        price: 100 + Math.sin(i / 3) * 0.5,
         quantity: 50,
         direction: i % 2 === 0 ? 'BUY' : 'SELL',
-        timestamp: 1000000 + i * 200, // ровно 200мс между сделками = 5Hz
+        timestamp: 1000000 + i * 500, // ровно 500мс = period 5 bins → 2.0 Hz
       });
     }
-    const input = makeInput({
-      trades: periodicTrades,
-      vpin: { vpin: 0.85, toxicity: 'extreme', buckets: 45, avgBuyVolume: 400, avgSellVolume: 600 },
-    });
+    const input = makeInput({ trades: periodicTrades });
     const result = detectHawking(input);
     expect(result.detector).toBe('HAWKING');
-    // С периодичными интервалами score должен быть > 0
     expect(result.score).toBeGreaterThan(0);
     expect(result.metadata.periodicity).toBeDefined();
     expect(result.metadata.noiseRatio).toBeDefined();
+    // Должен использовать FFT (n_bins = ~316 < 500)
+    expect(result.metadata.psdMethod).toBe('fft');
   });
 
-  test('мало сделок → score = 0', () => {
-    // Меньше 50 сделок → недостаточно данных
+  test('мало сделок (<50) → score = 0', () => {
     const fewTrades: Trade[] = Array.from({ length: 30 }, (_, i) => ({
       price: 100, quantity: 10, direction: 'BUY', timestamp: 1000000 + i * 100,
     }));
-    const input = makeInput({
-      trades: fewTrades,
-      vpin: { vpin: 0.1, toxicity: 'low', buckets: 30, avgBuyVolume: 500, avgSellVolume: 500 },
-    });
+    const input = makeInput({ trades: fewTrades });
     const result = detectHawking(input);
     expect(result.score).toBe(0);
     expect(result.metadata.insufficientData).toBe(true);
+  });
+
+  test('короткая длительность (<10с) → score = 0', () => {
+    // 60 сделок за 5 секунд — много сделок, но длительность < 10с
+    const shortTrades: Trade[] = Array.from({ length: 60 }, (_, i) => ({
+      price: 100, quantity: 10, direction: 'BUY', timestamp: 1000000 + i * 83, // ~5с total
+    }));
+    const input = makeInput({ trades: shortTrades });
+    const result = detectHawking(input);
+    expect(result.score).toBe(0);
+    expect(result.metadata.insufficientData).toBe(true);
+  });
+
+  test('случайные интервалы → низкий score (<0.5)', () => {
+    // Детерминированный LCG для воспроизводимости
+    let seed = 123;
+    const pseudoRandom = () => {
+      seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+      return (seed >>> 0) / 0xFFFFFFFF;
+    };
+    const randomTrades: Trade[] = Array.from({ length: 100 }, (_, i) => ({
+      price: 100,
+      quantity: 10,
+      direction: i % 2 === 0 ? 'BUY' : 'SELL',
+      timestamp: 1000000 + Math.floor(pseudoRandom() * 30000), // 0..30с равномерно
+    }));
+    // Сортируем по timestamp
+    randomTrades.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    const input = makeInput({ trades: randomTrades });
+    const result = detectHawking(input);
+    expect(result.score).toBeLessThan(0.5);
   });
 });
 

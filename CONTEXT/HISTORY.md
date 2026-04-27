@@ -29,8 +29,25 @@
 - Этап 1: П1.5 — Ядро микро-детекторов (DECOHERENCE, HAWKING, DARKMATTER)
 - Начать с DECOHERENCE v4.2 (Miller-Madow + guards)
 
+---
+
+## 2026-04-27 | Сессия 1 | main | ЭТАП 1 + GRAVITON
+
+**Задача:** Реализовать П1.5 (DECOHERENCE, HAWKING, DARKMATTER) + GRAVITON v4.2
+
+**Что сделано:**
+- **DECOHERENCE v4.2** — полная переработка: Miller-Madow correction, H_max floor=log2(max(active,7)), clip [-10,+10], 5 guards (alphabet<5, low_activity<0.3, time_span>5min, volume≤0 skip, stale). Исправлен критический баг: priceChangeCount теперь считается только внутри окна W=100.
+- **HAWKING v4.2** — полная замена trade_intervals на 100ms activity series. Adaptive algo_zone [0.1×avgFreq, min(3×avgFreq, Nyquist)]. Double guard (n_trades<50 || duration<10s, n_bins<100). FFT/Welch spectral analysis. Nyquist clip для algo_zone.
+- **DARKMATTER v4.2** — 80% cutoff (bid/ask отдельно), Miller-Madow, depth<5 guard, iceberg detection с 5% tolerance (не strict equality), exp(-dist/max(avgDepth,ε)) weight, MIN_ICEBERG_VOLUME=max(0.005×turnover, 10×median_trade_size).
+- **GRAVITON v4.2** — COM + walls + sigmoid scoring. ATR-нормализация separation. Empty side guard → score=0. median_depth для wall weights. cutoffLevel_bid/ask экспортируется в metadata для DARKMATTER integration.
+- **Тесты** — 38 тестов, все проходят. Исправлены недетерминированные Math.random() на LCG PRNG.
+
+**Следующий шаг:**
+- PREDATOR v4.2 (5-фазный автомат: STALK→HERDING→ATTACK→CONSUME/FALSE_BREAKOUT)
+- Синтетические тесты (iceberg + accumulator + predator)
+
 **Контекст:**
-- Покрытие v4.2: 15✅ + 3⚠️ + 53❌ = 71 пункт
+- Покрытие v4.2: ~25✅ + 3⚠️ + 43❌ = 71 пункт
 - Спринт 5: ФИНАЛЬНЫЙ АКЦЕПТОВАННЫЙ ПЛАН v4.2
 - PROD: robot-detect-v3.vercel.app | LAB: robot-lab-v3.vercel.app
 

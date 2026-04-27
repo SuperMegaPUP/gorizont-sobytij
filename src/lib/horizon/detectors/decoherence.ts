@@ -1,43 +1,78 @@
-// ─── DECOHERENCE — Декогеренция (символьный поток) ──────────────────────────
+// ─── DECOHERENCE — Декогеренция v4.2 ───────────────────────────────────────
 // Обнаружение алгоритмической торговли через анализ частотного распределения
 // символьного потока, построенного из сделок.
 //
-// v4.1 Формула:
+// v4.2 Формула (П1):
 // 1) Символьный поток:
-//    - if (price_change > 0) symbol = round(log2(volume)) * +1
-//    - else if (price_change < 0) symbol = round(log2(volume)) * -1
-//    - else symbol = round(log2(volume)) * sign(tick_rule_direction)
-//    - tick_rule_direction из CumDelta — предотвращает ложную «декогерентность» в боковике
+//    - if (volume <= 0) → SKIP tick (guard от log2(0)=-Infinity)
+//    - symbol = sign(dir) × min(round(log2(volume)), 10), clip [-10, +10]
+//    - direction: ΔP>0 → +1, ΔP<0 → -1, ΔP=0 → tick_rule
 //
-// 2) Алфавит: от -10 до +10 (21 символ, включая 0)
+// 2) Скользящее окно W=100
 //
-// 3) Скользящее окно W=100 сделок → частотное распределение символов
+// 3) Guards:
+//    - activeSymbols < 5 → score = 0, "insufficient_alphabet"
+//    - price_change_count / W < 0.3 → score = 0, "low_activity"
+//    - time_span_ms > 5 × 60 × 1000 → score = 0, "stale_window"
 //
-// 4) Shannon entropy: H = -sum(p_i * log2(p_i)) для всех p_i > 0
+// 4) Miller-Madow коррекция:
+//    H_MM = H_ML + (S_observed - 1) / (2 × W × ln(2))
 //
-// 5) Декогерентность = 1 - (H / H_max), где H_max = log2(21) ≈ 4.39
+// 5) H_max с floor:
+//    effective_H_max = max(log2(activeSymbols), log2(7))
+//    // Минимум 7 символов — ниже недостаточно данных
 //
-// 6) Интерпретация:
-//    - Высокая → один/несколько символов доминируют → алгоритмическая система
-//    - Низкая → равномерное распределение → естественный рынок
+// 6) Score = 1 - (H_MM / effective_H_max)
+//    return clampScore(score) ∈ [0, 1]
 
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
-const ALPHABET_SIZE = 21;  // от -10 до +10
-const H_MAX = Math.log2(ALPHABET_SIZE); // ≈ 4.39
-const WINDOW_SIZE = 100;   // Скользящее окно
+const WINDOW_SIZE = 100;
+const MIN_ACTIVE_SYMBOLS = 5;
+const MIN_ACTIVITY_RATIO = 0.3;
+const MAX_WINDOW_SPAN_MS = 5 * 60 * 1000; // 5 минут
+const LN2 = Math.log(2);
 
 // ─── Вспомогательные функции ────────────────────────────────────────────────
 
 /**
- * Shannon entropy для частотного распределения.
- * H = -sum(p_i * log2(p_i)) для всех p_i > 0
+ * Преобразует сделку в символ.
+ * volume <= 0 → null (SKIP tick)
+ * symbol = sign(dir) × min(round(log2(volume)), 10)
+ * Clip: [-10, +10]
  */
-function shannonEntropy(frequencies: Map<number, number>, total: number): number {
-  if (total < EPS) return 0;
+function tradeToSymbol(
+  volume: number,
+  priceChange: number,
+  tickRuleDirection: number
+): number | null {
+  if (volume <= 0) return null;
 
+  const logVol = Math.min(10, Math.max(0, Math.round(Math.log2(volume))));
+
+  let direction: number;
+  if (priceChange > 0) direction = 1;
+  else if (priceChange < 0) direction = -1;
+  else direction = tickRuleDirection;
+
+  return Math.min(10, Math.max(-10, logVol * direction));
+}
+
+function getTickRuleDirection(cumDelta: number, ofi: number, tradeOFI?: { ofi: number }): number {
+  if (Math.abs(cumDelta) > EPS) return Math.sign(cumDelta);
+  if (Math.abs(ofi) > EPS) return Math.sign(ofi);
+  if (tradeOFI && Math.abs(tradeOFI.ofi) > EPS) return Math.sign(tradeOFI.ofi);
+  return 0;
+}
+
+/**
+ * Shannon entropy (Maximum Likelihood estimate).
+ * H_ML = -Σ(p_i × log2(p_i)) для p_i > 0
+ */
+function shannonEntropyML(frequencies: Map<number, number>, total: number): number {
+  if (total < EPS) return 0;
   let entropy = 0;
   for (const count of frequencies.values()) {
     if (count > 0) {
@@ -48,90 +83,31 @@ function shannonEntropy(frequencies: Map<number, number>, total: number): number
   return entropy;
 }
 
-/**
- * tick_rule_direction: определяем направление сделки при нулевом изменении цены.
- * Используем CumDelta как контекст — если CumDelta > 0, значит покупки доминируют,
-// следовательно сделка скорее покупка.
- * v5.0: Также используем tradeOFI когда ofi=0 (пустой стакан на выходных)
- */
-function getTickRuleDirection(cumDelta: number, ofi: number, tradeOFI?: { ofi: number }): number {
-  // Приоритет: CumDelta — более «честный» индикатор
-  if (Math.abs(cumDelta) > EPS) {
-    return Math.sign(cumDelta);
-  }
-  // Fallback: OFI (может быть trade-based если стакан пустой)
-  if (Math.abs(ofi) > EPS) {
-    return Math.sign(ofi);
-  }
-  // v5.0: tradeOFI fallback
-  if (tradeOFI && Math.abs(tradeOFI.ofi) > EPS) {
-    return Math.sign(tradeOFI.ofi);
-  }
-  // Нет данных — нейтрально
-  return 0;
-}
-
-/**
- * Преобразует сделку в символ.
- * symbol = round(log2(volume)) * direction
- * direction = sign(price_change), или tick_rule при ΔP=0
- */
-function tradeToSymbol(
-  volume: number,
-  priceChange: number,
-  tickRuleDirection: number
-): number {
-  if (volume <= 0) return 0;
-
-  const logVol = Math.round(Math.log2(volume + EPS));
-  // Ограничиваем до ±10 (алфавит -10..+10)
-  const clampedLogVol = Math.min(10, Math.max(0, logVol));
-
-  let direction: number;
-  if (priceChange > 0) {
-    direction = 1;
-  } else if (priceChange < 0) {
-    direction = -1;
-  } else {
-    // ΔP = 0: используем tick_rule_direction
-    direction = tickRuleDirection;
-  }
-
-  const symbol = clampedLogVol * direction;
-  // Ограничиваем до диапазона [-10, +10]
-  return Math.min(10, Math.max(-10, symbol));
-}
-
 // ─── Главный детектор ──────────────────────────────────────────────────────
 
 export function detectDecoherence(input: DetectorInput): DetectorResult {
-  const { ofi, cumDelta, prices, trades, recentTrades, tradeOFI } = input;
+  const { ofi, cumDelta, trades, recentTrades, tradeOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // Нужны сделки с ценами для построения символьного потока
-  const allTrades = trades && trades.length > 0 ? trades : recentTrades;
-
-  // v4.2: Gradual stale penalty instead of binary stale→0
+  // ─── Stale data guard ──────────────────────────────────────────────────
   if (input.staleData) {
     const staleFactor = stalePenalty(input.staleMinutes);
     if (staleFactor <= 0) {
-      metadata.insufficientTrades = true;
-      metadata.staleData = true;
-      metadata.staleMinutes = input.staleMinutes ?? 0;
       return {
         detector: 'DECOHERENCE',
         description: 'Декогеренция — символьный поток (устаревшие данные)',
         score: 0,
         confidence: 0,
         signal: 'NEUTRAL',
-        metadata,
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
       };
     }
-    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
+  const allTrades = trades && trades.length > 0 ? trades : recentTrades;
+
   if (allTrades.length < 20) {
-    metadata.insufficientTrades = true;
+    metadata.insufficientData = true;
     return {
       detector: 'DECOHERENCE',
       description: 'Декогеренция — символьный поток (мало сделок)',
@@ -142,127 +118,150 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
     };
   }
 
-  // ─── 1. Строим символьный поток ────────────────────────────────────────
+  // ─── 1. Скользящее окно W=100 (последние WINDOW_SIZE сделок) ───────────
 
   const tickRuleDir = getTickRuleDirection(cumDelta.delta, ofi, tradeOFI);
+  const windowStartIdx = Math.max(0, allTrades.length - WINDOW_SIZE);
   const symbols: number[] = [];
+  let priceChangeCount = 0;
 
-  for (let i = 0; i < allTrades.length; i++) {
-    const priceChange = i > 0
-      ? (allTrades[i].price - allTrades[i - 1].price)
-      : 0;
+  for (let i = windowStartIdx; i < allTrades.length; i++) {
+    const priceChange = i > windowStartIdx ? (allTrades[i].price - allTrades[i - 1].price) : 0;
+    if (priceChange !== 0) priceChangeCount++;
 
-    const symbol = tradeToSymbol(
-      allTrades[i].quantity,
-      priceChange,
-      tickRuleDir
-    );
-    symbols.push(symbol);
+    const symbol = tradeToSymbol(allTrades[i].quantity, priceChange, tickRuleDir);
+    if (symbol !== null) symbols.push(symbol);
   }
 
   metadata.totalSymbols = symbols.length;
 
-  // ─── 2. Скользящее окно W=100 → частотное распределение ────────────────
+  // ─── 2. Размер окна по фактическим символам ────────────────────────────
 
-  // Берём последние WINDOW_SIZE символов
-  const windowSymbols = symbols.slice(-WINDOW_SIZE);
+  const windowSymbols = symbols;
   const windowSize = windowSymbols.length;
 
-  // Считаем частоты символов
+  if (windowSize < 5) {
+    metadata.insufficientData = true;
+    return {
+      detector: 'DECOHERENCE',
+      description: 'Декогеренция — недостаточно символов в окне',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
+  }
+
+  // ─── 3. Time span guard (> 5 мин) ──────────────────────────────────────
+
+  if (allTrades.length >= 2) {
+    const windowStartIdx = Math.max(0, allTrades.length - WINDOW_SIZE);
+    const firstTs = allTrades[windowStartIdx].timestamp || 0;
+    const lastTs = allTrades[allTrades.length - 1].timestamp || 0;
+    const timeSpanMs = lastTs - firstTs;
+    metadata.timeSpanMs = timeSpanMs;
+
+    if (timeSpanMs > MAX_WINDOW_SPAN_MS) {
+      metadata.guardTriggered = 'time_span_5min';
+      return {
+        detector: 'DECOHERENCE',
+        description: 'Декогеренция — окно слишком растянуто (>5 мин)',
+        score: 0,
+        confidence: 0,
+        signal: 'NEUTRAL',
+        metadata,
+      };
+    }
+  }
+
+  // ─── 4. Частотное распределение ────────────────────────────────────────
+
   const frequencies = new Map<number, number>();
   for (const sym of windowSymbols) {
     frequencies.set(sym, (frequencies.get(sym) || 0) + 1);
   }
 
-  metadata.uniqueSymbols = frequencies.size;
-  metadata.windowSize = windowSize;
+  const activeSymbols = frequencies.size;
+  metadata.activeSymbols = activeSymbols;
 
-  // ─── 3. Shannon entropy ────────────────────────────────────────────────
+  // ─── 5. Alphabet guard (< 5 символов) ──────────────────────────────────
 
-  const observedEntropy = shannonEntropy(frequencies, windowSize);
-
-  metadata.observedEntropy = Math.round(observedEntropy * 1000) / 1000;
-  metadata.hMax = Math.round(H_MAX * 1000) / 1000;
-
-  // ─── 4. Декогерентность = 1 - (H / H_max) ────────────────────────────
-
-  // Высокая декогерентность → один/несколько символов доминируют → алгоритм
-  // Низкая декогерентность → равномерное распределение → естественный рынок
-  let decoherence = 0;
-  if (H_MAX > EPS) {
-    decoherence = 1 - (observedEntropy / H_MAX);
+  if (activeSymbols < MIN_ACTIVE_SYMBOLS) {
+    metadata.guardTriggered = 'alphabet_lt_5';
+    return {
+      detector: 'DECOHERENCE',
+      description: 'Декогеренция — недостаточно символов (alphabet < 5)',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
   }
 
-  decoherence = Math.min(1, Math.max(0, decoherence));
+  // ─── 6. Low activity guard (< 30% price changes) ───────────────────────
 
-  metadata.decoherence = Math.round(decoherence * 1000) / 1000;
+  const activityRatio = priceChangeCount / windowSize;
+  metadata.activityRatio = Math.round(activityRatio * 1000) / 1000;
 
-  // ─── 5. Дополнительные метрики ─────────────────────────────────────────
-
-  // Доминантный символ (самый частый)
-  let dominantSymbol = 0;
-  let dominantFreq = 0;
-  for (const [sym, count] of frequencies) {
-    if (count > dominantFreq) {
-      dominantFreq = count;
-      dominantSymbol = sym;
-    }
+  if (activityRatio < MIN_ACTIVITY_RATIO) {
+    metadata.guardTriggered = 'low_activity';
+    return {
+      detector: 'DECOHERENCE',
+      description: 'Декогеренция — низкая активность (<30% price changes)',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
   }
 
-  const dominantRatio = dominantFreq / (windowSize + EPS);
-  metadata.dominantSymbol = dominantSymbol;
-  metadata.dominantRatio = Math.round(dominantRatio * 1000) / 1000;
+  // ─── 7. Shannon entropy (Maximum Likelihood) ───────────────────────────
 
-  // Top-3 символа по частоте
-  const sorted = [...frequencies.entries()].sort((a, b) => b[1] - a[1]);
-  const top3Ratio = sorted.slice(0, 3).reduce((s, e) => s + e[1], 0) / (windowSize + EPS);
-  metadata.top3Ratio = Math.round(top3Ratio * 1000) / 1000;
+  const H_ML = shannonEntropyML(frequencies, windowSize);
+  metadata.H_ML = Math.round(H_ML * 1000) / 1000;
 
-  // tick_rule_usage: сколько раз использовался tick_rule (ΔP=0)
-  const tickRuleUsages = symbols.filter(s => s !== 0).length;
-  metadata.tickRuleInfluence = Math.round(tickRuleDir * 100) / 100;
+  // ─── 8. Miller-Madow correction ────────────────────────────────────────
 
-  // ─── 6. Score ──────────────────────────────────────────────────────────
+  const S_observed = activeSymbols;
+  const H_MM = H_ML + (S_observed - 1) / (2 * windowSize * LN2);
+  metadata.H_MM = Math.round(H_MM * 1000) / 1000;
 
-  // Основной score = декогерентность (0-1)
-  // Если доминантный символ > 30% — усиливаем (явный алгоритм)
-  // Если top-3 > 60% — ещё усиливаем (концентрация)
-  let score = decoherence;
+  // ─── 9. H_max with floor ───────────────────────────────────────────────
 
-  if (dominantRatio > 0.3) {
-    score = Math.min(1, score * 1.15);
+  const effective_H_max = Math.max(Math.log2(activeSymbols), Math.log2(7));
+  metadata.effective_H_max = Math.round(effective_H_max * 1000) / 1000;
+
+  // ─── 10. Score = 1 - (H_MM / effective_H_max) ──────────────────────────
+
+  let score = 0;
+  if (effective_H_max > EPS) {
+    score = 1 - (H_MM / effective_H_max);
   }
-  if (top3Ratio > 0.6) {
-    score = Math.min(1, score * 1.1);
-  }
+  score = clampScore(score);
+  metadata.rawScore = score;
 
-  // ─── 7. Signal direction ───────────────────────────────────────────────
+  // ─── 11. Signal direction ──────────────────────────────────────────────
 
   let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-
-  if (score > 0.2) {
-    // Определяем направление по доминантному символу
-    if (dominantSymbol > 0) {
-      signal = 'BULLISH';
-    } else if (dominantSymbol < 0) {
-      signal = 'BEARISH';
-    } else {
-      // Доминантный символ = 0 (нейтральный), используем CumDelta
-      signal = cumDelta.delta > 0 ? 'BULLISH' : cumDelta.delta < 0 ? 'BEARISH' : 'NEUTRAL';
+  if (score > 0.15) {
+    let dominantSymbol = 0;
+    let dominantFreq = 0;
+    for (const [sym, count] of frequencies) {
+      if (count > dominantFreq) {
+        dominantFreq = count;
+        dominantSymbol = sym;
+      }
     }
+    if (dominantSymbol > 0) signal = 'BULLISH';
+    else if (dominantSymbol < 0) signal = 'BEARISH';
+    else signal = cumDelta.delta > 0 ? 'BULLISH' : cumDelta.delta < 0 ? 'BEARISH' : 'NEUTRAL';
+    metadata.dominantSymbol = dominantSymbol;
   }
 
-  const confidence = score > 0.2
-    ? Math.min(1, (decoherence + dominantRatio) / 1.5)
-    : 0;
+  const confidence = score > 0.15 ? Math.min(1, score * 1.2) : 0;
 
-  // Сохраняем legacy-поля для обратной совместимости
-  metadata.flowDivergence = ofi !== 0 && cumDelta.delta !== 0
-    && Math.sign(ofi) !== Math.sign(cumDelta.delta);
-  metadata.ofiDir = Math.sign(ofi);
-  metadata.deltaDir = Math.sign(cumDelta.delta);
+  // ─── 12. Stale penalty ─────────────────────────────────────────────────
 
-  // Apply stale penalty (v4.2: gradual instead of binary)
   const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
   const finalScore = clampScore(score * staleFactor);
   const finalConfidence = clampScore(confidence * staleFactor);
@@ -270,7 +269,7 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
 
   return {
     detector: 'DECOHERENCE',
-    description: 'Декогеренция — символьный поток (Shannon entropy)',
+    description: 'Декогеренция — символьный поток (Miller-Madow v4.2)',
     score: finalScore,
     confidence: finalConfidence,
     signal,

@@ -1,49 +1,45 @@
-// ─── DARKMATTER — Тёмная материя (скрытая ликвидность) ──────────────────────
-// Обнаружение скрытых ордеров (айсбергов) через два механизма:
+// ─── DARKMATTER — Тёмная материя v4.2 ──────────────────────────────────────
+// Обнаружение скрытых ордеров (айсбергов) через энтропию стакана + iceberg из сделок.
 //
-// v5.0: Trade-based fallback — когда orderbook пуст (ДСВД выходные),
-// работаем только через iceberg detection из сделок + tradeOFI для направления
+// v4.2 Формула:
+// 1) 80% cutoff (bid / ask отдельно):
+//    cutoffLevel = min level where cumvol >= 0.8 × totalSideVolume
+//    if cutoffLevel < 3 → use all levels (100%)
+//    Guard: cutoff_depth < 5 → entropy_score = 0
 //
-// v4.1 Формула:
-// 1) expected_entropy:
-//    - median_entropy_sessions (пересчитывается ежедневно)
-//    - Альтернатива v1: expected_entropy = f(avg_depth, spread)
+// 2) Miller-Madow коррекция:
+//    H_MM = H_ML + (S - 1) / (2 × W × ln(2))
+//    W = cutoff_depth, S = |уникальные объёмы в cutoff|
 //
-// 2) darkmatter_entropy_score:
-//    - observed_entropy = Shannon_entropy(объёмы_по_уровням_стакана)
-//    - ΔH_norm = (expected_entropy - observed_entropy) / (expected_entropy + ε)
-//    - observed >= expected → score = 0 (нет аномалии)
-//    - observed < expected → score = ΔH_norm, диапазон (0, 1]
+// 3) 5-session median baseline (v1 fallback):
+//    expected ≈ log2(avg_cutoff_depth) × 0.85
 //
-// 3) iceberg_score:
-//    - Группируем сделки по price_level
-//    - Ищем consecutive runs одинакового объёма (подряд идущие!)
-//    - Минимальная длина run: n_consecutive ≥ 3
-//    - Минимальный объём: levelVolume >= 0.005 * dailyTurnover (0.5% дневного оборота)
-//    - Если levelVolume < MIN_ICEBERG_VOLUME → iceberg_score_at_level = 0
-//    - iceberg_score_at_level = n_consecutive_same_vol / n_total_at_level
-//    - weight = 1 / (1 + distance_from_best)
-//    - iceberg_score = weighted_average(iceberg_score_at_level)
+// 4) Entropy score:
+//    ΔH_norm = max(0, (expected - observed) / max(expected, ε))
+//    observed >= expected → score = 0
 //
-// 4) darkmatter_score = 0.5 * darkmatter_entropy_score + 0.5 * iceberg_score
+// 5) Iceberg detection:
+//    MIN_ICEBERG_VOLUME = max(0.005 × dailyTurnover, 10 × median_trade_size)
+//    consecutive runs n≥3, tolerance: |vol_i - vol_j| / max(vol_i, ε) < 0.05
+//    weight = exp(-dist / max(avg_depth, ε))
+//    iceberg_score = weighted_average(per_level_score)
+//
+// 6) darkmatter_score = 0.5 × entropy_score + 0.5 × iceberg_score
 
 import type { DetectorInput, DetectorResult } from './types';
 import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
+const LN2 = Math.log(2);
 const MIN_ICEBERG_VOLUME_RATIO = 0.005; // 0.5% дневного оборота
-const MIN_CONSECUTIVE_RUN = 3;           // Минимальная длина consecutive run
+const MIN_CONSECUTIVE_RUN = 3;
+const ICEBERG_TOLERANCE = 0.05;           // 5% допуск
 
 // ─── Вспомогательные функции ────────────────────────────────────────────────
 
-/**
- * Shannon entropy для массива значений.
- * H = -sum(p_i * log2(p_i)) для всех p_i > 0
- */
 function shannonEntropy(values: number[]): number {
   const total = values.reduce((s, v) => s + v, 0);
   if (total < EPS) return 0;
-
   let entropy = 0;
   for (const v of values) {
     if (v > 0) {
@@ -54,59 +50,53 @@ function shannonEntropy(values: number[]): number {
   return entropy;
 }
 
-/**
- * Оценка expected_entropy на основе параметров стакана.
- * Используем простую эвристику: чем больше уровней и чем равномернее объём,
-// тем выше ожидаемая энтропия.
- * expected_entropy ≈ log2(n_levels) * uniformity_factor
- */
-function estimateExpectedEntropy(levels: number[], volumes: number[]): number {
-  if (levels.length === 0) return 0;
-
-  // Maximum entropy = log2(n_levels) при равномерном распределении
-  const maxEntropy = Math.log2(levels.length);
-
-  // Реальная энтропия объёмов
-  const actualEntropy = shannonEntropy(volumes);
-
-  // Expected = среднее между max и actual (смещение к max — «нормальный» стакан
-  // имеет относительно равномерное распределение)
-  return maxEntropy * 0.7 + actualEntropy * 0.3;
+function shannonEntropyML(frequencies: Map<number, number>, total: number): number {
+  if (total < EPS) return 0;
+  let entropy = 0;
+  for (const count of frequencies.values()) {
+    if (count > 0) {
+      const p = count / total;
+      entropy -= p * Math.log2(p);
+    }
+  }
+  return entropy;
 }
 
-/**
- * Подсчёт consecutive runs одинакового объёма.
- * Ищем подряд идущие сделки с одинаковым объёмом на одном ценовом уровне.
- * Возвращает максимальную длину consecutive run.
- */
+function computeCutoffLevel(volumes: number[], targetRatio: number): number {
+  const total = volumes.reduce((s, v) => s + v, 0);
+  const target = total * targetRatio;
+  let cum = 0;
+  for (let i = 0; i < volumes.length; i++) {
+    cum += volumes[i];
+    if (cum >= target) return i + 1;
+  }
+  return volumes.length;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
 function countConsecutiveRuns(tradeVolumes: number[]): number[] {
   if (tradeVolumes.length === 0) return [];
-
   const runs: number[] = [];
   let currentVol = tradeVolumes[0];
   let runLength = 1;
 
   for (let i = 1; i < tradeVolumes.length; i++) {
-    // Округляем объём для сравнения (избегаем проблем с float)
-    const volRound = Math.round(tradeVolumes[i] * 100);
-    const curRound = Math.round(currentVol * 100);
-
-    if (volRound === curRound) {
+    const relDiff = Math.abs(tradeVolumes[i] - currentVol) / Math.max(currentVol, EPS);
+    if (relDiff < ICEBERG_TOLERANCE) {
       runLength++;
     } else {
-      if (runLength >= MIN_CONSECUTIVE_RUN) {
-        runs.push(runLength);
-      }
+      if (runLength >= MIN_CONSECUTIVE_RUN) runs.push(runLength);
       currentVol = tradeVolumes[i];
       runLength = 1;
     }
   }
-
-  // Последний run
-  if (runLength >= MIN_CONSECUTIVE_RUN) {
-    runs.push(runLength);
-  }
-
+  if (runLength >= MIN_CONSECUTIVE_RUN) runs.push(runLength);
   return runs;
 }
 
@@ -116,26 +106,21 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   const { orderbook, cumDelta, ofi, recentTrades, trades, tradeOFI } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  // ─── 0. Проверка достаточности данных ────────────────────────────────────
   const allTrades = trades && trades.length > 0 ? trades : recentTrades;
 
-  // v4.2: Gradual stale penalty instead of binary stale→0
+  // ─── Stale guard ────────────────────────────────────────────────────────
   if (input.staleData) {
     const staleFactor = stalePenalty(input.staleMinutes);
     if (staleFactor <= 0) {
-      metadata.insufficientData = true;
-      metadata.staleData = true;
-      metadata.staleMinutes = input.staleMinutes ?? 0;
       return {
         detector: 'DARKMATTER',
         description: 'Тёмная материя — скрытая ликвидность (устаревшие данные)',
         score: 0,
         confidence: 0,
         signal: 'NEUTRAL',
-        metadata,
+        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
       };
     }
-    // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
   if (allTrades.length < 10) {
@@ -150,34 +135,31 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
     };
   }
 
-  const obIsEmpty = orderbook.bids.length === 0 && orderbook.asks.length === 0;
+  const obIsEmpty = !orderbook || (orderbook.bids.length === 0 && orderbook.asks.length === 0);
 
   // ─── Режим 1: Нет стакана — только iceberg detection из сделок ─────────
   if (obIsEmpty) {
     metadata.ofiSource = 'trades';
-
-    // Entropy score = 0 (нет стакана — не можем считать энтропию уровней)
-    const entropyScore = 0;
-    metadata.entropyScore = 0;
     metadata.noOrderbook = true;
 
-    // Iceberg score — полностью из сделок (тот же алгоритм, но mid из trades)
     const dailyTurnover = allTrades.reduce((s, t) => s + t.quantity * t.price, 0);
-    const minIcebergVolume = dailyTurnover * MIN_ICEBERG_VOLUME_RATIO;
+    const medianTradeSize = median(allTrades.map(t => t.quantity));
+    const minIcebergVolume = Math.max(
+      dailyTurnover * MIN_ICEBERG_VOLUME_RATIO,
+      10 * medianTradeSize
+    );
     metadata.dailyTurnover = Math.round(dailyTurnover);
     metadata.minIcebergVolume = Math.round(minIcebergVolume);
 
-    // Группируем сделки по ценовым уровням
+    const avgDepth = median(allTrades.map(t => t.price)); // placeholder для масштаба
+
     const priceLevelTrades = new Map<number, number[]>();
     for (const t of allTrades) {
       const rounded = Math.round(t.price * 100) / 100;
-      if (!priceLevelTrades.has(rounded)) {
-        priceLevelTrades.set(rounded, []);
-      }
+      if (!priceLevelTrades.has(rounded)) priceLevelTrades.set(rounded, []);
       priceLevelTrades.get(rounded)!.push(t.quantity);
     }
 
-    // Средняя цена как "mid" для расстояния
     const prices = allTrades.map(t => t.price).filter(p => p > 0);
     const avgPrice = prices.length > 0 ? prices.reduce((s, p) => s + p, 0) / prices.length : 0;
 
@@ -197,8 +179,8 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
       const maxRun = Math.max(...runs);
       const icebergAtLevel = maxRun / (tradeVolumes.length + EPS);
 
-      const distance = avgPrice > 0 ? Math.abs(price - avgPrice) / (avgPrice + EPS) : 0;
-      const weight = 1 / (1 + distance * 10);
+      const dist = avgPrice > 0 ? Math.abs(price - avgPrice) : 0;
+      const weight = Math.exp(-dist / Math.max(avgDepth, EPS));
 
       icebergScoreWeightedSum += icebergAtLevel * weight;
       icebergScoreWeightTotal += weight;
@@ -213,108 +195,105 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
     metadata.levelsWithIceberg = levelsWithIceberg;
     metadata.totalConsecutiveRuns = totalConsecutiveRuns;
 
-    // Score: 0% entropy + 100% iceberg (нет стакана — энтропия невозможна)
-    const darkmatterScore = icebergScore;
-    const score = Math.min(1, Math.max(0, darkmatterScore));
-
-    // Signal direction — используем tradeOFI если есть, иначе cumDelta
+    const score = clampScore(icebergScore);
     let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
     const effectiveOFI = tradeOFI ? tradeOFI.ofi : ofi;
-
-    const deltaSign = Math.sign(cumDelta.delta);
-    const ofiSign = Math.sign(effectiveOFI);
-    const deltaDiscrepancy = deltaSign !== 0 && ofiSign !== 0 && deltaSign !== ofiSign;
-
     if (score > 0.15) {
-      if (deltaDiscrepancy) {
-        signal = cumDelta.delta > 0 ? 'BULLISH' : 'BEARISH';
-      } else {
-        signal = effectiveOFI > 0.1 ? 'BULLISH' : effectiveOFI < -0.1 ? 'BEARISH' : 'NEUTRAL';
-      }
+      signal = effectiveOFI > 0.1 ? 'BULLISH' : effectiveOFI < -0.1 ? 'BEARISH' : 'NEUTRAL';
     }
+    const confidence = score > 0.15 ? Math.min(0.8, icebergScore) : 0;
 
-    // Confidence ниже без стакана (только iceberg, нет entropy)
-    const confidence = score > 0.15
-      ? Math.min(0.8, icebergScore / 1.0)
-      : 0;
-
-    metadata.deltaDiscrepancy = deltaDiscrepancy;
-
-    // Apply stale penalty (v4.2: gradual instead of binary)
     const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
-    const finalScore = clampScore(score * staleFactor);
-    const finalConfidence = clampScore(confidence * staleFactor);
-    metadata.staleFactor = staleFactor;
-
     return {
       detector: 'DARKMATTER',
       description: 'Тёмная материя — скрытая ликвидность (trade-based, нет стакана)',
-      score: finalScore,
-      confidence: finalConfidence,
+      score: clampScore(score * staleFactor),
+      confidence: clampScore(confidence * staleFactor),
       signal,
       metadata,
     };
   }
 
-  // ─── Режим 2: Полноценный анализ с стаканом ────────────────────────────
+  // ─── Режим 2: Полноценный анализ со стаканом ───────────────────────────
 
-  // ─── 1. ΔH_norm — Shannon entropy score ────────────────────────────────
-
-  // Собираем объёмы по уровням стакана (bid + ask)
   const bidVolumes = orderbook.bids.map(l => l.quantity);
   const askVolumes = orderbook.asks.map(l => l.quantity);
-  const allVolumes = [...bidVolumes, ...askVolumes];
-  const allLevels = [
-    ...orderbook.bids.map((_, i) => i),
-    ...orderbook.asks.map((_, i) => i),
-  ];
 
-  // Наблюдаемая энтропия
-  const observedEntropy = shannonEntropy(allVolumes);
+  // 80% cutoff (bid / ask отдельно)
+  const bidCutoff = computeCutoffLevel(bidVolumes, 0.8);
+  const askCutoff = computeCutoffLevel(askVolumes, 0.8);
+  const cutoffDepth = Math.min(bidCutoff, askCutoff);
 
-  // Ожидаемая энтропия (оценка)
-  const expectedEntropy = estimateExpectedEntropy(allLevels, allVolumes);
+  // Guard: cutoff < 3 → use all levels
+  const useBidCutoff = bidCutoff >= 3 ? bidCutoff : bidVolumes.length;
+  const useAskCutoff = askCutoff >= 3 ? askCutoff : askVolumes.length;
 
-  // ΔH_norm = (expected - observed) / (expected + ε)
-  let entropyScore = 0;
-  if (expectedEntropy > EPS) {
-    const deltaH = expectedEntropy - observedEntropy;
-    if (deltaH > 0) {
-      // observed < expected → аномалия (скрытая ликвидность)
-      entropyScore = safeDivide(deltaH, expectedEntropy, 0.01);
-    }
-    // observed >= expected → нет аномалии, score = 0
+  const cutBidVolumes = bidVolumes.slice(0, useBidCutoff);
+  const cutAskVolumes = askVolumes.slice(0, useAskCutoff);
+  const allVolumes = [...cutBidVolumes, ...cutAskVolumes];
+
+  metadata.bidCutoff = bidCutoff;
+  metadata.askCutoff = askCutoff;
+  metadata.cutoffDepth = cutoffDepth;
+
+  // Guard: cutoff_depth < 5 → entropy_score = 0
+  if (cutoffDepth < 5) {
+    metadata.guardTriggered = 'cutoff_depth_lt_5';
   }
 
-  entropyScore = Math.min(1, Math.max(0, entropyScore));
+  // ─── 1. Shannon entropy (Maximum Likelihood) ────────────────────────────
+  const H_ML = shannonEntropy(allVolumes);
 
-  metadata.observedEntropy = Math.round(observedEntropy * 1000) / 1000;
+  // Уникальные объёмы в cutoff (для Miller-Madow)
+  const uniqueVolumes = new Set(allVolumes.filter(v => v > 0));
+  const S_observed = uniqueVolumes.size;
+  const W = allVolumes.length;
+
+  // Miller-Madow correction
+  const H_MM = H_ML + (S_observed - 1) / (2 * W * LN2);
+
+  metadata.H_ML = Math.round(H_ML * 1000) / 1000;
+  metadata.H_MM = Math.round(H_MM * 1000) / 1000;
+  metadata.S_observed = S_observed;
+
+  // ─── 2. Expected entropy (v1 fallback) ──────────────────────────────────
+  const avgCutoffDepth = (useBidCutoff + useAskCutoff) / 2;
+  const expectedEntropy = Math.log2(Math.max(avgCutoffDepth, 1)) * 0.85;
   metadata.expectedEntropy = Math.round(expectedEntropy * 1000) / 1000;
+
+  // ─── 3. Entropy score ───────────────────────────────────────────────────
+  let entropyScore = 0;
+  if (expectedEntropy > EPS) {
+    const deltaH = expectedEntropy - H_MM;
+    entropyScore = deltaH > 0 ? safeDivide(deltaH, expectedEntropy, 0.01) : 0;
+  }
+  entropyScore = cutoffDepth < 5 ? 0 : Math.min(1, Math.max(0, entropyScore));
   metadata.deltaH_norm = Math.round(entropyScore * 1000) / 1000;
 
-  // ─── 2. Iceberg score — consecutive runs одинакового объёма ────────────
-
-  // Считаем дневной оборот из recentTrades
+  // ─── 4. Iceberg score ───────────────────────────────────────────────────
   const dailyTurnover = allTrades.reduce((s, t) => s + t.quantity * t.price, 0);
-  const minIcebergVolume = dailyTurnover * MIN_ICEBERG_VOLUME_RATIO;
-
+  const medianTradeSize = median(allTrades.map(t => t.quantity));
+  const minIcebergVolume = Math.max(
+    dailyTurnover * MIN_ICEBERG_VOLUME_RATIO,
+    10 * medianTradeSize
+  );
   metadata.dailyTurnover = Math.round(dailyTurnover);
   metadata.minIcebergVolume = Math.round(minIcebergVolume);
 
-  // Группируем сделки по ценовым уровням
+  // Средний спред как масштаб для weight
+  const bestBid = orderbook.bids.length > 0 ? orderbook.bids[0].price : 0;
+  const bestAsk = orderbook.asks.length > 0 ? orderbook.asks[0].price : 0;
+  const spread = bestAsk - bestBid;
+  const avgDepth = spread > 0 ? spread : 0.001; // fallback 0.001 если спред нулевой
+
+  const midPrice = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : 0;
+
   const priceLevelTrades = new Map<number, number[]>();
   for (const t of allTrades) {
     const rounded = Math.round(t.price * 100) / 100;
-    if (!priceLevelTrades.has(rounded)) {
-      priceLevelTrades.set(rounded, []);
-    }
+    if (!priceLevelTrades.has(rounded)) priceLevelTrades.set(rounded, []);
     priceLevelTrades.get(rounded)!.push(t.quantity);
   }
-
-  // Для каждого уровня: ищем consecutive runs и считаем iceberg score
-  const midPrice = orderbook.bids.length > 0 && orderbook.asks.length > 0
-    ? (orderbook.bids[0].price + orderbook.asks[0].price) / 2
-    : 0;
 
   let icebergScoreWeightedSum = 0;
   let icebergScoreWeightTotal = 0;
@@ -323,23 +302,17 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
 
   for (const [price, tradeVolumes] of priceLevelTrades) {
     const levelVolume = tradeVolumes.reduce((s, v) => s + v, 0);
-
-    // Фильтр: уровень должен иметь минимум 0.5% дневного оборота
     if (levelVolume < minIcebergVolume) continue;
 
-    // Ищем consecutive runs
     const runs = countConsecutiveRuns(tradeVolumes);
     totalConsecutiveRuns += runs.length;
-
     if (runs.length === 0) continue;
 
-    // iceberg_score_at_level = max(run_length) / n_total_at_level
     const maxRun = Math.max(...runs);
     const icebergAtLevel = maxRun / (tradeVolumes.length + EPS);
 
-    // Weight = 1 / (1 + distance_from_best)
-    const distance = midPrice > 0 ? Math.abs(price - midPrice) / (midPrice + EPS) : 0;
-    const weight = 1 / (1 + distance * 10); // 10 = масштабный коэффициент
+    const dist = midPrice > 0 ? Math.abs(price - midPrice) : 0;
+    const weight = Math.exp(-dist / Math.max(avgDepth, EPS));
 
     icebergScoreWeightedSum += icebergAtLevel * weight;
     icebergScoreWeightTotal += weight;
@@ -354,26 +327,20 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   metadata.levelsWithIceberg = levelsWithIceberg;
   metadata.totalConsecutiveRuns = totalConsecutiveRuns;
 
-  // ─── 3. Итоговый Darkmatter score ──────────────────────────────────────
-
+  // ─── 5. Итоговый Darkmatter score ───────────────────────────────────────
   const darkmatterScore = 0.5 * entropyScore + 0.5 * icebergScore;
-  const score = Math.min(1, Math.max(0, darkmatterScore));
+  const score = clampScore(darkmatterScore);
 
-  // ─── 4. Signal direction ───────────────────────────────────────────────
-
+  // ─── 6. Signal direction ────────────────────────────────────────────────
   let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-
-  // Delta-OFI discrepancy: CumDelta direction ≠ OFI direction
   const deltaSign = Math.sign(cumDelta.delta);
   const ofiSign = Math.sign(ofi);
   const deltaDiscrepancy = deltaSign !== 0 && ofiSign !== 0 && deltaSign !== ofiSign;
 
   if (score > 0.15) {
     if (deltaDiscrepancy) {
-      // CumDelta — более «честный» (реальные сделки)
       signal = cumDelta.delta > 0 ? 'BULLISH' : 'BEARISH';
     } else {
-      // Если нет расхождения — определяем по OFI
       signal = ofi > 0.1 ? 'BULLISH' : ofi < -0.1 ? 'BEARISH' : 'NEUTRAL';
     }
   }
@@ -384,7 +351,7 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
 
   metadata.deltaDiscrepancy = deltaDiscrepancy;
 
-  // Apply stale penalty (v4.2: gradual instead of binary)
+  // Apply stale penalty
   const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
   const finalScore = clampScore(score * staleFactor);
   const finalConfidence = clampScore(confidence * staleFactor);
@@ -392,7 +359,7 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
 
   return {
     detector: 'DARKMATTER',
-    description: 'Тёмная материя — скрытая ликвидность (ΔH_norm + iceberg)',
+    description: 'Тёмная материя — скрытая ликвидность (ΔH_norm + iceberg v4.2)',
     score: finalScore,
     confidence: finalConfidence,
     signal,

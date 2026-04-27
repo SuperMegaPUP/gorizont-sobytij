@@ -23,9 +23,9 @@
 
 | ID | Фича | Статус | Прогресс | Файлы | Примечание |
 |---|---|---|---|---|---|
-| F-1A | DECOHERENCE v4.2 | ⏳ | 0% | `decoherence.ts` | Miller-Madow, H_max floor, clip, alphabet guard, low_activity guard, time_span guard |
-| F-1B | HAWKING v4.2 | ⏳ | 0% | `hawking.ts` | 100ms resampling, adaptive algo zone, double guard, bandwidth |
-| F-1C | DARKMATTER v4.2 | ⏳ | 0% | `darkmatter.ts` | 80% cutoff entropy, 5-session median, depth guard, Miller-Madow, MIN_ICEBERG max(), exp weight, 5% tolerance |
+| F-1A | DECOHERENCE v4.2 | ✅ | 100% | `decoherence.ts` | Miller-Madow, H_max floor, clip [-10,+10], 5 guards |
+| F-1B | HAWKING v4.2 | ✅ | 100% | `hawking.ts` | 100ms activity series, adaptive algo_zone, Nyquist clip, FFT/Welch |
+| F-1C | DARKMATTER v4.2 | ✅ | 100% | `darkmatter.ts` | 80% cutoff, Miller-Madow, depth<5 guard, iceberg 5% tolerance, exp weight |
 | F-1D | Синтетические тесты | ⏳ | 0% | `horizon-synthetic.test.ts` | iceberg + accumulator + predator |
 
 ### ЭТАП 2: П2 — СТРУКТУРНЫЕ ДЕТЕКТОРЫ
@@ -36,7 +36,7 @@
 | F-2B | ATTRACTOR v4.2 | ⏳ | 0% | `attractor.ts` | detrended prices, Silverman robust, EMA(spread,10), POC distance guard, regime trigger |
 | F-2C | ENTANGLE v4.2 | ⏳ | 0% | `entangle.ts` | Bonferroni, intra-ticker only, bid/ask flows, ADF-only |
 | F-2D | WAVEFUNCTION v4.2 | ⚠️ | 50% | `wavefunction.ts` | Student-t obs model, observation vector z, Σ rolling, jitter, stale guard |
-| F-2E | GRAVITON v4.2 | ⏳ | 0% | `graviton.ts` | COM+walls+sigmoid, ATR-separation, min 3 levels, empty side guard, median_depth |
+| F-2E | GRAVITON v4.2 | ✅ | 100% | `graviton.ts` | COM+walls+sigmoid, ATR-separation, empty side guard, median_depth, cutoffLevel export |
 | F-2F | CIPHER v4.2 | ⏳ | 0% | `cipher.ts` | Гистерезис, fixed seed, baseline kurtosis MAD |
 | F-2G | ACCRETOR v4.2 | ⏳ | 0% | `accretor.ts` | Feature normalization DBSCAN |
 
