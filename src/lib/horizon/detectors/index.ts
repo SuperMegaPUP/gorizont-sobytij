@@ -8,7 +8,7 @@ export { detectDarkmatter } from './darkmatter';
 export { detectAccretor } from './accretor';
 export { detectDecoherence } from './decoherence';
 export { detectHawking } from './hawking';
-export { detectPredator } from './predator';
+export { detectPredator, resetPredatorState } from './predator';
 export { detectCipher } from './cipher';
 export { detectEntangle } from './entangle';
 export { detectWavefunction } from './wavefunction';

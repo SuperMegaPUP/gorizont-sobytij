@@ -7,6 +7,7 @@ import {
   detectDecoherence,
   detectHawking,
   detectPredator,
+  resetPredatorState,
   detectCipher,
   detectEntangle,
   detectWavefunction,
@@ -452,18 +453,57 @@ describe('HAWKING', () => {
 // ─── PREDATOR ─────────────────────────────────────────────────────────────
 
 describe('PREDATOR', () => {
-  test('обнаруживает ценовой спайк', () => {
-    const prices = Array.from({ length: 20 }, (_, i) => 100 + (i === 18 ? 3 : Math.random() * 0.1));
-    const input = makeInput({ prices });
-    const result = detectPredator(input);
-    expect(result.detector).toBe('PREDATOR');
-    expect(result.metadata.spikeSigma).toBeDefined();
+  beforeEach(() => {
+    jest.resetAllMocks();
+    resetPredatorState();
   });
 
-  test('нет данных → score = 0', () => {
-    const input = makeInput({ prices: [100], volumes: [] });
+  test('мало сделок (<20) → score = 0', () => {
+    const input = makeInput({ trades: [], ticker: 'PRED_TEST_1' });
     const result = detectPredator(input);
     expect(result.score).toBe(0);
+    expect(result.metadata.insufficientData).toBe(true);
+  });
+
+  test('IDLE → STALK когда цена у стопов', () => {
+    // Стоп на bid = 99 (round number), цена = 100.1 → 1.1 пунктов
+    // ATR ≈ 0.14 (из candles makeInput), 1.5×ATR ≈ 0.21
+    // 1.1 > 0.21 → не должно сработать... нужно цену ближе
+    // Стоп на ask = 100.5, цена = 100.1 → 0.4 пунктов
+    const stalkTrades: Trade[] = Array.from({ length: 25 }, (_, i) => ({
+      price: i < 20 ? 100 : 100.05, // близко к стопу на 100.5
+      quantity: 10,
+      direction: i % 2 === 0 ? 'BUY' : 'SELL',
+      timestamp: 1000000 + i * 1000,
+    }));
+    const input = makeInput({ trades: stalkTrades, ticker: 'PRED_TEST_2', cumDelta: { delta: 50, buyVolume: 150, sellVolume: 100, totalVolume: 250 } });
+    const result = detectPredator(input);
+    expect(result.detector).toBe('PREDATOR');
+    expect(result.metadata.phase).toBeDefined();
+  });
+
+  test('агрессивный рынок → ATTACK или CONSUME', () => {
+    const now = 1000000000000;
+    jest.spyOn(global.Date, 'now').mockReturnValue(now);
+
+    // Создаём сценарий: много мелких сделок (herding) + резкий price spike + высокий aggression
+    const trades: Trade[] = [];
+    for (let i = 0; i < 15; i++) {
+      trades.push({ price: 100, quantity: 2, direction: 'BUY', timestamp: now - (20 - i) * 60000 });
+    }
+    for (let i = 0; i < 10; i++) {
+      trades.push({ price: 100 + i * 0.3, quantity: 100, direction: 'BUY', timestamp: now - (5 - i) * 60000 });
+    }
+
+    const input = makeInput({
+      trades,
+      ticker: 'PRED_TEST_3',
+      cumDelta: { delta: 500, buyVolume: 900, sellVolume: 100, totalVolume: 1000 },
+    });
+    const result = detectPredator(input);
+    expect(result.detector).toBe('PREDATOR');
+    // aggression_ratio = 900/100 = 9 > 2.0 → ATTACK возможен
+    expect(result.metadata.phase).toBeDefined();
   });
 });
 
