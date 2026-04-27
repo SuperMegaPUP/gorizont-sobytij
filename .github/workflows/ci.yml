@@ -1,75 +1,210 @@
 name: CI/CD
+
 on:
   push:
-    branches: [main]
+    branches: [main, lab]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deploy target'
+        required: true
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - lab
+          - prod
+          - both
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  VERCEL_PROJECT_PROD: robot-detect-v3
+  VERCEL_PROJECT_LAB: robot-lab-v3
 
 jobs:
-  test:
+  # ─────────────────────────────────────────
+  # STAGE 1: Lint + Test
+  # ─────────────────────────────────────────
+  lint-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run test:ci
-      - run: npm run test:coverage
-      - name: Upload coverage
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Generate coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
+          name: coverage-report-${{ github.run_id }}
           path: coverage/
+          retention-days: 7
 
+  # ─────────────────────────────────────────
+  # STAGE 2: Build
+  # ─────────────────────────────────────────
+  build:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npx next build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.run_id }}
+          path: .next/
+          retention-days: 3
+
+  # ─────────────────────────────────────────
+  # STAGE 3: Deploy LAB
+  # ─────────────────────────────────────────
   deploy-lab:
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [lint-and-test, build]
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && 
+       (inputs.deploy_target == 'lab' || inputs.deploy_target == 'both'))
     runs-on: ubuntu-latest
     environment:
       name: lab
       url: https://robot-lab-v3.vercel.app
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-      - run: npm ci
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Deploy to Vercel LAB
         run: |
           cd $GITHUB_WORKSPACE
           rm -rf .vercel .next
-          npx vercel link --yes -p robot-lab-v3 --token ${{ secrets.VERCEL_TOKEN }}
+          npx vercel link --yes -p ${{ env.VERCEL_PROJECT_LAB }} --token ${{ secrets.VERCEL_TOKEN }}
           npx vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
+
       - name: Smoke test LAB
         run: |
-          sleep 10
+          sleep 15
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-lab-v3.vercel.app/)
-          if [ "$STATUS" != "200" ]; then echo "FAIL: HTTP $STATUS"; exit 1; fi
-          echo "OK: HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "FAIL: LAB HTTP $STATUS"
+            exit 1
+          fi
+          echo "OK: LAB HTTP $STATUS"
 
+      - name: API health check LAB
+        run: |
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-lab-v3.vercel.app/api/horizon/scanner)
+          echo "LAB API status: $STATUS"
+
+  # ─────────────────────────────────────────
+  # STAGE 4: Deploy PROD
+  # ─────────────────────────────────────────
   deploy-prod:
-    needs: deploy-lab
+    needs: [deploy-lab]
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && 
+       (inputs.deploy_target == 'prod' || inputs.deploy_target == 'both'))
     runs-on: ubuntu-latest
     environment:
       name: production
       url: https://robot-detect-v3.vercel.app
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Deploy to Vercel PROD
         run: |
           cd $GITHUB_WORKSPACE
           rm -rf .vercel .next
-          npx vercel link --yes -p robot-detect-v3 --token ${{ secrets.VERCEL_TOKEN }}
+          npx vercel link --yes -p ${{ env.VERCEL_PROJECT_PROD }} --token ${{ secrets.VERCEL_TOKEN }}
           npx vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
+
       - name: Smoke test PROD
         run: |
-          sleep 10
+          sleep 15
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-detect-v3.vercel.app/)
-          if [ "$STATUS" != "200" ]; then echo "FAIL: HTTP $STATUS"; exit 1; fi
-          echo "OK: HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "FAIL: PROD HTTP $STATUS"
+            exit 1
+          fi
+          echo "OK: PROD HTTP $STATUS"
+
+      - name: API health check PROD
+        run: |
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-detect-v3.vercel.app/api/horizon/scanner)
+          echo "PROD API status: $STATUS"
+
+  # ─────────────────────────────────────────
+  # STAGE 5: Nightly smoke test (cron)
+  # ─────────────────────────────────────────
+  nightly-smoke:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    schedule:
+      - cron: '0 6 * * *'  # 06:00 UTC = 09:00 MSK
+    steps:
+      - name: Smoke test PROD
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-detect-v3.vercel.app/)
+          if [ "$STATUS" != "200" ]; then
+            echo "Nightly smoke FAIL: PROD HTTP $STATUS"
+            exit 1
+          fi
+          echo "Nightly smoke OK: PROD HTTP $STATUS"
+
+      - name: Smoke test LAB
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://robot-lab-v3.vercel.app/)
+          if [ "$STATUS" != "200" ]; then
+            echo "Nightly smoke FAIL: LAB HTTP $STATUS"
+            exit 1
+          fi
+          echo "Nightly smoke OK: LAB HTTP $STATUS"
