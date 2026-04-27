@@ -166,11 +166,19 @@ export function calcBSCI(
   const bsci = weightTotal > 0 ? weightedSum / weightTotal : 0;
   const clampedBsci = Math.min(1, Math.max(0, bsci));
 
+  // nHighDetectors filter: минимум 3 детектора с score > 0.5 для ALERT
+  const nHighDetectors = scores.filter(s => s.score > 0.5).length;
+  const hasConsensus = nHighDetectors >= 3;
+
   // Alert level
   let alertLevel: BSCIResult['alertLevel'] = 'GREEN';
-  if (clampedBsci >= 0.7) alertLevel = 'RED';
-  else if (clampedBsci >= 0.5) alertLevel = 'ORANGE';
-  else if (clampedBsci >= 0.3) alertLevel = 'YELLOW';
+  if (hasConsensus) {
+    // Только при консенсусе 3+ детекторов даём ALERT
+    if (clampedBsci >= 0.7) alertLevel = 'RED';
+    else if (clampedBsci >= 0.5) alertLevel = 'ORANGE';
+    else if (clampedBsci >= 0.3) alertLevel = 'YELLOW';
+  }
+  // else: GREEN — недостаточно консенсуса
 
   // Direction: взвешенное голосование детекторов (без insufficientData/staleData)
   let bullWeight = 0;

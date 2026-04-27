@@ -40,8 +40,25 @@ const SAMPLE_RATE_HZ = 10;                  // 1/bin = 10 Hz
 const MIN_TRADES = 50;
 const MIN_DURATION_SEC = 10;
 const MIN_BINS = 100;
+const MIN_NOISE_RATIO = 0.15;               // 15% — минимальная доля шумовой энергии
+const FWHM_REFERENCE = 6;                   // эталонная ширина пика для нормализации
 
 // ─── Вспомогательные функции ────────────────────────────────────────────────
+
+/**
+ * Full Width at Half Maximum — ширина пика на уровне половины его высоты.
+ * Узкий пик (FWHM < 3 бинов) → не периодичность, а артефакт.
+ * Широкий пик (FWHM ≥ 6 бинов) → реальная цикличность.
+ */
+function computeFWHM(psd: number[], peakIdx: number): number {
+  if (peakIdx < 0 || peakIdx >= psd.length) return 0;
+  const halfMax = psd[peakIdx] / 2;
+  let left = peakIdx;
+  while (left > 0 && psd[left] > halfMax) left--;
+  let right = peakIdx;
+  while (right < psd.length - 1 && psd[right] > halfMax) right++;
+  return right - left;
+}
 
 function computeACF(series: number[], maxLag: number): number[] {
   const n = series.length;
@@ -300,11 +317,36 @@ export function detectHawking(input: DetectorInput): DetectorResult {
 
   const noiseRatioRaw = 1 - (peakPower / (medianPSD * Math.max(bandwidth, 1) + EPS));
   const noiseRatio = Math.max(0, Math.min(1, noiseRatioRaw));
+  const effectiveNoiseRatio = Math.max(noiseRatio, MIN_NOISE_RATIO);  // пол 15%
   metadata.noiseRatio = Math.round(noiseRatio * 1000) / 1000;
+  metadata.effectiveNoiseRatio = Math.round(effectiveNoiseRatio * 1000) / 1000;
   metadata.medianPSD = Math.round(medianPSD * 1000) / 1000;
 
-  // ─── 7. Hawking score ───────────────────────────────────────────────────
-  const score = clampScore(periodicity * (1 - noiseRatio));
+  // ─── 7. FWHM bandwidth и адаптивный periodicity cap ───────────────────
+  // Находим индекс пика
+  let peakIdx = 0;
+  let maxPsd = 0;
+  for (let k = 1; k < psdResult.psd.length; k++) {
+    if (psdResult.psd[k] > maxPsd) {
+      maxPsd = psdResult.psd[k];
+      peakIdx = k;
+    }
+  }
+  const fwhm = computeFWHM(psdResult.psd, peakIdx);
+  const fwhmNorm = Math.min(fwhm / FWHM_REFERENCE, 1.0);
+  const periodicityCap = fwhmNorm < 0.5 ? 0.3 : 0.7;
+  const periodicityCapped = Math.min(periodicity, periodicityCap);
+
+  metadata.fwhm = fwhm;
+  metadata.fwhmNorm = Math.round(fwhmNorm * 1000) / 1000;
+  metadata.periodicityCap = periodicityCap;
+  metadata.periodicityCapped = Math.round(periodicityCapped * 1000) / 1000;
+
+  // ─── 8. Hawking score ───────────────────────────────────────────────────
+  // Формула: periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm
+  // Макс для реальной цикличности: 0.7 × 0.85 × 1.0 = 0.595
+  // Шумовой артефакт: 0.3 × 0.85 × 0.17 ≈ 0.04
+  const score = clampScore(periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm);
 
   metadata.hawkingRawScore = Math.round(score * 1000) / 1000;
   metadata.algoZoneDetected = peakPower > medianPSD * 2;

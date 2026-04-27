@@ -363,7 +363,20 @@ export function detectWavefunction(input: DetectorInput): DetectorResult {
   metadata.probHold = Math.round(probHold * 1000) / 1000;
 
   // Non-HOLD probability = "cycle detected"
-  const cycleProbability = 1 - probHold;
+  // HOLD guard: обнуляем если HOLD доминирует или не-HOLD не имеет足够 уверенности
+  const maxNonHold = Math.max(probAccumulate, probDistribute);
+  let cycleProbability = 0;
+  if (probHold > maxNonHold) {
+    // HOLD доминирует — рынок спокоен, скор = 0
+    cycleProbability = 0;
+  } else if (maxNonHold > probHold * 1.5 && maxNonHold > 0.4) {
+    // Не-HOLD доминирует с запасом 1.5× над HOLD и уверенностью > 40%
+    cycleProbability = 1 - probHold;
+  } else {
+    // Не-HOLD формально доминирует, но HOLD близко — неуверенный сигнал
+    cycleProbability = 0;
+  }
+  metadata.cycleProbabilityGuard = cycleProbability;
 
   // ─── 4. Autocorrelation-based period detection (supplementary) ──────
   const { period, strength: autocorrStrength } = findDominantPeriod(prices);

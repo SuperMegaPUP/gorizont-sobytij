@@ -196,17 +196,17 @@ function SignalCard({ signal, isSelected, onClick }: {
       onClick={onClick}
       className={`
         border rounded-sm p-2 cursor-pointer transition-all
-        ${config.border} ${config.bg}
-        ${isSelected ? `ring-1 ring-[var(--terminal-accent)] shadow-lg ${config.glow}` : 'hover:ring-1 hover:ring-[var(--terminal-border)]'}
+        ${config?.border ?? ''} ${config?.bg ?? ''}
+        ${isSelected ? `ring-1 ring-[var(--terminal-accent)] shadow-lg ${config?.glow ?? ''}` : 'hover:ring-1 hover:ring-[var(--terminal-border)]'}
         ${signal.state === 'CLOSED' ? 'opacity-60' : ''}
       `}
     >
       {/* Header: Type + Ticker + TTL */}
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
-          <span className={`${config.text}`}>{config.icon}</span>
-          <span className={`text-[10px] font-mono font-bold ${config.text}`}>
-            {config.labelRu}
+          <span className={`${config?.text ?? ''}`}>{config?.icon ?? '?'}</span>
+          <span className={`text-[10px] font-mono font-bold ${config?.text ?? ''}`}>
+            {config?.labelRu ?? 'Unknown'}
           </span>
           <span className="text-[9px] font-mono text-[var(--terminal-text)] font-bold">
             {signal.ticker}

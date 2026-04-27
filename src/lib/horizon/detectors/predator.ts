@@ -57,6 +57,9 @@ interface PredatorState {
   priceAtPhaseEntry: number;
   prevCumDelta: number;
   prevCumDeltaVelocity: number;
+  ticksProcessed: number;
+  deltaFlipCount: number;
+  prevDeltaSign: number;
 }
 
 const stateCache = new Map<string, PredatorState>();
@@ -74,14 +77,30 @@ function getState(ticker: string): PredatorState {
       priceAtPhaseEntry: 0,
       prevCumDelta: 0,
       prevCumDeltaVelocity: 0,
+      ticksProcessed: 0,
+      deltaFlipCount: 0,
+      prevDeltaSign: 0,
     });
   }
-  return stateCache.get(ticker)!;
+  const state = stateCache.get(ticker)!;
+  state.ticksProcessed++;
+  // Periodic reset каждые 200 тиков для предотвращения аккумулятивного дрифта
+  if (state.ticksProcessed % 200 === 0) {
+    state.deltaFlipCount = Math.floor(state.deltaFlipCount * 0.5);
+  }
+  return state;
 }
 
 function transitionTo(state: PredatorState, phase: PredatorPhase, now: number): void {
   state.phase = phase;
   state.phaseEntryTime = now;
+  // Сброс deltaFlip счётчиков при переходе в IDLE
+  if (phase === PredatorPhase.IDLE) {
+    state.deltaFlipCount = 0;
+    state.prevCumDelta = 0;
+    state.prevDeltaSign = 0;
+    state.ticksProcessed = 0;
+  }
 }
 
 // ─── Вспомогательные функции ────────────────────────────────────────────────

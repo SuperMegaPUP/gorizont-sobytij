@@ -98,7 +98,7 @@ export function DurationFrame() {
                 {/* Профиль робота — ярлык */}
                 <span
                   className="text-[6px] px-1 py-0 rounded-sm font-bold shrink-0"
-                  style={{ color: pStyle.color, backgroundColor: pStyle.bg, borderColor: pStyle.border, borderWidth: '1px' }}
+                  style={{ color: pStyle?.color, backgroundColor: pStyle?.bg, borderColor: pStyle?.border ?? 'transparent', borderWidth: '1px' }}
                 >
                   {pStyle.label}
                 </span>

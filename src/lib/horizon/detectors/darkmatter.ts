@@ -30,6 +30,7 @@ import type { DetectorInput, DetectorResult } from './types';
 import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
+const MIN_DELTA_H = 0.15;  // 15% — минимальное отклонение энтропии от ожидаемой
 const LN2 = Math.log(2);
 const MIN_ICEBERG_VOLUME_RATIO = 0.005; // 0.5% дневного оборота
 const MIN_CONSECUTIVE_RUN = 3;
@@ -265,7 +266,12 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   let entropyScore = 0;
   if (expectedEntropy > EPS) {
     const deltaH = expectedEntropy - H_MM;
-    entropyScore = deltaH > 0 ? safeDivide(deltaH, expectedEntropy, 0.01) : 0;
+    const deltaHRatio = deltaH > 0 ? deltaH / expectedEntropy : 0;
+    // MIN_DELTA_H порог: отклонение < 15% — шум, не сигнал
+    // Линейное масштабирование: ΔH=0.15→0, ΔH=0.5→0.41, ΔH=1.0→1.0
+    entropyScore = deltaHRatio >= MIN_DELTA_H
+      ? (deltaHRatio - MIN_DELTA_H) / (1 - MIN_DELTA_H)
+      : 0;
   }
   entropyScore = cutoffDepth < 5 ? 0 : Math.min(1, Math.max(0, entropyScore));
   metadata.deltaH_norm = Math.round(entropyScore * 1000) / 1000;

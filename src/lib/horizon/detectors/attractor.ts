@@ -24,6 +24,26 @@ import { clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
 
+// ─── Sigmoid centered normalization ─────────────────────────────────────────
+
+function sigmoid(x: number): number {
+  return 1 / (1 + Math.exp(-x));
+}
+
+/**
+ * Sigmoid-centered normalization with smooth falloff.
+ * center: точка аномальности (значение при котором norm = 0)
+ * width: ширина перехода (sigmoid steepness)
+ * 
+ * sigmoidCentered(0.5, 0.7, 0.15) ≈ 0.00  — ниже центра = ноль
+ * sigmoidCentered(0.7, 0.7, 0.15) = 0.00  — в центре = ноль (отсечение нормы)
+ * sigmoidCentered(0.85, 0.7, 0.15) ≈ 0.76 — выше центра = растёт
+ * sigmoidCentered(1.0, 0.7, 0.15) ≈ 1.00  — далеко выше = максимум
+ */
+function sigmoidCentered(x: number, center: number, width: number): number {
+  return Math.max(0, 2 * sigmoid((x - center) / width) - 1);
+}
+
 // ─── Auto τ via ACF ──────────────────────────────────────────────────────
 
 /**
@@ -338,11 +358,9 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   metadata.stickinessRatio = Math.round(stickinessRatio * 1000) / 1000;
   metadata.stickyCount = stickyCount;
 
-  // Stickiness score: high stickiness → strong attractor
-  const stickinessScore = stickinessRatio > 0.7 ? 1
-    : stickinessRatio > 0.5 ? 0.8
-    : stickinessRatio > 0.3 ? 0.5
-    : stickinessRatio > 0.15 ? 0.2 : 0;
+  // Stickiness score: sigmoid-centered (центр 0.7)
+  const stickinessNorm = sigmoidCentered(stickinessRatio, 0.7, 0.15);
+  metadata.stickinessNorm = Math.round(stickinessNorm * 1000) / 1000;
 
   // ─── 3.5. POC distance guard (smooth decay) ───────────────────────────
   const currentPrice = prices[prices.length - 1];
@@ -359,19 +377,21 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   const pocDistance = vProfile.poc > 0 ? Math.abs(vProfile.poc - currentPrice) / Math.max(atr, EPS) : 0;
   metadata.pocDistance = Math.round(pocDistance * 1000) / 1000;
 
-  let volumeProfileScore = vProfile.attractionRatio > 0.7 ? 1
-    : vProfile.attractionRatio > 0.5 ? 0.8
-    : vProfile.attractionRatio > 0.35 ? 0.5
-    : vProfile.attractionRatio > 0.2 ? 0.2 : 0;
-
+  // Volume profile score: sigmoid-centered (центр 0.5)
+  const volProfileNorm = sigmoidCentered(vProfile.attractionRatio, 0.5, 0.15);
   // Smooth decay for far POC (С7): distance > 0.5 ATR → gradual decay
-  if (pocDistance > 0.5) {
-    volumeProfileScore *= Math.max(0, 1 - (pocDistance - 0.5) / 1.5);
-  }
+  const volProfileScore = pocDistance > 0.5
+    ? volProfileNorm * Math.max(0, 1 - (pocDistance - 0.5) / 1.5)
+    : volProfileNorm;
+  metadata.volProfileNorm = Math.round(volProfileNorm * 1000) / 1000;
+
+  // Takens convergence: sigmoid-centered (центр 0.3)
+  const takensNorm = sigmoidCentered(takens.convergence, 0.3, 0.15);
+  metadata.takensNorm = Math.round(takensNorm * 1000) / 1000;
 
   // ─── 4. Composite score ───────────────────────────────────────────────
-  // attractor_score = 0.4 × takens + 0.3 × volume_profile + 0.3 × stickiness
-  const rawScore = takens.convergence * 0.4 + volumeProfileScore * 0.3 + stickinessScore * 0.3;
+  // attractor_score = 0.4 × takens + 0.3 × vol_profile + 0.3 × stickiness
+  const rawScore = 0.4 * takensNorm + 0.3 * volProfileScore + 0.3 * stickinessNorm;
   const score = Math.min(1, Math.max(0, rawScore));
 
   // ─── 5. Signal direction ──────────────────────────────────────────────
@@ -392,7 +412,7 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
 
   // ─── 6. Confidence ────────────────────────────────────────────────────
   // Higher when multiple components agree
-  const components = [takens.convergence, volumeProfileScore, stickinessScore];
+  const components = [takensNorm, volProfileNorm, stickinessNorm];
   const activeComponents = components.filter(s => s > 0.2).length;
   const agreement = activeComponents / 3;
   const confidence = score > 0.15

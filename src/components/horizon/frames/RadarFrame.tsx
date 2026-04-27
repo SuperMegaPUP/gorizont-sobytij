@@ -420,11 +420,11 @@ export function HorizonRadarFrame() {
                 tooltip.alertLevel === 'ORANGE' ? 'text-orange-400' :
                 tooltip.alertLevel === 'YELLOW' ? 'text-yellow-400' : 'text-green-400'
               }>
-                {tooltip.bsci.toFixed(3)}
+                {(tooltip.bsci ?? 0).toFixed(3)}
               </span>
             </div>
             <div className="text-[6px] font-mono text-[var(--terminal-muted)]">
-              VPIN: {tooltip.vpin.toFixed(3)} | CumDelta: {tooltip.cumDelta.toFixed(3)}
+              VPIN: {(tooltip.vpin ?? 0).toFixed(3)} | CumDelta: {(tooltip.cumDelta ?? 0).toFixed(3)}
             </div>
             <div className="text-[6px] font-mono text-[var(--terminal-muted)]">
               <span className={tooltip.direction === 'BULLISH' ? 'text-green-400' : tooltip.direction === 'BEARISH' ? 'text-red-400' : 'text-[var(--terminal-muted)]'}>

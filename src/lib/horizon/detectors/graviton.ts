@@ -37,6 +37,7 @@ import type { DetectorInput, DetectorResult } from './types';
 import { safeDivide, clampScore, stalePenalty } from './guards';
 
 const EPS = 1e-6;
+const ATR_PCT_FLOOR = 0.005;  // 0.5% — минимальная волатильность для нормализации
 
 // ─── Вспомогательные функции ────────────────────────────────────────────────
 
@@ -263,9 +264,11 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   const atrPct = safeDivide(atr, midPrice, 0.01);
 
   const separation = safeDivide(cmAsk - cmBid, midPrice, 0.001);
-  const separationNorm = Math.exp(-separation / Math.max(atrPct, EPS));
+  const effectiveAtrPct = Math.max(atrPct, ATR_PCT_FLOOR);  // семантический пол
+  const separationNorm = Math.exp(-separation / effectiveAtrPct);
   metadata.separationNorm = Math.round(separationNorm * 1000) / 1000;
   metadata.atrPct = Math.round(atrPct * 1000) / 1000;
+  metadata.effectiveAtrPct = Math.round(effectiveAtrPct * 1000) / 1000;
 
   // ─── 4. Asymmetry (dimensionless) ───────────────────────────────────────
   const bidAsymRaw = volumeAsymmetry(bidLevels, cmBid);
@@ -274,7 +277,8 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   const asymmetryRaw = totalVol > EPS
     ? (bidAsymRaw - askAsymRaw) / totalVol
     : 0;
-  const asymmetryNorm = safeDivide(asymmetryRaw, Math.max(spread, 0.001 * midPrice), 0);
+  // asymmetry_norm тоже использует ATR для консистентной нормировки
+  const asymmetryNorm = safeDivide(asymmetryRaw, Math.max(spread, effectiveAtrPct * midPrice), 0);
 
   metadata.bidAsymmetry = Math.round(bidAsymRaw * 1000) / 1000;
   metadata.askAsymmetry = Math.round(askAsymRaw * 1000) / 1000;

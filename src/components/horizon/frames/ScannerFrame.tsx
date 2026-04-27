@@ -391,12 +391,12 @@ export function HorizonScannerFrame() {
                     <td className="px-1.5 py-0.5">
                       <div className="flex items-center gap-1">
                         <span>{bsciEmoji}</span>
-                        <span className={bsciColor.text}>{ticker.bsci.toFixed(2)}</span>
+                        <span className={bsciColor.text}>{(ticker.bsci ?? 0).toFixed(2)}</span>
                         {/* Mini bar */}
                         <div className="w-8 h-1.5 bg-[var(--terminal-border)] rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full ${ticker.bsci > 0.7 ? 'bg-red-500' : ticker.bsci > 0.4 ? 'bg-orange-500' : ticker.bsci > 0.2 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                            style={{ width: `${Math.min(ticker.bsci * 100, 100)}%` }}
+                            className={`h-full rounded-full ${(ticker.bsci ?? 0) > 0.7 ? 'bg-red-500' : (ticker.bsci ?? 0) > 0.4 ? 'bg-orange-500' : (ticker.bsci ?? 0) > 0.2 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min((ticker.bsci ?? 0) * 100, 100)}%` }}
                           />
                         </div>
                       </div>
