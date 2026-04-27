@@ -263,8 +263,7 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   const atrPct = safeDivide(atr, midPrice, 0.01);
 
   const separation = safeDivide(cmAsk - cmBid, midPrice, 0.001);
-  const separationNorm = safeDivide(separation, atrPct, 1.0);
-  metadata.separation = Math.round(separation * 10000) / 10000;
+  const separationNorm = Math.exp(-separation / Math.max(atrPct, EPS));
   metadata.separationNorm = Math.round(separationNorm * 1000) / 1000;
   metadata.atrPct = Math.round(atrPct * 1000) / 1000;
 
@@ -286,7 +285,7 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   const askTotalVol = orderbook.asks.reduce((s, l) => s + l.quantity, 0);
 
   // median_depth = median количества уровней bid + ask
-  const medianDepth = (orderbook.bids.length + orderbook.asks.length) / 2;
+  const medianDepth = (bidLevels.length + askLevels.length) / 4;
 
   const bidWalls = detectWalls(orderbook.bids, bidTotalVol, medianDepth, spread);
   const askWalls = detectWalls(orderbook.asks, askTotalVol, medianDepth, spread);
@@ -296,12 +295,15 @@ export function detectGraviton(input: DetectorInput): DetectorResult {
   metadata.bidWallScore = Math.round(bidWalls.wallScore * 1000) / 1000;
   metadata.askWallScore = Math.round(askWalls.wallScore * 1000) / 1000;
 
-  // wall_proximity нормирован на spread
-  const wallProximity = Math.min(
-    bidWalls.wallProximity < 999 ? bidWalls.wallProximity : 999,
-    askWalls.wallProximity < 999 ? askWalls.wallProximity : 999
-  );
-  metadata.wallProximity = wallProximity < 999 ? Math.round(wallProximity * 1000) / 1000 : 999;
+  // wall_proximity: 1 на лучшем уровне, уменьшается с глубиной
+  const bidMinWallDepth = bidWalls.walls.length > 0
+    ? Math.min(...bidWalls.walls.map(w => w.depth)) : Infinity;
+  const askMinWallDepth = askWalls.walls.length > 0
+    ? Math.min(...askWalls.walls.map(w => w.depth)) : Infinity;
+  const minWallDepth = Math.min(bidMinWallDepth, askMinWallDepth);
+  const wallProximity = minWallDepth === Infinity ? 0 : 1 / (1 + minWallDepth);
+  metadata.wallProximity = Math.round(wallProximity * 1000) / 1000;
+  metadata.minWallDepth = minWallDepth === Infinity ? -1 : minWallDepth;
 
   const combinedWallScore = Math.max(bidWalls.wallScore, askWalls.wallScore);
 
