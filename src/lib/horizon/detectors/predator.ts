@@ -289,10 +289,10 @@ function windowConfirmMin(atr: number, price: number): number {
 // ─── Главный детектор ───────────────────────────────────────────────────────
 
 export function detectPredator(input: DetectorInput): DetectorResult {
-  const { ticker, trades, cumDelta, ofi } = input;
+  const { ticker, trades, recentTrades, cumDelta, ofi } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
-  const allTrades = trades && trades.length > 0 ? trades : [];
+  const allTrades = trades && trades.length > 0 ? trades : (recentTrades || []);
   if (allTrades.length < 20) {
     return zeroResult('недостаточно сделок', { n_trades: allTrades.length });
   }

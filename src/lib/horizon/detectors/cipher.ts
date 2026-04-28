@@ -37,6 +37,8 @@ const EPS = 1e-6;
 const CIPHER_DECAY = 0.95;
 const CIPHER_MAX_SCORE = 0.85;
 
+// v4.2 формула: score не ограничивается максимумом, используется как есть
+
 // ─── Seeded random (seed=42 для воспроизводимости ICA/PCA) ────────────────
 
 let _seed = 42;

@@ -15,7 +15,7 @@ export { detectWavefunction } from './wavefunction';
 export { detectAttractor } from './attractor';
 
 export { ALL_DETECTORS, runAllDetectors, runDetector, calcBSCI } from './registry';
-export type { BSCIResult } from './registry';
+export type { BSCIResult, BSCIContext } from './registry';
 
 export { checkGuards, stalePenalty, safeDivide, clampScore } from './guards';
 export type { GuardInput } from './guards';

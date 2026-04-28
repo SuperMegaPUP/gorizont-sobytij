@@ -28,9 +28,9 @@
 
 import type { DetectorInput, DetectorResult } from './types';
 import { safeDivide, clampScore, stalePenalty } from './guards';
+import { DARKMATTER_MIN_DELTA_H } from '../constants';
 
 const EPS = 1e-6;
-const MIN_DELTA_H = 0.15;  // 15% — минимальное отклонение энтропии от ожидаемой
 const LN2 = Math.log(2);
 const MIN_ICEBERG_VOLUME_RATIO = 0.005; // 0.5% дневного оборота
 const MIN_CONSECUTIVE_RUN = 3;
@@ -267,14 +267,24 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   if (expectedEntropy > EPS) {
     const deltaH = expectedEntropy - H_MM;
     const deltaHRatio = deltaH > 0 ? deltaH / expectedEntropy : 0;
-    // MIN_DELTA_H порог: отклонение < 15% — шум, не сигнал
-    // Линейное масштабирование: ΔH=0.15→0, ΔH=0.5→0.41, ΔH=1.0→1.0
-    entropyScore = deltaHRatio >= MIN_DELTA_H
-      ? (deltaHRatio - MIN_DELTA_H) / (1 - MIN_DELTA_H)
+    // v4.2 формула с мягким порогом: DARKMATTER_MIN_DELTA_H = 3%
+    // observed >= expected → score = 0 (норма)
+    // observed < expected → score = ΔH_norm (аномалия)
+    // Но если ΔH < 3% — это шум, не сигнал
+    entropyScore = deltaHRatio >= DARKMATTER_MIN_DELTA_H
+      ? (deltaHRatio - DARKMATTER_MIN_DELTA_H) / (1 - DARKMATTER_MIN_DELTA_H)
       : 0;
   }
-  entropyScore = cutoffDepth < 5 ? 0 : Math.min(1, Math.max(0, entropyScore));
+  
+  // Soft weight: cutoff_depth < 5 → плавное затухание вместо hard 0
+  const depthWeight = cutoffDepth > 0 ? Math.min(1, cutoffDepth / 5) : 0;
+  entropyScore = entropyScore * depthWeight;
+  
+  if (cutoffDepth < 5) {
+    metadata.guardTriggered = 'cutoff_depth_lt_5';
+  }
   metadata.deltaH_norm = Math.round(entropyScore * 1000) / 1000;
+  metadata.depthWeight = Math.round(depthWeight * 1000) / 1000;
 
   // Data quality penalty: если мало данных — энтропия ненадёжна
   const DATA_MIN_POINTS = 100;

@@ -33,15 +33,16 @@
 
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty } from './guards';
+import { HAWKING_MIN_TRADES, HAWKING_ABSOLUTE_MIN_TRADES } from '../constants';
 
 const EPS = 1e-6;
 const BIN_MS = 100;                         // 100ms ресэмплинг
 const SAMPLE_RATE_HZ = 10;                  // 1/bin = 10 Hz
-const MIN_TRADES = 50;
+// MIN_TRADES и MIN_NOISE_RATIO импортируются из constants.ts
 const MIN_DURATION_SEC = 10;
 const MIN_BINS = 100;
-const MIN_NOISE_RATIO = 0.15;               // 15% — минимальная доля шумовой энергии
-const FWHM_REFERENCE = 6;                   // эталонная ширина пика для нормализации
+
+// v4.2 формула с порогом: score = periodicity × (1 - effectiveNoiseRatio) × fwhmNorm
 
 // ─── Вспомогательные функции ────────────────────────────────────────────────
 
@@ -174,60 +175,57 @@ function simplePSD(series: number[], sampleRate: number): { freqs: number[]; psd
 // ─── Главный детектор ──────────────────────────────────────────────────────
 
 export function detectHawking(input: DetectorInput): DetectorResult {
-  const { trades } = input;
+  const { trades, recentTrades } = input;
   const metadata: Record<string, number | string | boolean> = {};
-
-  const validTrades = trades && trades.length > 0 ? trades : [];
+  
+  const validTrades = trades && trades.length > 0 ? trades : (recentTrades || []);
   const n = validTrades.length;
   metadata.n_trades = n;
+  metadata.has_trades = (trades?.length ?? 0) > 0;
+  metadata.has_recentTrades = (recentTrades?.length ?? 0) > 0;
 
-  // ─── Stale guard ────────────────────────────────────────────────────────
-  if (input.staleData) {
-    const staleFactor = stalePenalty(input.staleMinutes);
-    if (staleFactor <= 0) {
-      return {
-        detector: 'HAWKING',
-        description: 'Излучение — периодичность алгоритмов (устаревшие данные)',
-        score: 0,
-        confidence: 0,
-        signal: 'NEUTRAL',
-        metadata: { insufficientData: true, staleData: true, staleMinutes: input.staleMinutes ?? 0 },
-      };
+  // ─── Stale guard — soft staleWeight вместо hard cutoff ───────────────────
+  let staleWeight = 1;
+  if (input.staleData && input.staleMinutes) {
+    staleWeight = stalePenalty(input.staleMinutes);
+    if (input.staleMinutes > 240) {
+      metadata.guardTriggered = 'stale_data';
     }
   }
+  metadata.staleWeight = Math.round(staleWeight * 1000) / 1000;
+  metadata.staleMinutes = input.staleMinutes ?? 0;
 
   // ─── Guard: недостаточно сделок или короткая длительность ───────────────
-  if (n < MIN_TRADES) {
+  // Soft tradeWeight вместо hard cutoff
+  const tradeWeight = n >= HAWKING_ABSOLUTE_MIN_TRADES 
+    ? Math.min(1, n / HAWKING_MIN_TRADES) 
+    : 0;
+  
+  // При абсолютном минимуме — insufficientData
+  if (n < HAWKING_ABSOLUTE_MIN_TRADES) {
     metadata.insufficientData = true;
     metadata.guardTriggered = 'insufficient_data';
-    return {
-      detector: 'HAWKING',
-      description: 'Излучение — периодичность алгоритмов (недостаточно данных)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
   }
+  metadata.tradeWeight = Math.round(tradeWeight * 1000) / 1000;
+  metadata.trades = n;
 
   const timestamps = validTrades.map(t => t.timestamp || 0).filter(ts => ts > 0);
   const durationSec = timestamps.length >= 2
     ? (Math.max(...timestamps) - Math.min(...timestamps)) / 1000
     : 0;
   metadata.durationSec = Math.round(durationSec * 100) / 100;
+  metadata.n_trades = n;
+  metadata.n_timestamps = timestamps.length;
+  console.log(`[HAWKING] ${input.ticker}: n=${n}, durationSec=${durationSec}, timestamps=${timestamps.length}`);
 
+  // Soft durationWeight вместо hard cutoff
+  const durationWeight = Math.min(1, durationSec / MIN_DURATION_SEC);
   if (durationSec < MIN_DURATION_SEC) {
     metadata.insufficientData = true;
-    metadata.guardTriggered = 'insufficient_data';
-    return {
-      detector: 'HAWKING',
-      description: 'Излучение — периодичность алгоритмов (короткая длительность)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
+    metadata.guardTriggered = 'short_duration';
   }
+  metadata.durationWeight = Math.round(durationWeight * 1000) / 1000;
+  console.log(`[HAWKING] ${input.ticker}: n=${n}, durationSec=${durationSec}, tradeWeight=${tradeWeight}, durationWeight=${durationWeight}`);
 
   // ─── 1. 100ms ресэмплинг → activity series ──────────────────────────────
   const minTs = Math.min(...timestamps);
@@ -235,18 +233,13 @@ export function detectHawking(input: DetectorInput): DetectorResult {
   const nBins = Math.floor((maxTs - minTs) / BIN_MS) + 1;
   metadata.n_bins = nBins;
 
+  // Soft binsWeight вместо hard cutoff
+  const binsWeight = Math.min(1, nBins / MIN_BINS);
   if (nBins < MIN_BINS) {
     metadata.insufficientData = true;
     metadata.guardTriggered = 'insufficient_bins';
-    return {
-      detector: 'HAWKING',
-      description: 'Излучение — периодичность алгоритмов (недостаточно бинов)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
   }
+  metadata.binsWeight = Math.round(binsWeight * 1000) / 1000;
 
   const activity: number[] = new Array(nBins).fill(0);
   for (const t of validTrades) {
@@ -317,36 +310,23 @@ export function detectHawking(input: DetectorInput): DetectorResult {
 
   const noiseRatioRaw = 1 - (peakPower / (medianPSD * Math.max(bandwidth, 1) + EPS));
   const noiseRatio = Math.max(0, Math.min(1, noiseRatioRaw));
-  const effectiveNoiseRatio = Math.max(noiseRatio, MIN_NOISE_RATIO);  // пол 15%
+  // v4.2 формула: score = periodicity × (1 - noiseRatio) × fwhmNorm
+  const periodicityCapped = Math.min(1, periodicity * 2);  // cap at 1
+  const fwhmNorm = Math.min(1, bandwidth / 20);  // normalized bandwidth
+  const effectiveNoiseRatio = noiseRatio;
+  let rawScore = periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm;
+  
+  // Применяем soft weights (вместо hard cutoffs)
+  rawScore *= tradeWeight;
+  rawScore *= durationWeight;
+  rawScore *= binsWeight;
+  rawScore *= staleWeight;
+  
+  const score = clampScore(rawScore);
+
   metadata.noiseRatio = Math.round(noiseRatio * 1000) / 1000;
   metadata.effectiveNoiseRatio = Math.round(effectiveNoiseRatio * 1000) / 1000;
-  metadata.medianPSD = Math.round(medianPSD * 1000) / 1000;
-
-  // ─── 7. FWHM bandwidth и адаптивный periodicity cap ───────────────────
-  // Находим индекс пика
-  let peakIdx = 0;
-  let maxPsd = 0;
-  for (let k = 1; k < psdResult.psd.length; k++) {
-    if (psdResult.psd[k] > maxPsd) {
-      maxPsd = psdResult.psd[k];
-      peakIdx = k;
-    }
-  }
-  const fwhm = computeFWHM(psdResult.psd, peakIdx);
-  const fwhmNorm = Math.min(fwhm / FWHM_REFERENCE, 1.0);
-  const periodicityCap = fwhmNorm < 0.5 ? 0.3 : 0.7;
-  const periodicityCapped = Math.min(periodicity, periodicityCap);
-
-  metadata.fwhm = fwhm;
-  metadata.fwhmNorm = Math.round(fwhmNorm * 1000) / 1000;
-  metadata.periodicityCap = periodicityCap;
-  metadata.periodicityCapped = Math.round(periodicityCapped * 1000) / 1000;
-
-  // ─── 8. Hawking score ───────────────────────────────────────────────────
-  // Формула: periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm
-  // Макс для реальной цикличности: 0.7 × 0.85 × 1.0 = 0.595
-  // Шумовой артефакт: 0.3 × 0.85 × 0.17 ≈ 0.04
-  const score = clampScore(periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm);
+  metadata.tradeWeight = Math.round(tradeWeight * 1000) / 1000;
 
   metadata.hawkingRawScore = Math.round(score * 1000) / 1000;
   metadata.algoZoneDetected = peakPower > medianPSD * 2;
@@ -363,17 +343,11 @@ export function detectHawking(input: DetectorInput): DetectorResult {
     ? Math.min(1, (periodicityCapped + (1 - effectiveNoiseRatio) + fwhmNorm) / 2.5)
     : 0;
 
-  // ─── 9. Stale penalty ───────────────────────────────────────────────────
-  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
-  const finalScore = clampScore(score * staleFactor);
-  const finalConfidence = clampScore(confidence * staleFactor);
-  metadata.staleFactor = staleFactor;
-
   return {
     detector: 'HAWKING',
     description: 'Излучение — периодичность алгоритмов (activity series v4.2)',
-    score: finalScore,
-    confidence: finalConfidence,
+    score,
+    confidence,
     signal,
     metadata,
   };

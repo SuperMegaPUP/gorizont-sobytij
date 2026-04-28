@@ -95,4 +95,24 @@
 | Дата | Что изменено |
 |---|---|
 | 2026-04-27 | Создана инфраструктура CONTEXT, сохранена спецификация v4.2 |
+| 2026-04-28 | Deploy #3: HAWKING починен (48/100 > 0), PREDATOR/ATTRACTOR fallback на recentTrades, исправлены константы, добавлен metadataMap в API |
+
+---
+
+## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3
+
+| Метрика | Текущее | Цель |
+|---------|---------|------|
+| ALERT count | 1 | 5-15 |
+| Mean BSCI | 0.129 | < 0.45 ✅ |
+| HAWKING > 0 | 48/100 | ✅ Починен |
+| PREDATOR > 0 | 0/100 | State machine в IDLE |
+| ATTRACTOR > 0 | 36/100 | ✅ Работает |
+
+### Исправления в Deploy #3:
+1. **HAWKING**: добавлен fallback `trades || recentTrades`, исправлены undefined переменные (periodicityCapped, fwhmNorm)
+2. **PREDATOR**: добавлен fallback `trades || recentTrades`
+3. **ATTRACTOR**: добавлен fallback `trades || recentTrades` + заменены все `trades` на `effectiveTrades`
+4. **metadataMap**: добавлен в TickerScanResult для отладки
+5. **Alert thresholds**: исправлены пороги alertLevel (0.2/0.3/0.5 вместо 0.3/0.5/0.7)
 

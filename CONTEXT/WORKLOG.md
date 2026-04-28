@@ -153,3 +153,46 @@
 ### Следующий шаг
 - PROD деплой?
 
+---
+
+## 2026-04-28 | Сессия #6 | P0 HOTFIX — TOP100 ReferenceError + P0 FIX
+
+### Запрос пользователя
+- Пользователь: TOP100 показывает BSCI=0 для 81/100 тикеров, ошибка "entropy is not defined"
+
+### Проблема
+- TOP100 использовал старый кэш с битыми данными
+- ReferenceError в decoherence.ts — переменные не инициализированы
+- Scanner rules падал при расчёте TOP100
+
+### Решение (P0 HOTFIX)
+1. Удалены все console.log DIAG из 6 детекторов
+2. Добавлены fallback-значения в metadata в decoherence.ts
+3. Добавлен try/catch в runAllDetectors (registry.ts)
+4. Fresh scan TOP100: POST /top100 {force: true}
+
+### Результат (после hotfix)
+- SBER: BSCI 0.192, detectorScores = 10 детекторов ✅
+- Mean BSCI TOP100: 0.14 (было 0)
+- ALERT: 16 тикеров (было 1)
+- 4 детектора всё ещё мёртвые:
+  - HAWKING: 0.00 (формула сломана)
+  - PREDATOR: 0.00 (формула сломана)
+  - ATTRACTOR: 0.00-0.07 (почти мёртв)
+  - DARKMATTER: 0.00-0.10 (почти мёртв)
+
+### Метрики после hotfix
+- BSCI диапазон: 0.00-0.30
+- ALERT: ~22 (было 0)
+- Средний BSCI: ~0.17
+
+### Коммиты
+- Без коммита (hotfix в процессе)
+
+### Следующий шаг
+- Фаза 2: Починка 4 мёртвых детекторов
+- HAWKING: проверить формулу periodicity * (1 - noise_ratio)
+- PREDATOR: проверить state machine логику
+- ATTRACTOR: проверить Takens embedding + POC
+- DARKMATTER: проверить entropy по cutoffLevel
+

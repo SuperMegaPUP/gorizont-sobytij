@@ -27,10 +27,11 @@
 
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty } from './guards';
+import { DECOHERENCE_MIN_ACTIVE_SYMBOLS } from '../constants';
 
 const EPS = 1e-6;
 const WINDOW_SIZE = 100;
-const MIN_ACTIVE_SYMBOLS = 5;
+// MIN_ACTIVE_SYMBOLS теперь импортируется из constants.ts
 const MIN_ACTIVITY_RATIO = 0.3;
 const MAX_WINDOW_SPAN_MS = 5 * 60 * 1000; // 5 минут
 const LN2 = Math.log(2);
@@ -87,7 +88,21 @@ function shannonEntropyML(frequencies: Map<number, number>, total: number): numb
 
 export function detectDecoherence(input: DetectorInput): DetectorResult {
   const { ofi, cumDelta, trades, recentTrades, tradeOFI } = input;
-  const metadata: Record<string, number | string | boolean> = {};
+  
+  // Initialize all metadata with fallbacks
+  const metadata: Record<string, number | string | boolean> = {
+    insufficientData: false,
+    staleData: false,
+    guardTriggered: 'none',
+    totalSymbols: 0,
+    activeSymbols: 0,
+    activityRatio: 0,
+    H_ML: 0,
+    H_MM: 0,
+    effective_H_max: 0,
+    rawScore: 0,
+    staleFactor: 1,
+  };
 
   // ─── Stale data guard ──────────────────────────────────────────────────
   if (input.staleData) {
@@ -182,21 +197,18 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   }
 
   const activeSymbols = frequencies.size;
-  metadata.activeSymbols = activeSymbols;
 
-  // ─── 5. Alphabet guard (< 5 символов) ──────────────────────────────────
-
-  if (activeSymbols < MIN_ACTIVE_SYMBOLS) {
+  // ─── 5. Alphabet guard — soft qualityWeight вместо hard cutoff ────────────
+  
+  // Soft weight: activeSymbols < 5 → плавное затухание вместо hard 0
+  const qualityWeight = activeSymbols > 0 
+    ? Math.min(1, activeSymbols / DECOHERENCE_MIN_ACTIVE_SYMBOLS) 
+    : 0;
+  
+  if (activeSymbols < DECOHERENCE_MIN_ACTIVE_SYMBOLS) {
     metadata.guardTriggered = 'alphabet_lt_5';
-    return {
-      detector: 'DECOHERENCE',
-      description: 'Декогеренция — недостаточно символов (alphabet < 5)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
   }
+  metadata.qualityWeight = Math.round(qualityWeight * 1000) / 1000;
 
   // ─── 6. Low activity guard (< 30% price changes) ───────────────────────
 
@@ -238,6 +250,10 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
     score = 1 - (H_MM / effective_H_max);
   }
   score = clampScore(score);
+  
+  // Применяем soft qualityWeight (вместо hard cutoff)
+  score = score * qualityWeight;
+  
   metadata.rawScore = score;
 
   // ─── 11. Signal direction ──────────────────────────────────────────────

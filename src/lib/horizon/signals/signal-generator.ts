@@ -19,6 +19,7 @@ import type { OrderBookData } from '../calculations/ofi';
 import type { TAIndicators } from '../ta-context';
 import type { ConvergenceScoreResult } from '../convergence-score';
 import type { RobotContext } from '../robot-context';
+import { BSCI_ALERT_THRESHOLD, BSCI_AWAIT_THRESHOLD } from '../constants';
 import { calculateLevels, type LevelResult } from './level-calculator';
 import { calculateTTL, calculateExpiresAt, canGenerateSignals, getSessionInfo } from './moex-sessions';
 
@@ -29,7 +30,7 @@ import { calculateTTL, calculateExpiresAt, canGenerateSignals, getSessionInfo } 
  * Старый порог 0.55 → 0 сигналов. Новый 0.45 → 4 сигнала (редкость=ценность).
  * При П2 правках (Sprint 5) BSCI дискриминация улучшится → пересмотреть.
  */
-export const SIGNAL_BSCI_THRESHOLD = 0.40;
+export const SIGNAL_BSCI_THRESHOLD = BSCI_ALERT_THRESHOLD; // 0.20 — синхронизировано с constants.ts
 
 /** Конвергенция порог для генерации сигнала.
  * Калибровка 2026-04-26: Max conv=9, conv>=5 у 32%, conv>=7 у 2%.
@@ -42,7 +43,7 @@ export const SIGNAL_CONV_THRESHOLD = 5;
 export const SIGNAL_TOP_DET_THRESHOLD = 0.75;
 
 /** Порог BSCI для AWAIT сигнала */
-export const SIGNAL_AWAIT_BSCI_THRESHOLD = 0.35;
+export const SIGNAL_AWAIT_BSCI_THRESHOLD = BSCI_AWAIT_THRESHOLD; // 0.35 — синхронизировано с constants.ts
 
 /** Порог HAWKING для BREAKOUT сигнала */
 export const SIGNAL_BREAKOUT_HAWKING_THRESHOLD = 0.7;
@@ -470,7 +471,7 @@ export function generateSignal(input: SignalGeneratorInput): SignalGeneratorOutp
   const atrCompressed = taIndicators.atrZone === 'COMPRESSED';
 
   // Cross-filter: если менее 3 детекторов с высоким скором → нет сигнала
-  const nHighDetectors = Object.values(detectorScores).filter(s => s > 0.6).length;
+  const nHighDetectors = Object.values(detectorScores).filter(s => s > 0.7).length;
   const hasEnoughSupport = nHighDetectors >= 3;
 
   let signalType: SignalType | null = null;

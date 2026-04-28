@@ -132,8 +132,8 @@ export function applyScannerRules(input: ScannerInput): ScannerResult {
     return result;
   }
 
-  // Rule 2: BSCI>0.5 + |ofi| > 2x normal + DECOHERENCE>0.4 → IMBALANCE_SPIKE / ALERT
-  if (bsci > 0.5 && ofiAbs > normalOfiThreshold && (detectorScores.DECOHERENCE ?? 0) > 0.4) {
+  // Rule 2: BSCI>=0.20 + |ofi| > 2x normal + DECOHERENCE>0.4 → IMBALANCE_SPIKE / ALERT
+  if (bsci >= 0.20 && ofiAbs > normalOfiThreshold && (detectorScores.DECOHERENCE ?? 0) > 0.4) {
     const result: ScannerResult = {
       signal: 'IMBALANCE_SPIKE',
       action: 'ALERT',
@@ -157,7 +157,7 @@ export function applyScannerRules(input: ScannerInput): ScannerResult {
   }
 
   // Rule 4: BSCI 0.4-0.7 + HAWKING>0.5 → BREAKOUT_IMMINENT / ALERT
-  if (bsci >= 0.4 && bsci <= 0.7 && (detectorScores.HAWKING ?? 0) > 0.5) {
+  if (bsci >= 0.20 && bsci <= 0.7 && (detectorScores.HAWKING ?? 0) > 0.5) {
     const result: ScannerResult = {
       signal: 'BREAKOUT_IMMINENT',
       action: 'ALERT',
@@ -168,8 +168,8 @@ export function applyScannerRules(input: ScannerInput): ScannerResult {
     return result;
   }
 
-  // Rule 5: direction=BEARISH + cumDelta diverging (price up, delta down) → BEARISH_DIVERGENCE / ALERT
-  if (direction === 'BEARISH' && cumDelta < 0) {
+  // Rule 5: direction=BEARISH + cumDelta diverging (price up, delta down) + BSCI>=0.40 → BEARISH_DIVERGENCE / ALERT
+  if (direction === 'BEARISH' && cumDelta < 0 && bsci >= 0.20) {
     const result: ScannerResult = {
       signal: 'BEARISH_DIVERGENCE',
       action: 'ALERT',
@@ -180,8 +180,8 @@ export function applyScannerRules(input: ScannerInput): ScannerResult {
     return result;
   }
 
-  // Rule 6: direction=BULLISH + cumDelta diverging (price down, delta up) → BULLISH_DIVERGENCE / ALERT
-  if (direction === 'BULLISH' && cumDelta > 0) {
+  // Rule 6: direction=BULLISH + cumDelta diverging (price down, delta up) + BSCI>=0.40 → BULLISH_DIVERGENCE / ALERT
+  if (direction === 'BULLISH' && cumDelta > 0 && bsci >= 0.20) {
     const result: ScannerResult = {
       signal: 'BULLISH_DIVERGENCE',
       action: 'ALERT',
@@ -192,8 +192,8 @@ export function applyScannerRules(input: ScannerInput): ScannerResult {
     return result;
   }
 
-  // Rule 7: CIPHER>0.6 + ACCRETOR>0.4 → SMART_MONEY_ACCUM / ALERT
-  if ((detectorScores.CIPHER ?? 0) > 0.6 && (detectorScores.ACCRETOR ?? 0) > 0.4) {
+  // Rule 7: CIPHER>0.6 + ACCRETOR>0.4 + BSCI>=0.20 → SMART_MONEY_ACCUM / ALERT
+  if (bsci >= 0.20 && (detectorScores.CIPHER ?? 0) > 0.6 && (detectorScores.ACCRETOR ?? 0) > 0.4) {
     const result: ScannerResult = {
       signal: 'SMART_MONEY_ACCUM',
       action: 'ALERT',
@@ -216,8 +216,8 @@ export function applyScannerRules(input: ScannerInput): ScannerResult {
     return result;
   }
 
-  // Rule 9: VPIN>0.7 + DARKMATTER>0.5 → INFORMED_TRADING / ALERT
-  if (vpin > 0.7 && (detectorScores.DARKMATTER ?? 0) > 0.5) {
+  // Rule 9: VPIN>0.7 + DARKMATTER>0.5 + BSCI>=0.20 → INFORMED_TRADING / ALERT
+  if (bsci >= 0.20 && vpin > 0.7 && (detectorScores.DARKMATTER ?? 0) > 0.5) {
     const result: ScannerResult = {
       signal: 'INFORMED_TRADING',
       action: 'ALERT',

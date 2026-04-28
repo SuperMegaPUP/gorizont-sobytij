@@ -173,6 +173,8 @@ export interface TickerScanResult {
   moexTurnover?: number;  // VALTODAY от MOEX (реальный оборот за день в рублях)
   type: 'FUTURE' | 'STOCK';
   error?: string;
+  // Metadata per detector (for debugging)
+  metadataMap?: Record<string, Record<string, any>>;
   // TA Context layer (НЕ входит в BSCI!)
   taContext?: SignalConvergence;
   // Convergence score 0-10
@@ -403,8 +405,10 @@ export async function scanTicker(
       alertLevel: bsciResult.alertLevel,
       direction: bsciResult.direction,
       confidence,
-      _topDetector: topDetector,  // DEBUG: remove after fixing
       detectorScores: scoresMap,
+      metadataMap: Object.fromEntries(
+        detectorScores.map(ds => [ds.detector, ds.metadata || {}])
+      ),
       keySignal: scannerResult.signal,
       action: scannerResult.action,
       quickStatus: scannerResult.quickStatus,

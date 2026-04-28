@@ -210,7 +210,7 @@ export function crossSectionNormalize(
       const z = robustZScore(s.score, stat.median, stat.iqr);
 
       // Маппинг: z=0 → 0.5, z=+1.25 → 1.0, z=-1.25 → 0.0
-      let normalized = Math.max(0, Math.min(1, 0.5 + z * 0.4));
+      let normalized = Math.max(0, Math.min(s.score, 0.5 + z * 0.4));
 
       // v4.1.1: insufficientData — не поднимаем выше raw
       const hasInsufficient = s.metadata?.insufficientData || s.metadata?.insufficientTrades ||
@@ -289,7 +289,7 @@ export function crossSectionNormalizeSingle(
       z = (s.score - stat.mean) / stat.std;
     }
 
-    let normalized = Math.max(0, Math.min(1, 0.5 + z * 0.4));
+    let normalized = Math.max(0, Math.min(s.score, 0.5 + z * 0.4));
 
     // insufficientData — не поднимаем выше raw
     const hasInsufficient = s.metadata?.insufficientData || s.metadata?.insufficientTrades ||
@@ -383,7 +383,7 @@ export function crossSectionNormalizeScores(
         continue;
       }
       const z = robustZScore(s[k], stat.median, stat.iqr);
-      normalized[k] = Math.round(Math.max(0, Math.min(1, 0.5 + z * 0.4)) * 1000) / 1000;
+      normalized[k] = Math.round(Math.max(0, Math.min(s[k], 0.5 + z * 0.4)) * 1000) / 1000;
     }
     return normalized;
   });

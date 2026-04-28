@@ -1,6 +1,7 @@
 // ─── Detector Registry — все 10 Black Star детекторов ─────────────────────
 
 import type { IDetector, DetectorInput, DetectorResult, DetectorName } from './types';
+import { BSCI_ALERT_THRESHOLD, MIN_TRADES_FOR_SESSION_QUALITY, SPREAD_PENALTY_THRESHOLD, SPREAD_PENALTY_MAX } from '../constants';
 import { detectGraviton } from './graviton';
 import { detectDarkmatter } from './darkmatter';
 import { detectAccretor } from './accretor';
@@ -28,7 +29,21 @@ export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: Detector
 
 /** Запустить все детекторы на одном входе */
 export function runAllDetectors(input: DetectorInput): DetectorResult[] {
-  return ALL_DETECTORS.map(d => d.detect(input));
+  return ALL_DETECTORS.map(d => {
+    try {
+      return d.detect(input);
+    } catch (e: any) {
+      console.warn(`[runAllDetectors] ${d.name} failed:`, e.message);
+      return {
+        detector: d.name,
+        description: `ERROR: ${e.message}`,
+        score: 0,
+        confidence: 0,
+        signal: 'NEUTRAL',
+        metadata: { error: e.message, insufficientData: true },
+      };
+    }
+  });
 }
 
 /** Запустить конкретный детектор по имени */
@@ -128,9 +143,38 @@ function computeMulticollinearityPenalties(
  * v4.2: Multicollinearity penalty — коррелированные детекторы штрафуются
  * v4.1.2: insufficientData/staleData → вес снижается до min_w (0.04)
  */
+/** Контекстные данные для расчёта BSCI */
+export interface BSCIContext {
+  tradeCount?: number;      // Количество трейдов за последние 5 мин
+  spread?: number;          // Спред в процентах (bid-ask)/mid
+  lastUpdated?: number;     // Timestamp последнего обновления
+}
+
+/** Контекстные фильтры BSCI — штрафуют низколиквидные/пустые сессии */
+function applyContextFilters(bsci: number, context?: BSCIContext): number {
+  if (!context) return bsci;
+  
+  let result = bsci;
+  
+  // 1. Session quality: <50 трейдов = низкая достоверность
+  if (context.tradeCount !== undefined) {
+    const sessionQuality = Math.min(1, context.tradeCount / MIN_TRADES_FOR_SESSION_QUALITY);
+    result *= sessionQuality;
+  }
+  
+  // 2. Spread penalty: >0.3% = низкая ликвидность
+  if (context.spread !== undefined && context.spread > SPREAD_PENALTY_THRESHOLD) {
+    const spreadPenalty = Math.max(SPREAD_PENALTY_MAX, 1 - (context.spread - SPREAD_PENALTY_THRESHOLD) * 100);
+    result *= spreadPenalty;
+  }
+  
+  return result;
+}
+
 export function calcBSCI(
   scores: DetectorResult[],
-  weights: Record<string, number>
+  weights: Record<string, number>,
+  context?: BSCIContext
 ): BSCIResult {
   const MIN_WEIGHT = 0.04;
 
@@ -163,20 +207,24 @@ export function calcBSCI(
     }
   }
 
-  const bsci = weightTotal > 0 ? weightedSum / weightTotal : 0;
-  const clampedBsci = Math.min(1, Math.max(0, bsci));
+  const bsciRaw = weightTotal > 0 ? weightedSum / weightTotal : 0;
+  
+  // === КОНТЕКСТНЫЕ ФИЛЬТРЫ ===
+  // Штрафуем низколиквидные сессии и тикеры с малым количеством трейдов
+  const bsciFiltered = applyContextFilters(bsciRaw, context);
+  const clampedBsci = Math.min(1, Math.max(0, bsciFiltered));
 
-  // nHighDetectors filter: минимум 3 детектора с score > 0.5 для ALERT
-  const nHighDetectors = scores.filter(s => s.score > 0.5).length;
-  const hasConsensus = nHighDetectors >= 3;
+  // nHighDetectors filter: минимум 2 детектора с score > 0.3 для ALERT
+  const nHighDetectors = scores.filter(s => s.score > 0.3).length;
+  const hasConsensus = nHighDetectors >= 2;
 
-  // Alert level
+  // Alert level — синхронизировано с BSCI_ALERT_THRESHOLD=0.20
   let alertLevel: BSCIResult['alertLevel'] = 'GREEN';
   if (hasConsensus) {
     // Только при консенсусе 3+ детекторов даём ALERT
-    if (clampedBsci >= 0.7) alertLevel = 'RED';
-    else if (clampedBsci >= 0.5) alertLevel = 'ORANGE';
-    else if (clampedBsci >= 0.3) alertLevel = 'YELLOW';
+    if (clampedBsci >= 0.5) alertLevel = 'RED';
+    else if (clampedBsci >= 0.3) alertLevel = 'ORANGE';
+    else if (clampedBsci >= 0.2) alertLevel = 'YELLOW';
   }
   // else: GREEN — недостаточно консенсуса
 

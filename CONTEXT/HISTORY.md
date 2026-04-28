@@ -132,3 +132,24 @@
 - Покрытие v4.2: ~65✅ + 3⚠️ + 3❌ = 71 пункт
 - PROD: robot-detect-v3.vercel.app | LAB: robot-lab-v3.vercel.app
 
+---
+
+## 2026-04-28 | Сессия 1 | HAWKING FIX + DEPLOY #3
+
+**Задача:** Починить HAWKING/PREDATOR/ATTRACTOR детекторы (v4.2 soft weights)
+
+**Что сделано:**
+- HAWKING: добавлен fallback `trades || recentTrades`, исправлены undefined переменные (periodicityCapped, fwhmNorm)
+- PREDATOR: добавлен fallback `trades || recentTrades`  
+- ATTRACTOR: добавлен fallback `trades || recentTrades`, заменены все `trades` на `effectiveTrades`
+- metadataMap: добавлен в TickerScanResult для отладки
+- Alert thresholds: исправлены пороги (0.2/0.3/0.5 вместо 0.3/0.5/0.7)
+- nHighDetectors: снижен порог до 0.3, минимум 2 детектора
+
+**Результат:**
+- HAWKING > 0: 48/100 ✅ (было 0)
+- ATTRACTOR > 0: 36/100 ✅
+- PREDATOR > 0: 0/100 ❌ (state machine в IDLE)
+- Mean BSCI: 0.129 ✅ (< 0.45)
+- ALERT count: 1 ❌ (цель 5-15)
+

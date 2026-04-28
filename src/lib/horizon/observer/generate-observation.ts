@@ -9,7 +9,7 @@
 // Вызывается cron'ом 6 раз/день или вручную через API
 
 import { collectMarketData } from './collect-market-data';
-import { runAllDetectors, calcBSCI } from '../detectors/registry';
+import { runAllDetectors, calcBSCI, type BSCIContext } from '../detectors/registry';
 import type { BSCIResult } from '../detectors/registry';
 import type { DetectorResult } from '../detectors/types';
 import { crossSectionNormalizeSingle } from '../detectors/cross-section-normalize';
@@ -201,8 +201,12 @@ export async function generateObservation(
       // Продолжаем с raw scores — не критично
     }
 
-    // 5. Вычисляем BSCI
-    const bsciResult = calcBSCI(detectorScores, weights);
+    // 5. Вычисляем BSCI с контекстными фильтрами
+    const bsciContext: BSCIContext = {
+      tradeCount: marketSnapshot.tradeCount,
+      spread: marketSnapshot.spread,
+    };
+    const bsciResult = calcBSCI(detectorScores, weights, bsciContext);
 
     console.log(`[generate-observation] BSCI=${bsciResult.bsci.toFixed(3)} (${bsciResult.alertLevel}) dir=${bsciResult.direction} top=${bsciResult.topDetector}`);
 

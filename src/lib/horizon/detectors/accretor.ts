@@ -227,10 +227,9 @@ export function detectAccretor(input: DetectorInput): DetectorResult {
   // ─── 5. Cluster analysis — concentration ────────────────────────────────
   const totalVolume = clusters.reduce((s, c) => s + c.totalVolume, 0);
   const validClusters = clusters.filter(cluster => {
-    const clusterVolumePct = totalVolume > 0 ? cluster.totalVolume / totalVolume : 0;
-    const isBigEnough = cluster.nTrades >= MIN_CLUSTER_SIZE;
-    const isVolumeSignificant = clusterVolumePct >= MIN_CLUSTER_VOLUME_PCT;
-    return isBigEnough && isVolumeSignificant;
+    if (cluster.nTrades < MIN_CLUSTER_SIZE) return false;
+    const volumePct = totalVolume > 0 ? cluster.totalVolume / totalVolume : 0;
+    return volumePct >= MIN_CLUSTER_VOLUME_PCT;
   });
 
   if (validClusters.length === 0) {

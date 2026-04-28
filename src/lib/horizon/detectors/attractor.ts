@@ -281,7 +281,9 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
     // If stale but not completely dead, proceed with computation but apply penalty later
   }
 
-  if (prices.length < 20 || trades.length < 5) {
+  const effectiveTrades = trades && trades.length > 0 ? trades : (recentTrades || []);
+
+  if (prices.length < 20 || effectiveTrades.length < 5) {
     return {
       detector: 'ATTRACTOR',
       description: 'Аттрактор — цена прилипает к уровню',
@@ -306,8 +308,8 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   metadata.takensBandwidth = Math.round(takens.bandwidth * 10000) / 10000;
 
   // ─── 2. Volume profile ────────────────────────────────────────────────
-  // Estimate tick size from trades
-  const sortedPrices = [...new Set(trades.map(t => t.price))].sort((a, b) => a - b);
+  // Estimate tick size from effectiveTrades
+  const sortedPrices = [...new Set(effectiveTrades.map(t => t.price))].sort((a, b) => a - b);
   let tickSize = 0.01; // default
   if (sortedPrices.length >= 2) {
     const diffs: number[] = [];
@@ -321,7 +323,7 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
     }
   }
 
-  const vProfile = volumeProfile(trades, tickSize);
+  const vProfile = volumeProfile(effectiveTrades, tickSize);
   metadata.poc = Math.round(vProfile.poc * 100) / 100;
   metadata.pocVolume = Math.round(vProfile.pocVolume);
   metadata.attractionRatio = Math.round(vProfile.attractionRatio * 1000) / 1000;
@@ -359,7 +361,7 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   metadata.stickyCount = stickyCount;
 
   // Stickiness score: sigmoid-centered (центр 0.7)
-  const stickinessNorm = sigmoidCentered(stickinessRatio, 0.7, 0.15);
+  const stickinessNorm = sigmoidCentered(stickinessRatio, 0.70, 0.15);
   metadata.stickinessNorm = Math.round(stickinessNorm * 1000) / 1000;
 
   // ─── 3.5. POC distance guard (smooth decay) ───────────────────────────
@@ -378,7 +380,7 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   metadata.pocDistance = Math.round(pocDistance * 1000) / 1000;
 
   // Volume profile score: sigmoid-centered (центр 0.7)
-  const volProfileNorm = sigmoidCentered(vProfile.attractionRatio, 0.7, 0.15);
+  const volProfileNorm = sigmoidCentered(vProfile.attractionRatio, 0.70, 0.15);
   // Smooth decay for far POC (С7): distance > 0.5 ATR → gradual decay
   const volProfileScore = pocDistance > 0.5
     ? volProfileNorm * Math.max(0, 1 - (pocDistance - 0.5) / 1.5)
@@ -386,7 +388,7 @@ export function detectAttractor(input: DetectorInput): DetectorResult {
   metadata.volProfileNorm = Math.round(volProfileNorm * 1000) / 1000;
 
   // Takens convergence: sigmoid-centered (центр 0.6)
-  const takensNorm = sigmoidCentered(takens.convergence, 0.6, 0.15);
+  const takensNorm = sigmoidCentered(takens.convergence, 0.60, 0.15);
   metadata.takensNorm = Math.round(takensNorm * 1000) / 1000;
 
   // ─── 4. Composite score ───────────────────────────────────────────────
