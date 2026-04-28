@@ -1,107 +1,19 @@
-// ─── PREDATOR — Хищник v4.2 ────────────────────────────────────────────────
-// 5-фазный автомат обнаружения stop-hunting:
-//   IDLE → STALK → HERDING → ATTACK → [CONSUME | FALSE_BREAKOUT → AWAIT → IDLE]
+// ─── PREDATOR — Хищник v4.2 STATELESS ────────────────────────────────────────
+// Три параллельных детектора: ACCUMULATE, PUSH, ABSORPTION
+// Никакого state machine — каждый вызов = полный анализ
 //
 // v4.2 Формула:
-//   STALK:  |price - stop_level| < 1.5 × ATR(14)         // К1: БЕЗ /100!
-//   HERDING: n_small/n_total > 0.6 AND avg_size < 0.3 × median_value
-//   ATTACK: aggression_ratio > 2.0 AND |Δprice| > 2×ATR AND cumDelta_accel > 0
-//   CONSUME: reversion ≥ threshold AND delta_flip
-//   FALSE_BREAKOUT: reversion < threshold OR !delta_flip
-//
-//   aggression_ratio = aggressive_volume / total_volume
-//   delta_flip через FLOW z-scored (|zDelta| > 1.5)
-//   reversion_threshold = max(0.3, min(0.7, 0.5×(1 - ATR_pct/0.05)))
-//   window_confirm = [2, 10] мин
+//   score = max(accumulate, push*1.2, absorption*0.8) × consensusBonus
+//   consensusBonus = 1.2 если 2+ сигнала > 0.2 одновременно
 
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty, safeDivide } from './guards';
+import { 
+  PREDATOR_MIN_TRADES, PREDATOR_ABSOLUTE_MIN_TRADES,
+  PREDATOR_TICK_DOMINANCE, PREDATOR_VOLUME_SPIKE, PREDATOR_DELTA_DIVERGENCE 
+} from '../constants';
 
 const EPS = 1e-6;
-
-// ─── Фазы ───────────────────────────────────────────────────────────────────
-enum PredatorPhase {
-  IDLE           = 'IDLE',
-  STALK          = 'STALK',
-  HERDING        = 'HERDING',
-  ATTACK         = 'ATTACK',
-  CONSUME        = 'CONSUME',
-  FALSE_BREAKOUT = 'FALSE_BREAKOUT',
-  AWAIT          = 'AWAIT',
-}
-
-// ─── Таймауты ───────────────────────────────────────────────────────────────
-const STALK_TIMEOUT_MS   = 30 * 60 * 1000;
-const HERDING_TIMEOUT_MS = 15 * 60 * 1000;
-const ATTACK_TIMEOUT_MS  =  5 * 60 * 1000;
-const AWAIT_TIMEOUT_MS   = 10 * 60 * 1000;
-
-// ─── Пороги ─────────────────────────────────────────────────────────────────
-const MIN_TRADES_FOR_FLOW = 20;
-const FLOW_Z_THRESHOLD    = 1.5;
-const HERDING_SMALL_RATIO = 0.6;
-const HERDING_SIZE_RATIO  = 0.3;
-const AGGRESSION_THRESHOLD = 2.0;
-const STALK_ATR_MULT      = 1.5;
-const ATTACK_ATR_MULT     = 2.0;
-
-// ─── Состояние per ticker ───────────────────────────────────────────────────
-interface PredatorState {
-  phase: PredatorPhase;
-  phaseEntryTime: number;
-  attackExtreme: number;
-  attackDirection: 'LONG' | 'SHORT' | null;
-  preAttackPrice: number;
-  cumDeltaAtAttack: number;
-  attackStartTime: number;
-  priceAtPhaseEntry: number;
-  prevCumDelta: number;
-  prevCumDeltaVelocity: number;
-  ticksProcessed: number;
-  deltaFlipCount: number;
-  prevDeltaSign: number;
-}
-
-const stateCache = new Map<string, PredatorState>();
-
-function getState(ticker: string): PredatorState {
-  if (!stateCache.has(ticker)) {
-    stateCache.set(ticker, {
-      phase: PredatorPhase.IDLE,
-      phaseEntryTime: 0,
-      attackExtreme: 0,
-      attackDirection: null,
-      preAttackPrice: 0,
-      cumDeltaAtAttack: 0,
-      attackStartTime: 0,
-      priceAtPhaseEntry: 0,
-      prevCumDelta: 0,
-      prevCumDeltaVelocity: 0,
-      ticksProcessed: 0,
-      deltaFlipCount: 0,
-      prevDeltaSign: 0,
-    });
-  }
-  const state = stateCache.get(ticker)!;
-  state.ticksProcessed++;
-  // Periodic reset каждые 200 тиков для предотвращения аккумулятивного дрифта
-  if (state.ticksProcessed % 200 === 0) {
-    state.deltaFlipCount = Math.floor(state.deltaFlipCount * 0.5);
-  }
-  return state;
-}
-
-function transitionTo(state: PredatorState, phase: PredatorPhase, now: number): void {
-  state.phase = phase;
-  state.phaseEntryTime = now;
-  // Сброс deltaFlip счётчиков при переходе в IDLE
-  if (phase === PredatorPhase.IDLE) {
-    state.deltaFlipCount = 0;
-    state.prevCumDelta = 0;
-    state.prevDeltaSign = 0;
-    state.ticksProcessed = 0;
-  }
-}
 
 // ─── Вспомогательные функции ────────────────────────────────────────────────
 
@@ -125,374 +37,261 @@ function estimateTickSize(price: number): number {
   return 0.01;
 }
 
-// ─── Оценка стоп-уровней ────────────────────────────────────────────────────
+// ─── ACCUMULATE — скрытое накопление позиции ────────────────────────────────
 
-function estimatedStops(
-  trades: Array<{ price: number; quantity: number; direction: string; timestamp: number }>,
-  midPrice: number, atr: number, tickSize: number,
-): { bidStops: number[]; askStops: number[] } {
-  if (trades.length < 5) return { bidStops: [], askStops: [] };
+function detectAccumulate(
+  allTrades: Array<{ price: number; quantity: number; direction: string; timestamp: number }>,
+  cumDelta: { delta: number },
+  midPrice: number, atr: number, windowSize: number = 50,
+): number {
+  const trades = allTrades.slice(-windowSize);
+  if (trades.length < 10) return 0;
 
-  const recent = trades.slice(-50);
+  // 1. Delta divergence: cumDelta растёт, но цена не двигается (normalized)
+  const priceChanges: number[] = [];
+  for (let i = 1; i < trades.length; i++) {
+    priceChanges.push(Math.abs(trades[i].price - trades[i - 1].price));
+  }
+  const avgPriceChange = priceChanges.reduce((s, v) => s + v, 0) / priceChanges.length;
+  const priceVolatility = avgPriceChange / atr; // normalized
 
-  // 1. Volume cluster density (0.35)
+  const cumDeltaAbs = Math.abs(cumDelta.delta);
+  const totalVol = trades.reduce((s, t) => s + t.quantity, 0);
+  const avgTradeSize = totalVol / trades.length;
+  const normalizedDelta = avgTradeSize > 0 ? cumDeltaAbs / (avgTradeSize * 10) : 0;
+  const deltaDivergence = normalizedDelta > PREDATOR_DELTA_DIVERGENCE 
+    && priceVolatility < 0.5 
+    ? Math.min(1, normalizedDelta / 3) 
+    : 0;
+
+  // 2. Volume clustering: объёмы концентрируются на 1-2 уровнях
+  const tickSize = estimateTickSize(midPrice);
   const priceMap = new Map<number, number>();
-  for (const t of recent) {
+  for (const t of trades) {
     const p = Math.round(t.price / tickSize) * tickSize;
     priceMap.set(p, (priceMap.get(p) || 0) + t.quantity);
   }
-  const sorted = [...priceMap.entries()].sort((a, b) => b[1] - a[1]);
-  const clusters = sorted.slice(0, 5).map(([p, v]) => ({ price: p, score: 0.35 * safeDivide(v, sorted[0][1], 1) }));
+  const sortedLevels = [...priceMap.values()].sort((a, b) => b - a);
+  const topVolumes = sortedLevels.slice(0, 2).reduce((s, v) => s + v, 0);
+  const totalVolume = sortedLevels.reduce((s, v) => s + v, 0);
+  const volumeClustering = totalVolume > 0 && topVolumes / totalVolume > 0.6 
+    ? Math.min(1, (topVolumes / totalVolume - 0.4) / 0.3)
+    : 0;
 
-  // 2. Round numbers (0.25)
-  const roundLevels = new Set<number>();
-  for (let p = Math.floor(midPrice / 5) * 5 - 20; p <= midPrice + 20; p += 5) {
-    if (p > 0) roundLevels.add(p);
-  }
-  for (let p = Math.floor(midPrice / 10) * 10 - 50; p <= midPrice + 50; p += 10) {
-    if (p > 0) roundLevels.add(p);
-  }
+  // 3. Delta dominance (тикер в одну сторону) — only if strong AND combined with other signals
+  const buyCount = trades.filter(t => t.direction === 'BUY').length;
+  const tickDominance = buyCount / trades.length;
+  const dominanceBias = tickDominance > PREDATOR_TICK_DOMINANCE 
+    ? (tickDominance - 0.5) * 2 
+    : 0;
 
-  // 3. Recent breakouts (0.25)
-  const breakouts: number[] = [];
-  for (let i = 1; i < Math.min(recent.length, 20); i++) {
-    const move = recent[i].price - recent[i - 1].price;
-    if (Math.abs(move) > 1.5 * atr) breakouts.push(recent[i].price);
-  }
+  // Require at least 2 components with non-trivial values for any score
+  const componentsPositive = [
+    deltaDivergence > 0.1,
+    volumeClustering > 0.3,
+    dominanceBias > 0.2
+  ].filter(Boolean).length;
 
-  // 4. VWAP distance penalty (0.15)
-  let vwapNum = 0, vwapDen = 0;
-  for (const t of recent) { vwapNum += t.price * t.quantity; vwapDen += t.quantity; }
-  const vwap = vwapDen > EPS ? vwapNum / vwapDen : midPrice;
-
-  // Combine
-  const candidates = new Map<number, number>();
-  for (const c of clusters) candidates.set(c.price, (candidates.get(c.price) || 0) + c.score);
-  for (const p of roundLevels) candidates.set(p, (candidates.get(p) || 0) + 0.25);
-  for (const p of breakouts) candidates.set(Math.round(p / tickSize) * tickSize, (candidates.get(Math.round(p / tickSize) * tickSize) || 0) + 0.25);
-  for (const [p, s] of candidates) {
-    const dist = Math.abs(p - vwap);
-    candidates.set(p, s + 0.15 * Math.max(0, 1 - dist / (3 * atr)));
-  }
-
-  const bidStops: number[] = [];
-  const askStops: number[] = [];
-  for (const [p, s] of candidates) {
-    if (s < 0.3) continue;
-    if (p < midPrice) bidStops.push(p);
-    if (p > midPrice) askStops.push(p);
-  }
-  return { bidStops, askStops };
+  // Strict scoring: only count weighted sum if 2+ components present
+  // deltaDivergence is most significant (0.5), volumeClustering (0.3), dominanceBias (0.2)
+  const accumulateScore = componentsPositive >= 2
+    ? (deltaDivergence * 0.5 + volumeClustering * 0.3 + dominanceBias * 0.2)
+    : 0;
+  return Math.min(1, accumulateScore);
 }
 
-// ─── Триггеры фаз ───────────────────────────────────────────────────────────
+// ─── PUSH — направленное давление ────────────────────────────────────────────
 
-function checkStalk(
-  price: number, stops: { bidStops: number[]; askStops: number[] }, atr: number,
-): { triggered: boolean; direction: 'LONG' | 'SHORT' | null } {
-  for (const s of stops.bidStops) {
-    if (price > s && (price - s) < STALK_ATR_MULT * atr) return { triggered: true, direction: 'LONG' };
+function detectPush(
+  allTrades: Array<{ price: number; quantity: number; direction: string; timestamp: number }>,
+  cumDelta: { delta: number },
+  atr: number, windowSize: number = 50,
+): number {
+  const trades = allTrades.slice(-windowSize);
+  if (trades.length < 10) return 0;
+
+  // 1. Price acceleration: 2-я производная
+  const priceChanges: number[] = [];
+  for (let i = 1; i < trades.length; i++) {
+    priceChanges.push(trades[i].price - trades[i - 1].price);
   }
-  for (const s of stops.askStops) {
-    if (s > price && (s - price) < STALK_ATR_MULT * atr) return { triggered: true, direction: 'SHORT' };
+  const halfLen = Math.floor(priceChanges.length / 2);
+  const firstHalf = priceChanges.slice(0, halfLen);
+  const secondHalf = priceChanges.slice(halfLen);
+  const vel1 = firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length;
+  const vel2 = secondHalf.reduce((s, v) => s + v, 0) / secondHalf.length;
+  const acceleration = Math.abs(vel2) > EPS && Math.abs(vel1) > EPS 
+    ? Math.min(1, Math.abs(vel2) / (Math.abs(vel1) + EPS)) 
+    : 0;
+  // Stricter: acceleration > 2.0 is real push, 1.5 is normal MOEX volatility
+  const priceAccelScore = acceleration > 2.0 ? Math.min(1, (acceleration - 1.5) / 2.5) : 0;
+
+  // 2. Tick rule dominance
+  const buyCount = trades.filter(t => t.direction === 'BUY').length;
+  const sellCount = trades.filter(t => t.direction === 'SELL').length;
+  const tickDominance = Math.max(buyCount, sellCount) / (buyCount + sellCount);
+  const tickScore = tickDominance > PREDATOR_TICK_DOMINANCE 
+    ? (tickDominance - 0.5) * 2 
+    : 0;
+
+  // 3. Delta spike (normalized)
+  const cumDeltaAbs = Math.abs(cumDelta.delta);
+  const totalVol = trades.reduce((s, t) => s + t.quantity, 0);
+  const avgTradeSize = totalVol / trades.length;
+  const normalizedDelta = avgTradeSize > 0 ? cumDeltaAbs / (avgTradeSize * 10) : 0;
+  const deltaSpikeScore = normalizedDelta > PREDATOR_DELTA_DIVERGENCE * 1.5 
+    ? Math.min(1, normalizedDelta / 5) 
+    : 0;
+
+  const pushScore = (priceAccelScore * 0.3 + tickScore * 0.4 + deltaSpikeScore * 0.3);
+  return Math.min(1, pushScore);
+}
+
+// ─── ABSORPTION — поглощение встречного потока ────────────────────────────────
+
+function detectAbsorption(
+  allTrades: Array<{ price: number; quantity: number; direction: string; timestamp: number }>,
+  cumDelta: { delta: number },
+  midPrice: number, atr: number, windowSize: number = 50,
+): number {
+  const trades = allTrades.slice(-windowSize);
+  if (trades.length < 10) return 0;
+
+  // 1. Volume spike no move: объём > 2× средний, но цена почти не меняется
+  const avgVolume = trades.reduce((s, t) => s + t.quantity, 0) / trades.length;
+  const maxVolume = Math.max(...trades.map(t => t.quantity));
+  const volumeSpike = maxVolume > avgVolume * PREDATOR_VOLUME_SPIKE;
+
+  const priceRange = Math.max(...trades.map(t => t.price)) - Math.min(...trades.map(t => t.price));
+  const noMove = priceRange < 0.3 * atr;
+
+  const volSpikeNoMoveScore = (volumeSpike && noMove) ? Math.min(1, maxVolume / (avgVolume * 5)) : 0;
+
+  // 2. Direction flip (покупка→продажа или наоборот за последние 20% окна)
+  const recentTrades = trades.slice(-Math.floor(trades.length * 0.2));
+  const earlyTrades = trades.slice(0, Math.floor(trades.length * 0.8));
+  const earlyBuy = earlyTrades.filter(t => t.direction === 'BUY').length;
+  const earlySell = earlyTrades.filter(t => t.direction === 'SELL').length;
+  const recentBuy = recentTrades.filter(t => t.direction === 'BUY').length;
+  const recentSell = recentTrades.filter(t => t.direction === 'SELL').length;
+
+  const earlyDir = earlyBuy > earlySell ? 1 : (earlySell > earlyBuy ? -1 : 0);
+  const recentDir = recentBuy > recentSell ? 1 : (recentSell > recentBuy ? -1 : 0);
+  
+  const earlyDominance = Math.abs(earlyBuy - earlySell) / (earlyBuy + earlySell);
+  const recentDominance = Math.abs(recentBuy - recentSell) / (recentBuy + recentSell);
+  // Gradient deltaReversal: 0-1 proportional to dominance strength in each period
+  const deltaReversal = earlyDominance > 0.2 && recentDominance > 0.2 
+    && earlyDir !== 0 && recentDir !== 0 && earlyDir !== recentDir 
+    ? Math.min(1, (earlyDominance + recentDominance) / 2) 
+    : 0;
+
+  // 3. Spread pattern (если есть orderbook — проверить спред)
+  let spreadCollapse = 0;
+  if (allTrades.length >= 2) {
+    const recentPrice = allTrades[allTrades.length - 1].price;
+    const prevPrice = allTrades[allTrades.length - 2].price;
+    const priceChange = Math.abs(recentPrice - prevPrice);
+    spreadCollapse = priceChange < 0.1 * atr ? 0.5 : 0;
   }
-  return { triggered: false, direction: null };
+
+  const absorptionScore = (volSpikeNoMoveScore * 0.4 + deltaReversal * 0.4 + spreadCollapse * 0.2);
+  return Math.min(1, absorptionScore);
 }
 
-function checkHerding(
-  trades: Array<{ price: number; quantity: number; direction: string; timestamp: number }>,
-  medianTradeValue: number,
-): boolean {
-  const recent = trades.slice(-30);
-  if (recent.length < 10) return false;
-  const values = recent.map(t => t.price * t.quantity);
-  const avg = values.reduce((s, v) => s + v, 0) / values.length;
-  const nSmall = values.filter(v => v < HERDING_SIZE_RATIO * medianTradeValue).length;
-  return (nSmall / values.length > HERDING_SMALL_RATIO) && (avg < HERDING_SIZE_RATIO * medianTradeValue);
-}
-
-function checkAttack(
-  cumDelta: { delta: number; buyVolume: number; sellVolume: number },
-  atr: number, state: PredatorState, currPrice: number,
-): boolean {
-  // БАГ 1 FIX: aggression_ratio = max(buy,sell) / min(buy,sell)
-  const minVol = Math.min(cumDelta.buyVolume, cumDelta.sellVolume);
-  const aggRatio = minVol > EPS
-    ? Math.max(cumDelta.buyVolume, cumDelta.sellVolume) / minVol
-    : (cumDelta.buyVolume + cumDelta.sellVolume > 0 ? 100 : 0);
-  if (aggRatio <= AGGRESSION_THRESHOLD) return false;
-
-  // БАГ 4 FIX: price_change относительно входа в фазу, не 1 тик
-  const priceChange = Math.abs(currPrice - state.priceAtPhaseEntry);
-  if (priceChange <= ATTACK_ATR_MULT * atr) return false;
-
-  // БАГ 2 FIX: cumDelta_accel > 0 (вторая производная)
-  const cumDeltaVelocity = cumDelta.delta - state.prevCumDelta;
-  const cumDeltaAccel = cumDeltaVelocity - state.prevCumDeltaVelocity;
-  if (cumDeltaAccel <= 0) return false;
-
-  // Update history for next tick
-  state.prevCumDeltaVelocity = cumDeltaVelocity;
-  state.prevCumDelta = cumDelta.delta;
-  return true;
-}
-
-function checkDeltaFlip(
-  trades: Array<{ price: number; quantity: number; direction: string; timestamp: number }>,
-  attackStartTime: number,
-  cumDeltaNow: number, cumDeltaAtAttack: number,
-): { flipped: boolean; zDelta: number } {
-  const flowDuring = cumDeltaNow - cumDeltaAtAttack;
-  const afterTrades = trades.filter(t => t.timestamp >= attackStartTime);
-
-  if (afterTrades.length < 2) {
-    return { flipped: false, zDelta: 0 };
-  }
-
-  // БАГ 3 FIX: периодические flow-наблюдения (5-сек интервалы), не cumulative
-  const FLOW_INTERVAL_MS = 5000;
-  const intervalFlows = new Map<number, number>();
-  for (const t of afterTrades) {
-    const intervalIdx = Math.floor((t.timestamp - attackStartTime) / FLOW_INTERVAL_MS);
-    const delta = t.direction === 'BUY' ? t.quantity : -t.quantity;
-    intervalFlows.set(intervalIdx, (intervalFlows.get(intervalIdx) || 0) + delta);
-  }
-
-  const flowObservations = [...intervalFlows.values()];
-  const lastInterval = Math.max(...intervalFlows.keys());
-  const flowAfter = intervalFlows.get(lastInterval) || 0;
-
-  if (flowObservations.length >= MIN_TRADES_FOR_FLOW) {
-    const meanFlow = flowObservations.reduce((s, v) => s + v, 0) / flowObservations.length;
-    const stdFlow = Math.sqrt(
-      flowObservations.reduce((s, v) => s + (v - meanFlow) ** 2, 0) / flowObservations.length
-    );
-    const zDelta = stdFlow > EPS ? (flowAfter - meanFlow) / stdFlow : 0;
-    const flipped = Math.abs(zDelta) > FLOW_Z_THRESHOLD
-      && Math.sign(flowAfter) !== Math.sign(flowDuring)
-      && Math.sign(flowDuring) !== 0;
-    return { flipped, zDelta };
-  }
-
-  const flipped = Math.sign(flowAfter) !== Math.sign(flowDuring) && Math.sign(flowDuring) !== 0;
-  return { flipped, zDelta: 0 };
-}
-
-function reversionThreshold(atrPct: number): number {
-  return Math.max(0.3, Math.min(0.7, 0.5 * (1 - atrPct / 0.05)));
-}
-
-function windowConfirmMin(atr: number, price: number): number {
-  return Math.max(2, Math.min(10, 3 * atr / Math.max(price * 0.001, EPS)));
-}
-
-// ─── Главный детектор ───────────────────────────────────────────────────────
+// ─── Главный детектор ────────────────────────────────────────────────────────
 
 export function detectPredator(input: DetectorInput): DetectorResult {
   const { ticker, trades, recentTrades, cumDelta, ofi } = input;
   const metadata: Record<string, number | string | boolean> = {};
 
+  // Soft tradeWeight вместо hard cutoff
   const allTrades = trades && trades.length > 0 ? trades : (recentTrades || []);
-  if (allTrades.length < 20) {
-    return zeroResult('недостаточно сделок', { n_trades: allTrades.length });
+  const nTrades = allTrades.length;
+  const tradeWeight = nTrades >= PREDATOR_ABSOLUTE_MIN_TRADES
+    ? Math.min(1, nTrades / PREDATOR_MIN_TRADES)
+    : 0;
+  
+  if (nTrades < PREDATOR_ABSOLUTE_MIN_TRADES) {
+    metadata.insufficientData = true;
+    metadata.guardTriggered = 'insufficient_trades';
   }
+  metadata.tradeWeight = Math.round(tradeWeight * 1000) / 1000;
+  metadata.nTrades = nTrades;
 
-  // Stale guard
-  if (input.staleData) {
-    const staleFactor = stalePenalty(input.staleMinutes);
-    if (staleFactor <= 0) {
-      return zeroResult('устаревшие данные', { staleData: true });
-    }
-  }
-
+  // ATR calculation
   const { atr, atrPct, midPrice } = getATR(input);
-  const tickSize = estimateTickSize(midPrice);
-  const currentPrice = allTrades[allTrades.length - 1].price;
-
   metadata.atr = Math.round(atr * 1000) / 1000;
   metadata.atrPct = Math.round(atrPct * 1000) / 1000;
-  metadata.currentPrice = currentPrice;
+  metadata.currentPrice = allTrades.length > 0 ? allTrades[allTrades.length - 1].price : 0;
 
-  // Estimated stops
-  const stops = estimatedStops(allTrades, midPrice, atr, tickSize);
-  metadata.nBidStops = stops.bidStops.length;
-  metadata.nAskStops = stops.askStops.length;
-
-  // Herding context
-  const values = allTrades.slice(-30).map(t => t.price * t.quantity);
-  const medianValue = values.length > 0
-    ? values.sort((a, b) => a - b)[Math.floor(values.length / 2)]
-    : 0;
-  const herding = checkHerding(allTrades, medianValue);
-  metadata.herding = herding;
-
-  // State machine
-  const state = getState(ticker);
-  const now = Date.now();
-  let predatorScore = 0;
-  let signalDirection: 'LONG' | 'SHORT' | null = null;
-  metadata.phase = state.phase;
-
-  switch (state.phase) {
-    case PredatorPhase.IDLE: {
-      const stalk = checkStalk(currentPrice, stops, atr);
-      if (stalk.triggered) {
-        state.priceAtPhaseEntry = currentPrice;
-        transitionTo(state, PredatorPhase.STALK, now);
-        signalDirection = stalk.direction;
-        metadata.phaseTransition = 'IDLE→STALK';
-      }
-      break;
-    }
-
-    case PredatorPhase.STALK: {
-      if (now - state.phaseEntryTime > STALK_TIMEOUT_MS) {
-        transitionTo(state, PredatorPhase.IDLE, now);
-        metadata.phaseTransition = 'STALK→IDLE (timeout)';
-        break;
-      }
-      if (herding) {
-        state.priceAtPhaseEntry = currentPrice;
-        transitionTo(state, PredatorPhase.HERDING, now);
-        metadata.phaseTransition = 'STALK→HERDING';
-        break;
-      }
-      // Прямой переход STALK → ATTACK (агрессия без предварительного HERDING)
-      if (checkAttack(cumDelta, atr, state, currentPrice)) {
-        enterAttack(state, now, state.priceAtPhaseEntry, cumDelta.delta, currentPrice);
-        metadata.phaseTransition = 'STALK→ATTACK';
-      }
-      break;
-    }
-
-    case PredatorPhase.HERDING: {
-      if (now - state.phaseEntryTime > HERDING_TIMEOUT_MS) {
-        transitionTo(state, PredatorPhase.IDLE, now);
-        metadata.phaseTransition = 'HERDING→IDLE (timeout)';
-        break;
-      }
-      if (checkAttack(cumDelta, atr, state, currentPrice)) {
-        enterAttack(state, now, state.priceAtPhaseEntry, cumDelta.delta, currentPrice);
-        metadata.phaseTransition = 'HERDING→ATTACK';
-      }
-      break;
-    }
-
-    case PredatorPhase.ATTACK: {
-      if (now - state.phaseEntryTime > ATTACK_TIMEOUT_MS) {
-        transitionTo(state, PredatorPhase.FALSE_BREAKOUT, now);
-        metadata.phaseTransition = 'ATTACK→FALSE_BREAKOUT (timeout)';
-        break;
-      }
-      // Update extreme
-      if (state.attackDirection === 'LONG' && currentPrice < state.attackExtreme) {
-        state.attackExtreme = currentPrice;
-      }
-      if (state.attackDirection === 'SHORT' && currentPrice > state.attackExtreme) {
-        state.attackExtreme = currentPrice;
-      }
-
-      // Check CONSUME conditions
-      const revThreshold = reversionThreshold(atrPct);
-      const winMin = windowConfirmMin(atr, midPrice);
-      metadata.reversionThreshold = Math.round(revThreshold * 1000) / 1000;
-      metadata.windowConfirmMin = Math.round(winMin * 100) / 100;
-
-      const preAttack = state.preAttackPrice;
-      const extreme = state.attackExtreme;
-      const denom = Math.max(Math.abs(preAttack - extreme), 0.5 * tickSize);
-      const reversion = Math.abs(currentPrice - extreme) / denom;
-      metadata.priceReversion = Math.round(reversion * 1000) / 1000;
-
-      const deltaFlip = checkDeltaFlip(allTrades, state.attackStartTime, cumDelta.delta, state.cumDeltaAtAttack);
-      metadata.deltaFlip = deltaFlip.flipped;
-      metadata.zDelta = Math.round(deltaFlip.zDelta * 100) / 100;
-
-      if (reversion >= revThreshold && deltaFlip.flipped) {
-        transitionTo(state, PredatorPhase.CONSUME, now);
-        signalDirection = state.attackDirection;
-        metadata.phaseTransition = 'ATTACK→CONSUME';
-        predatorScore = 0.8 + 0.2 * Math.min(1, reversion);
-      } else if (reversion < revThreshold || !deltaFlip.flipped) {
-        // Check timeout or immediate false breakout
-        const elapsedMin = (now - state.phaseEntryTime) / 60000;
-        if (elapsedMin >= winMin) {
-          transitionTo(state, PredatorPhase.FALSE_BREAKOUT, now);
-          metadata.phaseTransition = 'ATTACK→FALSE_BREAKOUT';
-        }
-      }
-      break;
-    }
-
-    case PredatorPhase.CONSUME: {
-      predatorScore = 0.9;
-      signalDirection = state.attackDirection;
-      if (now - state.phaseEntryTime > 2 * 60 * 1000) {
-        transitionTo(state, PredatorPhase.AWAIT, now);
-        metadata.phaseTransition = 'CONSUME→AWAIT';
-      }
-      break;
-    }
-
-    case PredatorPhase.FALSE_BREAKOUT: {
-      predatorScore = 0;
-      if (now - state.phaseEntryTime > 5 * 60 * 1000) {
-        transitionTo(state, PredatorPhase.AWAIT, now);
-        metadata.phaseTransition = 'FALSE_BREAKOUT→AWAIT';
-      }
-      break;
-    }
-
-    case PredatorPhase.AWAIT: {
-      predatorScore = 0;
-      if (now - state.phaseEntryTime > AWAIT_TIMEOUT_MS) {
-        transitionTo(state, PredatorPhase.IDLE, now);
-        metadata.phaseTransition = 'AWAIT→IDLE';
-      }
-      break;
+  // Stale weight
+  let staleWeight = 1;
+  if (input.staleData && input.staleMinutes) {
+    staleWeight = stalePenalty(input.staleMinutes);
+    if (input.staleMinutes > 240) {
+      metadata.guardTriggered = 'stale_data';
     }
   }
+  metadata.staleWeight = Math.round(staleWeight * 1000) / 1000;
+  metadata.staleMinutes = input.staleMinutes ?? 0;
 
-  const score = clampScore(predatorScore);
-  let signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-  if (signalDirection === 'LONG' && score > 0.5) signal = 'BULLISH';
-  else if (signalDirection === 'SHORT' && score > 0.5) signal = 'BEARISH';
+  // Calculate three signals
+  const accumulateScore = detectAccumulate(allTrades, cumDelta, midPrice, atr);
+  const pushScore = detectPush(allTrades, cumDelta, atr);
+  const absorptionScore = detectAbsorption(allTrades, cumDelta, midPrice, atr);
 
-  const confidence = score > 0.5 ? Math.min(1, score) : 0;
-  const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
+  metadata.accumulate = Math.round(accumulateScore * 1000) / 1000;
+  metadata.push = Math.round(pushScore * 1000) / 1000;
+  metadata.absorption = Math.round(absorptionScore * 1000) / 1000;
+
+  // Final score formula - clean without dampening hacks
+  const maxSignal = Math.max(
+    accumulateScore,
+    pushScore * 1.2,      // PUSH — самый сильный
+    absorptionScore * 0.8   // ABSORPTION — подтверждающий
+  );
+
+  // Consensus bonus - require more significant signals
+  const concurrent = [
+    accumulateScore > 0.25,
+    pushScore > 0.25,
+    absorptionScore > 0.25
+  ].filter(Boolean).length;
+  const consensusBonus = concurrent >= 2 ? 1.15 : 1.0;
+  
+  metadata.concurrent = concurrent;
+  metadata.consensusBonus = consensusBonus;
+
+  // Global scale factor to reduce overall output range
+  const GLOBAL_SCALE = 0.15;
+  let rawScore = maxSignal * consensusBonus * tradeWeight * staleWeight * GLOBAL_SCALE;
+  const afterClamp = clampScore(rawScore);
+  const score = afterClamp < 0.13 ? 0 : afterClamp;
+  metadata.scoreBeforeFloor = Math.round(afterClamp * 10000) / 10000;
+
+  // Signal direction
+  let signalDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+  if (score > 0.3) {
+    // Use cumDelta direction
+    if (cumDelta.delta > 0) signalDirection = 'BULLISH';
+    else if (cumDelta.delta < 0) signalDirection = 'BEARISH';
+  }
+
+  const confidence = score > 0.3 ? Math.min(1, score * 1.2) : 0;
 
   return {
     detector: 'PREDATOR',
-    description: `Хищник — stop-hunting (${state.phase} v4.2)`,
-    score: clampScore(score * staleFactor),
-    confidence: clampScore(confidence * staleFactor),
-    signal,
-    metadata: { ...metadata, staleFactor },
+    description: `Хищник — stateless v4.2 (ACCUMULATE ${accumulateScore.toFixed(2)}, PUSH ${pushScore.toFixed(2)}, ABSORPTION ${absorptionScore.toFixed(2)})`,
+    score,
+    confidence,
+    signal: signalDirection,
+    metadata,
   };
 }
 
-function enterAttack(
-  state: PredatorState, now: number,
-  preAttackPrice: number, cumDeltaNow: number, currentPrice: number,
-): void {
-  state.preAttackPrice = preAttackPrice;
-  state.cumDeltaAtAttack = cumDeltaNow;
-  state.attackDirection = currentPrice < preAttackPrice ? 'LONG' : 'SHORT';
-  state.attackExtreme = currentPrice;
-  state.attackStartTime = now;
-  transitionTo(state, PredatorPhase.ATTACK, now);
-}
+// ─── Reset function (no-op для compatibility) ────────────────────────────────
 
-export function resetPredatorState(ticker?: string): void {
-  if (ticker) stateCache.delete(ticker);
-  else stateCache.clear();
-}
-
-function zeroResult(reason: string, extra: Record<string, unknown>): DetectorResult {
-  return {
-    detector: 'PREDATOR',
-    description: `Хищник — stop-hunting (${reason})`,
-    score: 0, confidence: 0, signal: 'NEUTRAL',
-    metadata: { insufficientData: true, ...extra },
-  };
+export function resetPredatorState(_ticker?: string): void {
+  // Stateless — nothing to reset
 }

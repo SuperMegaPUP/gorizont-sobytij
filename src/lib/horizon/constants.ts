@@ -27,3 +27,11 @@ export const DECOHERENCE_MIN_ACTIVE_SYMBOLS = 5; // порог для soft quali
 export const HAWKING_MIN_TRADES = 50;           // порог для soft tradeWeight
 export const HAWKING_ABSOLUTE_MIN_TRADES = 10; // абсолютный минимум данных
 export const HAWKING_FWHM_DENOMINATOR = 11;    // компромисс: не 8=широко, не 15=узко
+
+// PREDATOR параметры (stateless v4.2)
+export const PREDATOR_MIN_TRADES = 50;          // мягкий порог для tradeWeight
+export const PREDATOR_ABSOLUTE_MIN_TRADES = 15; // абсолютный минимум данных
+export const PREDATOR_TICK_DOMINANCE = 0.75;    // порог доминации направления
+export const PREDATOR_VOLUME_SPIKE = 2.0;      // порог всплеска объёма
+export const PREDATOR_DELTA_DIVERGENCE = 2.0;  // порог дивергенции дельты
+export const PREDATOR_ACCEL_WINDOW = 30;       // окно для ускорения цены
