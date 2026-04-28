@@ -95,26 +95,23 @@
 | Дата | Что изменено |
 |---|---|
 | 2026-04-27 | Создана инфраструктура CONTEXT, сохранена спецификация v4.2 |
+| 2026-04-28 | Deploy #3.3: DECOHERENCE diagnostics - activeSymbols=13-15 для ликвидных, 55/100=0 для среднеликвидных |
 | 2026-04-28 | Deploy #3.2: HAWKING calibration |
 | 2026-04-28 | Deploy #3: HAWKING починен (48/100 > 0), PREDATOR/ATTRACTOR fallback на recentTrades, исправлены константы, добавлен metadataMap в API |
 
 ---
 
-## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3.2
+## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3.3
 
-| Метрика | Было | Цель | Статус |
-|---------|------|------|--------|
-| HAWKING > 0 | 48/100 | 20-32/100 | ⚠️ 43/100 |
-| Mean HAWKING | 0.05-0.08 | 0.04-0.07 | ✅ 0.0152 |
-| ALERT count | 1 | 8-15 | ✅ 16 |
-| Mean BSCI | 0.129 | 0.10-0.18 | ✅ 0.139 |
+| Метрика | Значение |
+|---------|----------|
+| ALERTs | 16 ✅ |
+| Mean BSCI | 0.132 ✅ |
+| HAWKING | 16-24/100 ✅ |
+| DECOHERENCE | 11/100 🟡 (activeSymbols 13-15 для ликвидных) |
+| PREDATOR | 0/100 ❌ (state machine в IDLE) |
 
-### Исправления в Deploy #3.2:
-1. **periodicityCapped**: убран ×2 множитель (искусственное усиление)
-2. **fwhmNorm**: заменена магическая константа 20 на HAWKING_FWHM_DENOMINATOR=15
-3. Добавлена константа HAWKING_FWHM_DENOMINATOR в constants.ts
-4. metadata.bandwidth уже был — собирается статистика (median=1.00, p75=6.00)
-
-### Для следующей калибровки:
-- Bandwidth median=1, p75=6 — можно заменить 15 на адаптивное значение
+### TODO при финальной калибровке:
+- [ ] DECOHERENCE: activeSymbols=0 для среднеликвидных (55/100) — возможно ослабить guards (low_activity, time_span)
+- [ ] PREDATOR: state machine не переходит из IDLE
 
