@@ -33,7 +33,7 @@
 
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty } from './guards';
-import { HAWKING_MIN_TRADES, HAWKING_ABSOLUTE_MIN_TRADES } from '../constants';
+import { HAWKING_MIN_TRADES, HAWKING_ABSOLUTE_MIN_TRADES, HAWKING_FWHM_DENOMINATOR } from '../constants';
 
 const EPS = 1e-6;
 const BIN_MS = 100;                         // 100ms ресэмплинг
@@ -311,8 +311,9 @@ export function detectHawking(input: DetectorInput): DetectorResult {
   const noiseRatioRaw = 1 - (peakPower / (medianPSD * Math.max(bandwidth, 1) + EPS));
   const noiseRatio = Math.max(0, Math.min(1, noiseRatioRaw));
   // v4.2 формула: score = periodicity × (1 - noiseRatio) × fwhmNorm
-  const periodicityCapped = Math.min(1, periodicity * 2);  // cap at 1
-  const fwhmNorm = Math.min(1, bandwidth / 20);  // normalized bandwidth
+  const periodicityCapped = Math.min(1, periodicity);  // честный cap без усиления
+  // Адаптивная нормировка: медиана bandwidth за сессию или fallback
+  const fwhmNorm = Math.min(1, bandwidth / HAWKING_FWHM_DENOMINATOR);  // normalized bandwidth
   const effectiveNoiseRatio = noiseRatio;
   let rawScore = periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm;
   
