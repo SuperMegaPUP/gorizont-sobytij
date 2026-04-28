@@ -324,8 +324,8 @@ export function detectHawking(input: DetectorInput): DetectorResult {
   rawScore *= staleWeight;
   
   const afterClamp = clampScore(rawScore);
-  // Hard floor: обнуляем noise-level значения < 0.02
-  const score = afterClamp < 0.02 ? 0 : afterClamp;
+  // Hard floor: обнуляем noise-level значения < 0.015 (рентген-режим)
+  const score = afterClamp < 0.015 ? 0 : afterClamp;
 
   metadata.noiseRatio = Math.round(noiseRatio * 1000) / 1000;
   metadata.effectiveNoiseRatio = Math.round(effectiveNoiseRatio * 1000) / 1000;
