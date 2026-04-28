@@ -323,11 +323,15 @@ export function detectHawking(input: DetectorInput): DetectorResult {
   rawScore *= binsWeight;
   rawScore *= staleWeight;
   
-  const score = clampScore(rawScore);
+  const afterClamp = clampScore(rawScore);
+  // Hard floor: обнуляем noise-level значения < 0.02
+  const score = afterClamp < 0.02 ? 0 : afterClamp;
 
   metadata.noiseRatio = Math.round(noiseRatio * 1000) / 1000;
   metadata.effectiveNoiseRatio = Math.round(effectiveNoiseRatio * 1000) / 1000;
   metadata.tradeWeight = Math.round(tradeWeight * 1000) / 1000;
+  metadata.scoreBeforeFloor = Math.round(afterClamp * 10000) / 10000;
+  metadata.fwhmNorm = Math.round(fwhmNorm * 10000) / 10000;
 
   metadata.hawkingRawScore = Math.round(score * 1000) / 1000;
   metadata.algoZoneDetected = peakPower > medianPSD * 2;

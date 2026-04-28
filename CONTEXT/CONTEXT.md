@@ -95,24 +95,26 @@
 | Дата | Что изменено |
 |---|---|
 | 2026-04-27 | Создана инфраструктура CONTEXT, сохранена спецификация v4.2 |
+| 2026-04-28 | Deploy #3.2: HAWKING calibration |
 | 2026-04-28 | Deploy #3: HAWKING починен (48/100 > 0), PREDATOR/ATTRACTOR fallback на recentTrades, исправлены константы, добавлен metadataMap в API |
 
 ---
 
-## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3
+## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3.2
 
-| Метрика | Текущее | Цель |
-|---------|---------|------|
-| ALERT count | 1 | 5-15 |
-| Mean BSCI | 0.129 | < 0.45 ✅ |
-| HAWKING > 0 | 48/100 | ✅ Починен |
-| PREDATOR > 0 | 0/100 | State machine в IDLE |
-| ATTRACTOR > 0 | 36/100 | ✅ Работает |
+| Метрика | Было | Цель | Статус |
+|---------|------|------|--------|
+| HAWKING > 0 | 48/100 | 20-32/100 | ⚠️ 43/100 |
+| Mean HAWKING | 0.05-0.08 | 0.04-0.07 | ✅ 0.0152 |
+| ALERT count | 1 | 8-15 | ✅ 16 |
+| Mean BSCI | 0.129 | 0.10-0.18 | ✅ 0.139 |
 
-### Исправления в Deploy #3:
-1. **HAWKING**: добавлен fallback `trades || recentTrades`, исправлены undefined переменные (periodicityCapped, fwhmNorm)
-2. **PREDATOR**: добавлен fallback `trades || recentTrades`
-3. **ATTRACTOR**: добавлен fallback `trades || recentTrades` + заменены все `trades` на `effectiveTrades`
-4. **metadataMap**: добавлен в TickerScanResult для отладки
-5. **Alert thresholds**: исправлены пороги alertLevel (0.2/0.3/0.5 вместо 0.3/0.5/0.7)
+### Исправления в Deploy #3.2:
+1. **periodicityCapped**: убран ×2 множитель (искусственное усиление)
+2. **fwhmNorm**: заменена магическая константа 20 на HAWKING_FWHM_DENOMINATOR=15
+3. Добавлена константа HAWKING_FWHM_DENOMINATOR в constants.ts
+4. metadata.bandwidth уже был — собирается статистика (median=1.00, p75=6.00)
+
+### Для следующей калибровки:
+- Bandwidth median=1, p75=6 — можно заменить 15 на адаптивное значение
 

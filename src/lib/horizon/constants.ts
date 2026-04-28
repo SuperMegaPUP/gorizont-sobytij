@@ -26,4 +26,4 @@ export const DECOHERENCE_MIN_ACTIVE_SYMBOLS = 5; // порог для soft quali
 // HAWKING параметры
 export const HAWKING_MIN_TRADES = 50;           // порог для soft tradeWeight
 export const HAWKING_ABSOLUTE_MIN_TRADES = 10; // абсолютный минимум данных
-export const HAWKING_FWHM_DENOMINATOR = 15;    // fallback для fwhmNorm до сбора статистики
+export const HAWKING_FWHM_DENOMINATOR = 15;    // fallback для fwhmNorm
