@@ -197,6 +197,9 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   }
 
   const activeSymbols = frequencies.size;
+  metadata.activeSymbols = activeSymbols;
+  metadata.freqUniqueCount = frequencies.size;  // для диагностики
+  metadata.freqKeys = Array.from(frequencies.keys()).slice(0, 10).join(',');  // первые 10 символов
 
   // ─── 5. Alphabet guard — soft qualityWeight вместо hard cutoff ────────────
   
@@ -204,6 +207,8 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   const qualityWeight = activeSymbols > 0 
     ? Math.min(1, activeSymbols / DECOHERENCE_MIN_ACTIVE_SYMBOLS) 
     : 0;
+  
+  metadata.qualityWeightInput = activeSymbols;  // для диагностики
   
   if (activeSymbols < DECOHERENCE_MIN_ACTIVE_SYMBOLS) {
     metadata.guardTriggered = 'alphabet_lt_5';
