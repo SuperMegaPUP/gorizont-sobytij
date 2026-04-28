@@ -92,11 +92,17 @@ function detectAccumulate(
     dominanceBias > 0.2
   ].filter(Boolean).length;
 
+  // Price stall factor: accumulation valid only when price stalls at high volume
+  const priceRange = Math.max(...trades.map(t => t.price)) - Math.min(...trades.map(t => t.price));
+  const priceStallFactor = Math.max(0, 1 - (priceRange / (0.5 * atr)));
+
   // Strict scoring: only count weighted sum if 2+ components present
   // deltaDivergence is most significant (0.5), volumeClustering (0.3), dominanceBias (0.2)
-  const accumulateScore = componentsPositive >= 2
+  const rawScore = componentsPositive >= 2
     ? (deltaDivergence * 0.5 + volumeClustering * 0.3 + dominanceBias * 0.2)
     : 0;
+  
+  const accumulateScore = rawScore * priceStallFactor;
   return Math.min(1, accumulateScore);
 }
 
@@ -241,34 +247,38 @@ export function detectPredator(input: DetectorInput): DetectorResult {
   const pushScore = detectPush(allTrades, cumDelta, atr);
   const absorptionScore = detectAbsorption(allTrades, cumDelta, midPrice, atr);
 
+  // ─── Финальная композиция ────────────────────────────────────────────
+  // Weighted sum: хищник = сочетание сигналов, не любой один
+  const baseScore = accumulateScore * 0.4 + pushScore * 0.35 + absorptionScore * 0.25;
+
+  // Confluence: минимум 2 компонента для ненулевого score
+  const concurrent = [
+    accumulateScore > 0.05,
+    pushScore > 0.05,
+    absorptionScore > 0.05
+  ].filter(Boolean).length;
+
+  const confluenceFactor = concurrent >= 2 ? 1.0 : 0;
+
+  let rawScore = baseScore * confluenceFactor * tradeWeight * staleWeight;
+
+  // Soft floor (как HAWKING) — подавление микрошума без разрыва градиента
+  const afterClamp = clampScore(rawScore);
+  const score = afterClamp < 0.012 ? 0 : afterClamp;
+
+  // Metadata
   metadata.accumulate = Math.round(accumulateScore * 1000) / 1000;
   metadata.push = Math.round(pushScore * 1000) / 1000;
   metadata.absorption = Math.round(absorptionScore * 1000) / 1000;
-
-  // Final score formula - clean without dampening hacks
-  const maxSignal = Math.max(
-    accumulateScore,
-    pushScore * 1.2,      // PUSH — самый сильный
-    absorptionScore * 0.8   // ABSORPTION — подтверждающий
-  );
-
-  // Consensus bonus - require more significant signals
-  const concurrent = [
-    accumulateScore > 0.25,
-    pushScore > 0.25,
-    absorptionScore > 0.25
-  ].filter(Boolean).length;
-  const consensusBonus = concurrent >= 2 ? 1.15 : 1.0;
-  
   metadata.concurrent = concurrent;
-  metadata.consensusBonus = consensusBonus;
+  metadata.confluenceFactor = confluenceFactor;
+  metadata.rawScoreBeforeFloor = Math.round(rawScore * 1000) / 10000;
 
-  // Global scale factor to reduce overall output range
-  const GLOBAL_SCALE = 0.15;
-  let rawScore = maxSignal * consensusBonus * tradeWeight * staleWeight * GLOBAL_SCALE;
-  const afterClamp = clampScore(rawScore);
-  const score = afterClamp < 0.13 ? 0 : afterClamp;
-  metadata.scoreBeforeFloor = Math.round(afterClamp * 10000) / 10000;
+  // Диагностика priceStallFactor (пересчёт на окне для metadata, без изменения логики детектора)
+  const diagPrices = allTrades.slice(-50).map(t => t.price);
+  const diagRange = Math.max(...diagPrices) - Math.min(...diagPrices);
+  const priceStallFactor = Math.max(0, 1 - (diagRange / (0.5 * atr)));
+  metadata.priceStallFactor = Math.round(priceStallFactor * 1000) / 1000;
 
   // Signal direction
   let signalDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';

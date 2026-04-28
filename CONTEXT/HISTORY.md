@@ -153,3 +153,38 @@
 - Mean BSCI: 0.129 ✅ (< 0.45)
 - ALERT count: 1 ❌ (цель 5-15)
 
+---
+
+## 2026-04-28 | Сессия 2 | PREDATOR STATELESS REWRITE (DEPLOY #4)
+
+**Задача:** Переписать PREDATOR с state machine на stateless архитектуру (v4.2)
+
+**Что сделано:**
+- Удалён state machine (IDLE/STALK/HERDING/ATTACK/CONSUME/FALSE_BREAKOUT/AWAIT)
+- Три параллельных детектора: ACCUMULATE, PUSH, ABSORPTION
+- ACCUMULATE: deltaDivergence (normalized by avgTradeSize), volumeClustering (threshold 0.6), dominanceBias (threshold 0.75)
+- PUSH: priceAccelScore (threshold 2.0), tickDominance, deltaSpike (normalized)
+- ABSORPTION: volSpikeNoMove, gradient deltaReversal, spreadCollapse
+- Исправлены веса: deltaDivergence 0.5, volumeClustering 0.3, dominanceBias 0.2
+- Hard floor = 0.13 для фильтрации шума
+- Global scale = 0.15
+
+**Результат:**
+- PREDATOR > 0: **25/100** ✅ (цель 15-30, было 0)
+- Mean PREDATOR: **0.138** (цель 0.03-0.08, чуть выше)
+- ALERTs: **16** ✅ (цель 10-15)
+- Mean BSCI: **0.128** ✅ (цель 0.10-0.18)
+
+**Остальные детекторы:**
+- HAWKING: 15/100 mean=0.035 ✅
+- DECOHERENCE: 16/100 mean=0.129 ✅
+- ATTRACTOR: 31/100 mean=0.106 ✅
+- DARKMATTER: 31/100 mean=0.119 ✅
+
+**Коммит:**
+- `908c5db` — Deploy #4: PREDATOR stateless rewrite
+
+**Следующий шаг:**
+- ATTRACTOR / ENTANGLE — финальная калибровка
+- Возможная доп. калибровка PREDATOR Mean (0.138 → 0.03-0.08)
+

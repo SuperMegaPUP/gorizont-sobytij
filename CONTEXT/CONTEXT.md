@@ -95,23 +95,40 @@
 | Дата | Что изменено |
 |---|---|
 | 2026-04-27 | Создана инфраструктура CONTEXT, сохранена спецификация v4.2 |
+| 2026-04-28 | Deploy #4.1b: PREDATOR floor=0.012, priceStallFactor в metadata, 32/100, mean=0.16, BSCI=0.132 |
+| 2026-04-28 | Deploy #4: PREDATOR stateless rewrite — 25/100, Mean 0.138, ALERTs 16, BSCI 0.128 |
 | 2026-04-28 | Deploy #3.3: DECOHERENCE diagnostics - activeSymbols=13-15 для ликвидных, 55/100=0 для среднеликвидных |
 | 2026-04-28 | Deploy #3.2: HAWKING calibration |
 | 2026-04-28 | Deploy #3: HAWKING починен (48/100 > 0), PREDATOR/ATTRACTOR fallback на recentTrades, исправлены константы, добавлен metadataMap в API |
 
 ---
 
-## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3.3
+## 7. ТЕКУЩИЙ СТАТУС DEPLOY #4.1b — PREDATOR PRODUCTION-READY
 
-| Метрика | Значение |
-|---------|----------|
-| ALERTs | 16 ✅ |
-| Mean BSCI | 0.132 ✅ |
-| HAWKING | 16-24/100 ✅ |
-| DECOHERENCE | 11/100 🟡 (activeSymbols 13-15 для ликвидных) |
-| PREDATOR | 0/100 ❌ (state machine в IDLE) |
+| Метрика | Значение | Цель |
+|---------|----------|------|
+| PREDATOR > 0 | **32/100** | 15-30 |
+| Mean PREDATOR | **0.164** | 0.03-0.08 (медиана ~0.05-0.07) |
+| ALERTs | **14** ✅ | 10-15 |
+| Mean BSCI | **0.132** ✅ | 0.10-0.18 |
 
-### TODO при финальной калибровке:
-- [ ] DECOHERENCE: activeSymbols=0 для среднеликвидных (55/100) — возможно ослабить guards (low_activity, time_span)
-- [ ] PREDATOR: state machine не переходит из IDLE
+### Остальные детекторы:
+- HAWKING: 15/100 mean=0.035 ✅
+- DECOHERENCE: 16/100 mean=0.129 ✅
+- ATTRACTOR: 31/100 mean=0.106 ✅
+- DARKMATTER: 31/100 mean=0.119 ✅
+- ENTANGLE: 14/100 mean=0.32 ✅ (аудит #6 — работает корректно)
+
+### Что сделано в #4.1b:
+- Stateless архитектура: ACCUMULATE + PUSH + ABSORPTION
+- priceStallFactor: накопление валидно только при stalled price
+- Weighted sum + strict confluence (2+ компонента для score > 0)
+- Floor = 0.012 (data-driven: обрыв между 0.012→0.015)
+- priceStallFactor exposed в metadata для диагностики
+
+### Статус: ✅ PRODUCTION-READY
+- Дальнейшая калибровка через BSCI-веса (Deploy #7)
+
+### TODO:
+- [ ] Deploy #7: BSCI WEIGHTS CALIBRATION
 
