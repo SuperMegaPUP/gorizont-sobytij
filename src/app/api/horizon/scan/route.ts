@@ -23,6 +23,7 @@ import { applyScannerRules, type ScannerResult } from '@/lib/horizon/scanner/rul
 import { calculateRobotContext, findTopDetector, isRobotConfirmed, type RobotContext } from '@/lib/horizon/robot-context';
 import { generateSignal, type TradeSignal, type SignalGeneratorInput } from '@/lib/horizon/signals/signal-generator';
 import { applyDailyWeightDecay } from '@/lib/horizon/bsci/save-observation';
+import { BSCI_SCALE_FACTOR } from '@/lib/horizon/constants';
 import { serializeSignal } from '@/lib/horizon/signals/signal-store';
 import { getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
 
@@ -406,9 +407,17 @@ export async function scanTicker(
       direction: bsciResult.direction,
       confidence,
       detectorScores: scoresMap,
-      metadataMap: Object.fromEntries(
-        detectorScores.map(ds => [ds.detector, ds.metadata || {}])
-      ),
+      metadataMap: {
+        ...Object.fromEntries(
+          detectorScores.map(ds => [ds.detector, ds.metadata || {}])
+        ),
+        // BSCI diagnostics
+        BSCI: {
+          weightsApplied: true,
+          rawBeforeScale: Math.round((bsciResult.rawBeforeScale || 0) * 1000) / 1000,
+          scaleFactor: BSCI_SCALE_FACTOR,
+        },
+      },
       keySignal: scannerResult.signal,
       action: scannerResult.action,
       quickStatus: scannerResult.quickStatus,

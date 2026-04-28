@@ -35,3 +35,20 @@ export const PREDATOR_TICK_DOMINANCE = 0.75;    // порог доминации
 export const PREDATOR_VOLUME_SPIKE = 2.0;      // порог всплеска объёма
 export const PREDATOR_DELTA_DIVERGENCE = 2.0;  // порог дивергенции дельты
 export const PREDATOR_ACCEL_WINDOW = 30;       // окно для ускорения цены
+
+// ─── BSCI Phase 2: Fixed weights by informativeness ────────────────
+export const BSCI_WEIGHTS: Record<string, number> = {
+  GRAVITON:     0.38,
+  WAVEFUNCTION: 0.38,
+  CIPHER:       0.41,
+  ACCRETOR:     0.83,
+  DARKMATTER:   1.36,
+  ATTRACTOR:    1.67,
+  HAWKING:      1.67,
+  ENTANGLE:     0.33,
+  DECOHERENCE:  1.50,
+  PREDATOR:     0.28,
+};
+
+export const MAX_DETECTOR_CONTRIBUTION = 0.05;
+export const BSCI_SCALE_FACTOR = 1.2; // Data-driven normalization: raw mean ~0.106 → target 0.12-0.14

@@ -1,7 +1,7 @@
 // ─── Detector Registry — все 10 Black Star детекторов ─────────────────────
 
 import type { IDetector, DetectorInput, DetectorResult, DetectorName } from './types';
-import { BSCI_ALERT_THRESHOLD, MIN_TRADES_FOR_SESSION_QUALITY, SPREAD_PENALTY_THRESHOLD, SPREAD_PENALTY_MAX } from '../constants';
+import { BSCI_ALERT_THRESHOLD, MIN_TRADES_FOR_SESSION_QUALITY, SPREAD_PENALTY_THRESHOLD, SPREAD_PENALTY_MAX, BSCI_WEIGHTS, MAX_DETECTOR_CONTRIBUTION, BSCI_SCALE_FACTOR } from '../constants';
 import { detectGraviton } from './graviton';
 import { detectDarkmatter } from './darkmatter';
 import { detectAccretor } from './accretor';
@@ -67,6 +67,8 @@ export interface BSCIResult {
   weights: Record<string, number>;       // текущие веса
   /** v4.2: Multicollinearity penalties per detector */
   multicollPenalties?: Record<string, number>;
+  /** v4.2: BSCI raw before scale factor (for diagnostics) */
+  rawBeforeScale?: number;
 }
 
 /**
@@ -178,17 +180,20 @@ export function calcBSCI(
 ): BSCIResult {
   const MIN_WEIGHT = 0.04;
 
+  // Soft cap function for continuous saturation
+  const softCap = (x: number, limit: number): number => limit * Math.tanh(x / limit);
+
   // v4.2: Compute multicollinearity penalties
   const multicollPenalties = computeMulticollinearityPenalties(scores);
 
-  // BSCI = Σ(w_i × score_i × multicoll_penalty_i)
-  let weightedSum = 0;
+  // BSCI = Σ softCap(score × weight × penalty, MAX_DETECTOR_CONTRIBUTION)
+  let rawBsci = 0;
   let weightTotal = 0;
   let maxScore = 0;
   let topDetector = 'NONE';
 
   for (const result of scores) {
-    let w = weights[result.detector] ?? 0.1;
+    let w = weights[result.detector] ?? BSCI_WEIGHTS[result.detector] ?? 0.1;
 
     // v4.1.2: Снижаем вес для детекторов без данных
     if (result.metadata?.insufficientData || result.metadata?.staleData) {
@@ -199,15 +204,18 @@ export function calcBSCI(
     const penalty = multicollPenalties[result.detector] ?? 1.0;
     const effectiveWeight = w * penalty;
 
-    weightedSum += effectiveWeight * result.score;
+    // Soft cap per detector contribution
+    rawBsci += softCap(result.score * effectiveWeight, MAX_DETECTOR_CONTRIBUTION);
     weightTotal += effectiveWeight;
+
     if (result.score > maxScore) {
       maxScore = result.score;
       topDetector = result.detector;
     }
   }
 
-  const bsciRaw = weightTotal > 0 ? weightedSum / weightTotal : 0;
+  // Apply scale factor
+  const bsciRaw = rawBsci * BSCI_SCALE_FACTOR;
   
   // === КОНТЕКСТНЫЕ ФИЛЬТРЫ ===
   // Штрафуем низколиквидные сессии и тикеры с малым количеством трейдов
@@ -250,5 +258,6 @@ export function calcBSCI(
     scores,
     weights,
     multicollPenalties,
+    rawBeforeScale: Math.round(rawBsci * 1000) / 1000,
   };
 }

@@ -278,7 +278,9 @@ export function detectPredator(input: DetectorInput): DetectorResult {
   const diagPrices = allTrades.slice(-50).map(t => t.price);
   const diagRange = Math.max(...diagPrices) - Math.min(...diagPrices);
   const priceStallFactor = Math.max(0, 1 - (diagRange / (0.5 * atr)));
-  metadata.priceStallFactor = Math.round(priceStallFactor * 1000) / 1000;
+  metadata.priceStallFactor = Math.round(priceStallFactor * 100) / 100;
+  metadata.concurrent = concurrent;
+  metadata.rawScoreAfterMultiply = Math.round(rawScore * 1000) / 1000;
 
   // Signal direction
   let signalDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
