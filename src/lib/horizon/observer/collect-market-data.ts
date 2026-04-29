@@ -163,14 +163,15 @@ export async function fetchTop100Tickers(): Promise<TopTickerEntry[]> {
       }))
       .slice(0, 100);
 
-    if (result.length >= 20) {
+    // Вернуть даже если < 20 тикеров — главное хоть что-то есть
+    if (result.length >= 1) {
       top100Cache = { value: result, ts: Date.now() };
       console.log(`[fetchTop100Tickers] Got ${result.length} tickers from MOEX (top: ${result[0]?.ticker} ${result[0]?.turnover})`);
       return result;
     }
 
-    // If too few results, try without securities.columns (full response)
-    console.warn(`[fetchTop100Tickers] Only ${result.length} tickers with VALTODAY, retrying with full response...`);
+    // If no results with VALTODAY, try without securities.columns (full response)
+    console.warn(`[fetchTop100Tickers] No tickers with VALTODAY, retrying with full response...`);
 
     const path2 = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=VALTODAY&sort_order=desc&first=100';
     const data2 = await moexFetch(path2);
@@ -185,18 +186,19 @@ export async function fetchTop100Tickers(): Promise<TopTickerEntry[]> {
       }))
       .slice(0, 100);
 
-    if (result2.length >= 10) {
+    // Вернуть даже если всего 1 тикер
+    if (result2.length >= 1) {
       top100Cache = { value: result2, ts: Date.now() };
       console.log(`[fetchTop100Tickers] Retry got ${result2.length} tickers`);
       return result2;
     }
 
-    // Fallback: return stale cache or empty
-    console.warn(`[fetchTop100Tickers] MOEX returned too few tickers, using cache/fallback`);
-    return top100Cache.value;
+    // Fallback: return stale cache (даже пустой)
+    console.warn(`[fetchTop100Tickers] No tickers from MOEX, returning empty`);
+    return [];
   } catch (e: any) {
     console.warn(`[fetchTop100Tickers] Error: ${e.message}`);
-    return top100Cache.value; // Return stale cache on error
+    return []; // Return empty on error
   }
 }
 
