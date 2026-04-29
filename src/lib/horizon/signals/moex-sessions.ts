@@ -30,9 +30,12 @@ const MAIN_CLOSE_HOUR = 18;
 const MAIN_CLOSE_MIN = 50;  // 18:50 MSK
 
 const EVENING_OPEN_HOUR = 19;
-const EVENING_OPEN_MIN = 0;
+const EVENING_OPEN_MIN = 5;  // 19:05 MSK (после клиринга)
 const EVENING_CLOSE_HOUR = 23;
 const EVENING_CLOSE_MIN = 50;
+
+const PRE_MARKET_OPEN_HOUR = 6;
+const PRE_MARKET_OPEN_MIN = 50;  // 6:50 MSK
 
 // Максимальный TTL по сессиям (в минутах)
 const MAIN_MAX_TTL = 240;     // 4 часа
@@ -55,13 +58,36 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
   // Stocks: 09:50-19:00 MSK, Futures: 09:50-18:50 MSK
   // So we NO LONGER check isWeekend — session is determined by time of day only.
 
-  const mainOpen = MAIN_OPEN_HOUR * 60 + MAIN_OPEN_MIN;     // 600
-  const mainClose = MAIN_CLOSE_HOUR * 60 + MAIN_CLOSE_MIN;  // 1125
-  const eveningOpen = EVENING_OPEN_HOUR * 60 + EVENING_OPEN_MIN;     // 1140
-  const eveningClose = EVENING_CLOSE_HOUR * 60 + EVENING_CLOSE_MIN;  // 1430
+  const preMarketOpen = PRE_MARKET_OPEN_HOUR * 60 + PRE_MARKET_OPEN_MIN;  // 410
+  const mainOpen = MAIN_OPEN_HOUR * 60 + MAIN_OPEN_MIN;     // 420 (7:00)
+  const mainClose = MAIN_CLOSE_HOUR * 60 + MAIN_CLOSE_MIN;  // 1130 (18:50)
+  const eveningOpen = EVENING_OPEN_HOUR * 60 + EVENING_OPEN_MIN;     // 1145 (19:05)
+  const eveningClose = EVENING_CLOSE_HOUR * 60 + EVENING_CLOSE_MIN;  // 1430 (23:50)
 
-  // Основная сессия: 10:00 - 18:45 (будни + ДСВД выходные)
+  // Аукцион открытия: 6:50-6:59
+  if (mskMinutes >= preMarketOpen && mskMinutes < mainOpen) {
+    const minutesUntilOpen = mainOpen - mskMinutes;
+    return {
+      session: 'PRE_MARKET',
+      minutesUntilClose: 0,
+      minutesUntilOpen,
+      maxTTLMinutes: 0,
+      description: `Аукцион открытия, до открытия ${minutesUntilOpen} мин`,
+    };
+  }
+
+  // Основная сессия: 7:00 - 18:50 (с учётом клирингов)
   if (mskMinutes >= mainOpen && mskMinutes < mainClose) {
+    // Клиринг дневной: 14:00-14:05
+    if (mskMinutes >= 840 && mskMinutes < 845) {
+      return {
+        session: 'CLEARING',
+        minutesUntilClose: 845 - mskMinutes,
+        minutesUntilOpen: 0,
+        maxTTLMinutes: 0,
+        description: 'Дневной клиринг, до открытия 5 мин',
+      };
+    }
     const minutesUntilClose = mainClose - mskMinutes;
     return {
       session: 'MAIN',
@@ -72,8 +98,30 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
     };
   }
 
-  // Вечерняя сессия: 19:00 - 23:50
+  // Аукцион закрытия: 18:50-18:59
+  if (mskMinutes >= mainClose && mskMinutes < 1140) {
+    const minutesUntilOpen = 1140 - mskMinutes;
+    return {
+      session: 'PRE_MARKET',
+      minutesUntilClose: 0,
+      minutesUntilOpen,
+      maxTTLMinutes: 0,
+      description: `Аукцион закрытия, до вечерней ${minutesUntilOpen} мин`,
+    };
+  }
+
+  // Вечерняя сессия: 19:05 - 23:50
   if (mskMinutes >= eveningOpen && mskMinutes < eveningClose) {
+    // Клиринг вечерний: 19:00-19:05
+    if (mskMinutes >= 1140 && mskMinutes < 1145) {
+      return {
+        session: 'CLEARING',
+        minutesUntilClose: 1145 - mskMinutes,
+        minutesUntilOpen: 0,
+        maxTTLMinutes: 0,
+        description: 'Вечерний клиринг, до открытия 5 мин',
+      };
+    }
     const minutesUntilClose = eveningClose - mskMinutes;
     return {
       session: 'EVENING',
@@ -84,68 +132,20 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
     };
   }
 
-  // Предрынок: 09:00 - 09:59
-  if (mskMinutes >= 540 && mskMinutes < mainOpen) {
-    const minutesUntilOpen = mainOpen - mskMinutes;
-    return {
-      session: 'PRE_MARKET',
-      minutesUntilClose: 0,
-      minutesUntilOpen,
-      maxTTLMinutes: 0, // Нет торговли — нет сигналов
-      description: `Предрынок, до открытия ${minutesUntilOpen} мин`,
-    };
+  // Ночь: после 23:50 до 6:50
+  let minutesUntilOpen: number;
+  if (mskMinutes >= eveningClose) {
+    minutesUntilOpen = (24 * 60 - mskMinutes) + preMarketOpen;
+  } else {
+    minutesUntilOpen = preMarketOpen - mskMinutes;
   }
-
-  // Клиринг: 14:00-14:05
-  if (mskMinutes >= 840 && mskMinutes < 845) {
-    return {
-      session: 'CLEARING',
-      minutesUntilClose: 845 - mskMinutes,
-      minutesUntilOpen: 0,
-      maxTTLMinutes: 0,
-      description: 'Клиринг, до открытия 5 мин',
-    };
-  }
-
-  // Перерыв: 18:50 - 19:00
-  if (mskMinutes >= mainClose && mskMinutes < eveningOpen) {
-    // Клиринг: 19:00-19:05
-    if (mskMinutes >= 1140 && mskMinutes < 1145) {
-      return {
-        session: 'CLEARING',
-        minutesUntilClose: 1145 - mskMinutes,
-        minutesUntilOpen: 0,
-        maxTTLMinutes: 0,
-        description: 'Вечерний клиринг, до открытия 5 мин',
-      };
-    }
-    const minutesUntilOpen = eveningOpen - mskMinutes;
-    return {
+return {
       session: 'OVERNIGHT',
       minutesUntilClose: 0,
       minutesUntilOpen,
       maxTTLMinutes: 0,
-      description: `Перерыв между сессиями, до вечерней ${minutesUntilOpen} мин`,
+      description: `Ночь, до открытия ${minutesUntilOpen} мин`,
     };
-  }
-
-  // Ночь: 23:50 - 10:00
-  let minutesUntilOpen: number;
-  if (mskMinutes >= eveningClose) {
-    // После закрытия вечерки до полуночи → завтра 10:00
-    minutesUntilOpen = (24 * 60 - mskMinutes) + mainOpen;
-  } else {
-    // До 10:00 (ночь)
-    minutesUntilOpen = mainOpen - mskMinutes;
-  }
-
-  return {
-    session: 'OVERNIGHT',
-    minutesUntilClose: 0,
-    minutesUntilOpen,
-    maxTTLMinutes: 0,
-    description: `Ночь, до открытия ${minutesUntilOpen} мин`,
-  };
 }
 
 /**
