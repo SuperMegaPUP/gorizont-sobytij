@@ -416,6 +416,7 @@ export async function scanTicker(
           weightsApplied: true,
           rawBeforeScale: Math.round((bsciResult.rawBeforeScale || 0) * 1000) / 1000,
           scaleFactor: BSCI_SCALE_FACTOR,
+          sessionQuality: bsciResult.sessionQuality,
         },
       },
       keySignal: scannerResult.signal,
