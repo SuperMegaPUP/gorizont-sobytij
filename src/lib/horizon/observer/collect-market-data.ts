@@ -21,8 +21,17 @@ import type { TradeOFIResult } from '../calculations/ofi';
 import { calcCumDelta } from '../calculations/delta';
 import { calcVPIN, sliceIntoVolumeBuckets } from '../calculations/vpin';
 import redis from '@/lib/redis';
-
 import { fetchTop100FromMOEX } from '../../moex/fetch-top100';
+
+// ISS column indices (verified by Step 0)
+const ISS_TRADE_PRICE_IDX = 4;
+const ISS_TRADE_QTY_IDX   = 5;
+const ISS_TRADE_TIME_IDX  = 1;
+const ISS_TRADE_DIR_IDX   = 10;
+const ISS_OB_BID_IDX      = 2;
+const ISS_OB_BIDDEPTH_IDX = 3;
+const ISS_OB_OFFER_IDX    = 6;
+const ISS_OB_OFFERDEPTH_IDX = 7;
 
 async function moexFetch(path: string): Promise<any> {
   // 1. Пробуем ISS (публичный)
@@ -244,20 +253,17 @@ async function fetchOrderboard(config: TickerConfig): Promise<OrderbookResult | 
   try {
     const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/orderbook.json?iss.meta=off&iss.only=orderbook&depth=50`;
     const data = await moexFetch(path);
+    const rawRows = data?.orderbook?.data || [];
 
-    // MOEX ISS orderbook: bid/ask (SINGULAR), каждый уровень = [price, quantity, orders?]
-    const bids = (data.orderbook?.bid || []).map((b: any[]) => ({
-      price: Number(b[0]), quantity: Number(b[1]),
-    }));
-    const asks = (data.orderbook?.ask || []).map((a: any[]) => ({
-      price: Number(a[0]), quantity: Number(a[1]),
-    }));
+    const bids = rawRows
+      .filter((r: any[]) => Number(r[ISS_OB_BID_IDX] || 0) > 0)
+      .map((r: any[]) => ({ price: Number(r[ISS_OB_BID_IDX]), quantity: Number(r[ISS_OB_BIDDEPTH_IDX] || 0) }));
+    const asks = rawRows
+      .filter((r: any[]) => Number(r[ISS_OB_OFFER_IDX] || 0) > 0)
+      .map((r: any[]) => ({ price: Number(r[ISS_OB_OFFER_IDX]), quantity: Number(r[ISS_OB_OFFERDEPTH_IDX] || 0) }));
 
     if (bids.length === 0 && asks.length === 0) {
-      console.warn(`[collect-market-data] EMPTY orderbook for ${config.moexTicker} — API returned 0 levels`);
-      // Diagnostic: log raw response structure
-      const obKeys = data.orderbook ? Object.keys(data.orderbook) : 'no orderbook key';
-      console.warn(`[collect-market-data] orderbook keys: ${JSON.stringify(obKeys)}`);
+      console.warn(`[collect-market-data] EMPTY orderbook for ${config.moexTicker}`);
     }
 
     return { bids, asks };
@@ -277,23 +283,19 @@ async function fetchTrades(config: TickerConfig, limit: number = 200): Promise<T
   try {
     const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/trades.json?limit=${limit}&reversed=1`;
     const data = await moexFetch(path);
-    const rows = parseIssGrid(data.trades);
-    // reversed=1 → MOEX возвращает newest-first → реверсируем в хронологический порядок
-    const trades: Trade[] = rows.reverse().map((t) => {
-      const buysell = String(t.BUYSELL || '');
-      const systime = t.SYSTIME ? String(t.SYSTIME) : '';
-      return {
-        price: Number(t.PRICE || 0),
-        quantity: Number(t.QUANTITY || 0),
-        direction: buysell,
-        side: buysell === 'B' ? 'BUY' : buysell === 'S' ? 'SELL' : buysell,
-        time: systime,
-        timestamp: systime ? new Date(systime).getTime() : Date.now(),
-      };
-    });
+    const rawRows = data?.trades?.data || [];
+    const trades: Trade[] = rawRows.map((r: any[]) => ({
+      price: Number(r[ISS_TRADE_PRICE_IDX] || 0),
+      quantity: Number(r[ISS_TRADE_QTY_IDX] || 0),
+      timestamp: r[ISS_TRADE_TIME_IDX] ? new Date(r[ISS_TRADE_TIME_IDX]).getTime() : Date.now(),
+      direction: String(r[ISS_TRADE_DIR_IDX] || '').includes('S') ? 'SELL' : 'BUY',
+      side: String(r[ISS_TRADE_DIR_IDX] || '').includes('S') ? 'SELL' : 'BUY',
+    })).filter((t: any) => t.price > 0 && t.quantity > 0);
+    // reversed=1 → newest-first → реверсируем в хронологический порядок
+    trades.reverse();
     return {
       trades,
-      recentTrades: trades.slice(-50), // ПОСЛЕДНИЕ 50 (самые свежие) — теперь правильно!
+      recentTrades: trades.slice(-50),
     };
   } catch (e: any) {
     console.warn(`[collect-market-data] trades error for ${config.moexTicker}:`, e.message);
@@ -407,6 +409,7 @@ export async function collectMarketData(
   ticker: string = 'SBER',
   crossTickers?: string[],
   fastMode: boolean = false,
+  force: boolean = false,
 ): Promise<MarketDataResult> {
   if (!fastMode) {
     console.log(`[collect-market-data] Starting for ${ticker}`);
@@ -627,6 +630,12 @@ export async function collectMarketData(
     staleData: staleData || undefined,
     staleMinutes: staleData ? staleMinutes : undefined,
     insufficientData: trades.length === 0 || undefined,
+    diag: {
+      iss_trades_raw: trades.length,
+      iss_ob_bids: orderbook.bids.length,
+      iss_ob_asks: orderbook.asks.length,
+      force_used: force,
+    },
   };
 
   // DATA-DEBUG: диагностика (Sprint 5B — добавлен ofiSource)

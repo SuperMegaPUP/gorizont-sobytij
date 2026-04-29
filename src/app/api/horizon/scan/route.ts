@@ -139,7 +139,7 @@ export async function scanTicker(
     // Signal gate is in the POST handler below.
 
     // 1. Collect market data (with auto-resolution + timeout per ticker)
-    const collectPromise = collectMarketData(ticker, undefined, fastMode);
+    const collectPromise = collectMarketData(ticker, undefined, fastMode, false);
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`Timeout ${timeoutMs}ms`)), timeoutMs)
     );

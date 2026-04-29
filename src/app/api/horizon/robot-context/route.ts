@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // 1. Собираем рыночные данные (сделки для burst detection)
-    const { detectorInput } = await collectMarketData(ticker);
+    const { detectorInput } = await collectMarketData(ticker, undefined, false, false);
 
     // 2. Определяем top-детектор (если не передан)
     const topDetector = searchParams.get('topDetector') || 'NONE';

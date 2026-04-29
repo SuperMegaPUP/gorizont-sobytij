@@ -171,7 +171,7 @@ export async function generateObservation(
     console.log(`[generate-observation] Starting slot=${activeSlot} (${slotInfo.name}) for ${ticker}`);
 
     // 2. Собираем рыночные данные
-    const { detectorInput, marketSnapshot } = await collectMarketData(ticker);
+    const { detectorInput, marketSnapshot } = await collectMarketData(ticker, undefined, false, false);
 
     // 3. Загружаем текущие веса BSCI из PostgreSQL
     const weightsRows = await prisma.bsciWeight.findMany();
