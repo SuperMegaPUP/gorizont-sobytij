@@ -188,3 +188,44 @@
 - ATTRACTOR / ENTANGLE — финальная калибровка
 - Возможная доп. калибровка PREDATOR Mean (0.138 → 0.03-0.08)
 
+---
+
+## 2026-04-29 | Сессия 4 | Z-SCORE BASELINES + SESSION CONTEXT (DEPLOY #3.1)
+
+**Задача:** Реализовать Z-score baselines PoC + исправить MOEX schedule (открытие в 7:00)
+
+**Что сделано:**
+1. **Z-score baselines PoC** — `baseline-store.ts`: batched KV для zFactor расчёта [0.85-1.15]
+2. **Session filter** — `session-filter.ts`: MOEX phase quality (metadata only, НЕ умножается в BSCI)
+3. **HAWKING async** — интегрирован getZFactors + pushBaseline (fire-and-forget)
+4. **runAllDetectors async** — registry.ts, scan/route.ts, generate-observation.ts, тесты
+5. **Session quality в metadata** — metadataMap.BSCI.sessionQuality
+6. **MOEX schedule fix**:
+   - Аукцион открытия: 6:50-6:59 (quality=0.3)
+   - Основная: 7:00-18:50 (quality=1.0)
+   - Клиринг: 14:00-14:05 и 19:00-19:05 (quality=0.2)
+   - Аукцион закрытия: 18:50-18:59 (quality=0.3)
+   - Вечерняя: 19:05-23:50 (quality=1.0)
+   - Ночь: quality=0.15
+7. **marketClosed logic** — исправлена проверка: session type MAIN/EVENING, не только BSCI=0
+
+**Результат:**
+- BSCI mean: **0.128** ✅ (цель 0.10-0.15)
+- sessionQuality: **1** (основная сессия в metadata)
+- HAWKING zAdaptation: **1** (PoC — baseline ещё накапливается)
+- UI показывает "Рынок открыт" ✅
+
+**Коммиты:**
+- `21be452` — Deploy #3.1: Z-score baselines + session context (PoC)
+- `e82ac52` — fix: MOEX session times - open at 7:00 MSK
+- `7762242` — fix: marketClosed logic - check trading session, not just BSCI
+- `de069cb` — fix: add marketClosed/sessionInfo to successful responses
+- `b5263fa` — fix: add evening clearing 19:00-19:05 to MOEX sessions
+- `bff3b8a` — fix: MOEX schedule - auction 6:50-6:59, main 7:00-18:50
+- `852f3ec` — fix: add sessionQuality to scanner metadataMap
+
+**Следующий шаг:**
+- Phase 3: синтетические тесты (F-1D)
+- Phase 3: Dynamic TTL (F-3A)
+- Phase 3: Confidence v4.2 (F-3B)
+

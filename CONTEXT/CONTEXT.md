@@ -100,35 +100,38 @@
 | 2026-04-28 | Deploy #3.3: DECOHERENCE diagnostics - activeSymbols=13-15 для ликвидных, 55/100=0 для среднеликвидных |
 | 2026-04-28 | Deploy #3.2: HAWKING calibration |
 | 2026-04-28 | Deploy #3: HAWKING починен (48/100 > 0), PREDATOR/ATTRACTOR fallback на recentTrades, исправлены константы, добавлен metadataMap в API |
+| 2026-04-29 | Deploy #3.1: Z-score baselines PoC + session context (7:00-18:50 MSK schedule) + marketClosed fix |
 
 ---
 
-## 7. ТЕКУЩИЙ СТАТУС DEPLOY #4.1b — PREDATOR PRODUCTION-READY
+## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3.1 — Z-SCORE BASELINES + SESSION CONTEXT (PoC)
 
 | Метрика | Значение | Цель |
 |---------|----------|------|
-| PREDATOR > 0 | **32/100** | 15-30 |
-| Mean PREDATOR | **0.164** | 0.03-0.08 (медиана ~0.05-0.07) |
-| ALERTs | **14** ✅ | 10-15 |
-| Mean BSCI | **0.132** ✅ | 0.10-0.18 |
+| BSCI mean | **0.128** ✅ | 0.10-0.15 |
+| sessionQuality | **1** | metadata only, NOT multiplied into BSCI |
+| HAWKING zAdaptation | **1** | PoC — baseline ещё накапливается |
 
-### Остальные детекторы:
-- HAWKING: 15/100 mean=0.035 ✅
-- DECOHERENCE: 16/100 mean=0.129 ✅
-- ATTRACTOR: 31/100 mean=0.106 ✅
-- DARKMATTER: 31/100 mean=0.119 ✅
-- ENTANGLE: 14/100 mean=0.32 ✅ (аудит #6 — работает корректно)
+### Что сделано в #3.1:
+1. **Z-score baselines PoC** — `baseline-store.ts`: batched KV для zFactor [0.85-1.15]
+2. **Session context** — `session-filter.ts`: MOEX phase quality (metadata only, НЕ в BSCI)
+3. **HAWKING async** — интегрирован getZFactors + pushBaseline fire-and-forget
+4. **runAllDetectors async** — registry.ts, scan/route.ts, generate-observation.ts
+5. **Session quality в metadata** — metadataMap.BSCI.sessionQuality
+6. **MOEX schedule fix** — аукцион 6:50-6:59, основная 7:00-18:50, клиринг 14:00-14:05 + 19:00-19:05, вечерняя 19:05-23:50
+7. **marketClosed logic** — проверяет session type, не только BSCI=0
 
-### Что сделано в #4.1b:
-- Stateless архитектура: ACCUMULATE + PUSH + ABSORPTION
-- priceStallFactor: накопление валидно только при stalled price
-- Weighted sum + strict confluence (2+ компонента для score > 0)
-- Floor = 0.012 (data-driven: обрыв между 0.012→0.015)
-- priceStallFactor exposed в metadata для диагностики
+### MOEX расписание (актуальное):
+- Аукцион открытия: 6:50-6:59 (quality=0.3)
+- Основная: 7:00-18:50 (quality=1.0)
+- Клиринг: 14:00-14:05 и 19:00-19:05 (quality=0.2)
+- Вечерняя: 19:05-23:50 (quality=1.0)
+- Ночь: quality=0.15
 
 ### Статус: ✅ PRODUCTION-READY
-- Дальнейшая калибровка через BSCI-веса (Deploy #7)
 
 ### TODO:
-- [ ] Deploy #7: BSCI WEIGHTS CALIBRATION
+- [ ] Phase 3: синтетические тесты (F-1D)
+- [ ] Phase 3: Dynamic TTL (F-3A)
+- [ ] Phase 3: Confidence v4.2 (F-3B)
 
