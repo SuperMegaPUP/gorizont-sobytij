@@ -7,7 +7,7 @@
 //   Вечерняя:  TTL = min(2ч, до закрытия вечерки)
 //   Ночью:     TTL = 0 (сигналы не генерируются)
 
-export type MOEXSession = 'MAIN' | 'EVENING' | 'OVERNIGHT' | 'PRE_MARKET';
+export type MOEXSession = 'MAIN' | 'EVENING' | 'OVERNIGHT' | 'PRE_MARKET' | 'CLEARING';
 
 export interface SessionInfo {
   /** Текущая сессия */
@@ -96,8 +96,29 @@ export function getSessionInfo(now: Date = new Date()): SessionInfo {
     };
   }
 
-  // Перерыв: 18:45 - 19:00
+  // Клиринг: 14:00-14:05
+  if (mskMinutes >= 840 && mskMinutes < 845) {
+    return {
+      session: 'CLEARING',
+      minutesUntilClose: 845 - mskMinutes,
+      minutesUntilOpen: 0,
+      maxTTLMinutes: 0,
+      description: 'Клиринг, до открытия 5 мин',
+    };
+  }
+
+  // Перерыв: 18:50 - 19:00
   if (mskMinutes >= mainClose && mskMinutes < eveningOpen) {
+    // Клиринг: 19:00-19:05
+    if (mskMinutes >= 1140 && mskMinutes < 1145) {
+      return {
+        session: 'CLEARING',
+        minutesUntilClose: 1145 - mskMinutes,
+        minutesUntilOpen: 0,
+        maxTTLMinutes: 0,
+        description: 'Вечерний клиринг, до открытия 5 мин',
+      };
+    }
     const minutesUntilOpen = eveningOpen - mskMinutes;
     return {
       session: 'OVERNIGHT',
