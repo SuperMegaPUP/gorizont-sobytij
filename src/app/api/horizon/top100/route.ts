@@ -259,11 +259,13 @@ export async function POST(_request: NextRequest) {
     // ── hasRealData check (HOTFIX v4.1.5) ─────────────────────────────────
     // If ALL tickers have BSCI ≈ 0, market is truly closed → don't overwrite cache with zeros
     const hasRealData = scannedResults.some(r => r.bsci > 0.01);
+    const isTradingSession = sessionInfo.session === 'MAIN' || sessionInfo.session === 'EVENING';
+    const hasTickersToScan = tickersToScan.length > 0;
+    const isMarketClosed = !hasRealData && (!hasTickersToScan || !isTradingSession);
 
-    if (!hasRealData) {
+    if (isMarketClosed) {
       // Market truly closed — return cached data if available, don't overwrite with zeros
       console.log(`[/api/horizon/top100] No real data (all BSCI≈0), market likely closed (${sessionInfo.description})`);
-      // IMPORTANT: Clear progress cache so next scan starts fresh (not stuck with stale BSCI=0 results)
       try { await redis.del(PROGRESS_KEY); } catch { /* ignore */ }
       try {
         const cached = await redis.get(CACHE_KEY);
