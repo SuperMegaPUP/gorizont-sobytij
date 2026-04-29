@@ -22,16 +22,7 @@ import { calcCumDelta } from '../calculations/delta';
 import { calcVPIN, sliceIntoVolumeBuckets } from '../calculations/vpin';
 import redis from '@/lib/redis';
 import { fetchTop100FromMOEX } from '../../moex/fetch-top100';
-
-// ISS column indices (verified by Step 0)
-const ISS_TRADE_PRICE_IDX = 4;
-const ISS_TRADE_QTY_IDX   = 5;
-const ISS_TRADE_TIME_IDX  = 1;
-const ISS_TRADE_DIR_IDX   = 10;
-const ISS_OB_BID_IDX      = 2;
-const ISS_OB_BIDDEPTH_IDX = 3;
-const ISS_OB_OFFER_IDX    = 6;
-const ISS_OB_OFFERDEPTH_IDX = 7;
+import { fetchMoexTrades, fetchMoexOrderbook } from '../../moex/moex-client';
 
 async function moexFetch(path: string): Promise<any> {
   // 1. Пробуем ISS (публичный)
@@ -251,25 +242,14 @@ interface FuturesOIResult {
  */
 async function fetchOrderboard(config: TickerConfig): Promise<OrderbookResult | null> {
   try {
-    const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/orderbook.json?iss.meta=off&iss.only=orderbook&depth=50`;
-    const data = await moexFetch(path);
-    const rawRows = data?.orderbook?.data || [];
-
-    const bids = rawRows
-      .filter((r: any[]) => Number(r[ISS_OB_BID_IDX] || 0) > 0)
-      .map((r: any[]) => ({ price: Number(r[ISS_OB_BID_IDX]), quantity: Number(r[ISS_OB_BIDDEPTH_IDX] || 0) }));
-    const asks = rawRows
-      .filter((r: any[]) => Number(r[ISS_OB_OFFER_IDX] || 0) > 0)
-      .map((r: any[]) => ({ price: Number(r[ISS_OB_OFFER_IDX]), quantity: Number(r[ISS_OB_OFFERDEPTH_IDX] || 0) }));
-
+    const { bids, asks, error: oErr } = await fetchMoexOrderbook(config.moexTicker, config.engine, config.market, config.board, 50);
     if (bids.length === 0 && asks.length === 0) {
-      console.warn(`[collect-market-data] EMPTY orderbook for ${config.moexTicker}`);
+      console.warn(`[collect-market-data] EMPTY orderbook for ${config.moexTicker}, error: ${oErr}`);
     }
-
     return { bids, asks };
   } catch (e: any) {
     console.warn(`[collect-market-data] orderbook error for ${config.moexTicker}:`, e.message);
-    return null;
+    return { bids: [], asks: [] };
   }
 }
 
@@ -281,22 +261,11 @@ async function fetchOrderboard(config: TickerConfig): Promise<OrderbookResult | 
 async function fetchTrades(config: TickerConfig, limit: number = 200): Promise<TradesResult> {
   const empty: TradesResult = { trades: [], recentTrades: [] };
   try {
-    const path = `/iss/engines/${config.engine}/markets/${config.market}/boards/${config.board}/securities/${config.moexTicker}/trades.json?limit=${limit}&reversed=1`;
-    const data = await moexFetch(path);
-    const rawRows = data?.trades?.data || [];
-    const trades: Trade[] = rawRows.map((r: any[]) => ({
-      price: Number(r[ISS_TRADE_PRICE_IDX] || 0),
-      quantity: Number(r[ISS_TRADE_QTY_IDX] || 0),
-      timestamp: r[ISS_TRADE_TIME_IDX] ? new Date(r[ISS_TRADE_TIME_IDX]).getTime() : Date.now(),
-      direction: String(r[ISS_TRADE_DIR_IDX] || '').includes('S') ? 'SELL' : 'BUY',
-      side: String(r[ISS_TRADE_DIR_IDX] || '').includes('S') ? 'SELL' : 'BUY',
-    })).filter((t: any) => t.price > 0 && t.quantity > 0);
-    // reversed=1 → newest-first → реверсируем в хронологический порядок
-    trades.reverse();
-    return {
-      trades,
-      recentTrades: trades.slice(-50),
-    };
+    const { trades, error: tErr } = await fetchMoexTrades(config.moexTicker, config.engine, config.market, config.board, limit);
+    if (tErr) {
+      console.warn(`[collect-market-data] trades error for ${config.moexTicker}: ${tErr}`);
+    }
+    return { trades, recentTrades: trades.slice(-50) };
   } catch (e: any) {
     console.warn(`[collect-market-data] trades error for ${config.moexTicker}:`, e.message);
     return empty;
@@ -637,6 +606,13 @@ export async function collectMarketData(
       force_used: force,
     },
   };
+
+  // Redis bypass on force
+  if (force) {
+    try {
+      await redis.del(`horizon:ob-snapshot:${ticker}`);
+    } catch {}
+  }
 
   // DATA-DEBUG: диагностика (Sprint 5B — добавлен ofiSource)
   if (staleData || trades.length === 0 || (orderbook.bids.length === 0 && orderbook.asks.length === 0) || useTradeOFI) {
