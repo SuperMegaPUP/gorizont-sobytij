@@ -165,7 +165,7 @@ function applyContextFilters(bsci: number, context?: BSCIContext): number {
   // 1. Session quality: <50 трейдов = низкая достоверность
   if (context.tradeCount !== undefined) {
     const sessionQuality = Math.min(1, context.tradeCount / MIN_TRADES_FOR_SESSION_QUALITY);
-    result *= sessionQuality;
+    // result *= sessionQuality; ← REMOVED: sessionQuality now metadata-only
   }
   
   // 2. Spread penalty: >0.3% = низкая ликвидность
