@@ -98,8 +98,17 @@ export async function POST(_request: NextRequest) {
 
     // 2. Fallback to hardcoded list if dynamic fetch fails
     if (tickersToScan.length < 20) {
-      console.warn(`[/api/horizon/top100] Dynamic list only ${tickersToScan.length}, using hardcoded fallback`);
-      tickersToScan = [...TOP100_TICKERS].map(t => ({ ...t, turnover: 0 }));
+      // НЕ использовать хардкод — вернуть пустой результат (рынок закрыт)
+      console.warn(`[/api/horizon/top100] Only ${tickersToScan.length} tickers from MOEX, returning empty (market likely closed)`);
+      const sessionInfo = getSessionInfo();
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        data: [],
+        marketClosed: true,
+        sessionInfo: sessionInfo.description,
+        ts: Date.now(),
+      });
     }
 
     console.log(`[/api/horizon/top100] Scanning ${tickersToScan.length} tickers (dynamic from MOEX)`);
