@@ -24,10 +24,10 @@ export interface SessionInfo {
 
 // ─── Расписание МОЕКС (MSK = UTC+3) ──────────────────────────────────────────
 
-const MAIN_OPEN_HOUR = 10;
+const MAIN_OPEN_HOUR = 7;   // 7:00 MSK
 const MAIN_OPEN_MIN = 0;
 const MAIN_CLOSE_HOUR = 18;
-const MAIN_CLOSE_MIN = 45;
+const MAIN_CLOSE_MIN = 50;  // 18:50 MSK
 
 const EVENING_OPEN_HOUR = 19;
 const EVENING_OPEN_MIN = 0;
