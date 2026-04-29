@@ -112,10 +112,9 @@ export async function POST(_request: NextRequest) {
     // 1. Get dynamic top-100 tickers from MOEX by turnover
     let tickersToScan = await fetchTop100Tickers();
 
-    // 2. Fallback to hardcoded list if dynamic fetch fails
-    if (tickersToScan.length < 20) {
-      // НЕ использовать хардкод — вернуть пустой результат (рынок закрыт)
-      console.warn(`[/api/horizon/top100] Only ${tickersToScan.length} tickers from MOEX, returning empty (market likely closed)`);
+    // 2. Fallback — только если СОВСЕМ ничего от MOEX
+    if (tickersToScan.length === 0) {
+      console.warn(`[/api/horizon/top100] No tickers from MOEX, returning empty (market closed)`);
       const sessionInfo = getSessionInfo();
       return NextResponse.json({
         success: true,
@@ -126,6 +125,9 @@ export async function POST(_request: NextRequest) {
         ts: Date.now(),
       });
     }
+    
+    // Если MOEX вернул хоть что-то (даже 1 тикер) — показываем
+    console.log(`[/api/horizon/top100] Got ${tickersToScan.length} tickers from MOEX, proceeding with scan`);
 
     console.log(`[/api/horizon/top100] Scanning ${tickersToScan.length} tickers (dynamic from MOEX)`);
 
