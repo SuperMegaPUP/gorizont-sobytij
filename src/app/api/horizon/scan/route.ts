@@ -104,7 +104,7 @@ export const TOP100_TICKERS: readonly { ticker: string; name: string }[] = [
   { ticker: 'DVEC', name: 'ДЭК' },
   { ticker: 'MSNG', name: 'Мосэнерго' },
   { ticker: 'MSRS', name: 'МРСК Сибири' },
-  { ticker: 'RNFT', name: 'Распадская' },
+  { ticker: 'RNFT', name: 'РуссНефть' },
   { ticker: 'GRNT', name: 'Грандлайн' },
   { ticker: 'NKNC', name: 'Нижнекамскнефтехим' },
   // 61–80
@@ -150,7 +150,8 @@ export const TOP100_TICKERS: readonly { ticker: string; name: string }[] = [
   { ticker: 'KAZTP', name: 'КАЗТ-п' },
   { ticker: 'MEGP', name: 'Мегаполис' },
   // Дополнительные (из CORE списка)
-  { ticker: 'RNFT', name: 'Распадская' },
+  { ticker: 'RASP', name: 'Распадская' },
+  { ticker: 'RNFT', name: 'РуссНефть' },
 ];
 
 // ─── Single Ticker Scan ───────────────────────────────────────────────────
