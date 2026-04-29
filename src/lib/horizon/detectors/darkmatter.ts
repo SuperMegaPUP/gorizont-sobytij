@@ -28,7 +28,7 @@
 
 import type { DetectorInput, DetectorResult } from './types';
 import { safeDivide, clampScore, stalePenalty } from './guards';
-import { DARKMATTER_MIN_DELTA_H } from '../constants';
+import { DARKMATTER_MIN_DELTA_H, DARKMATTER_MIN_CUTOFF_DEPTH } from '../constants';
 
 const EPS = 1e-6;
 const LN2 = Math.log(2);
@@ -236,6 +236,11 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   metadata.bidCutoff = bidCutoff;
   metadata.askCutoff = askCutoff;
   metadata.cutoffDepth = cutoffDepth;
+  
+  if (cutoffDepth === 0) {
+    metadata.insufficientData = true;
+    metadata.reason = 'empty_orderbook';
+  }
 
   // Guard: cutoff_depth < 5 → entropy_score = 0
   if (cutoffDepth < 5) {
@@ -277,7 +282,7 @@ export function detectDarkmatter(input: DetectorInput): DetectorResult {
   }
   
   // Soft weight: cutoff_depth < 5 → плавное затухание вместо hard 0
-  const depthWeight = cutoffDepth > 0 ? Math.min(1, cutoffDepth / 5) : 0;
+  const depthWeight = cutoffDepth > 0 ? Math.min(1, cutoffDepth / DARKMATTER_MIN_CUTOFF_DEPTH) : 0;
   entropyScore = entropyScore * depthWeight;
   
   if (cutoffDepth < 5) {
