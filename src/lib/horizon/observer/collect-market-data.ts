@@ -150,22 +150,43 @@ export async function fetchTop100Tickers(): Promise<TopTickerEntry[]> {
   }
 
   try {
-    // Пробуем MOEX - базовый рабочий endpoint
-    const path = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=LAST&sort_order=desc&first=5';
+    // Используем marketdata endpoint - там есть VALTODAY
+    const path = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=VALTODAY&sort_order=desc&first=100&marketdata.columns=SECID,VALTODAY';
     const data = await moexFetch(path);
-    const rows = parseIssGrid(data?.securities);
-
-    if (!rows || rows.length === 0) {
-      console.warn('[fetchTop100Tickers] No data from MOEX, using fallback');
+    
+    // Проверяем структуру ответа
+    const securities = data?.securities;
+    const marketdata = data?.marketdata;
+    
+    if (!securities?.data && !marketdata?.data) {
+      console.warn('[fetchTop100Tickers] No data from MOEX');
       return getFallbackTickers();
     }
 
-    // Преобразуем в наш формат
-    const result: TopTickerEntry[] = rows.slice(0, 100).map((r: any) => ({
-      ticker: String(r[0] || ''),
-      name: String(r[2] || r[0] || ''),
-      turnover: 1, // fallback - любое значение > 0
-    })).filter((r) => r.ticker);
+    // Парсим securities для имён
+    const secRows = parseIssGrid(securities);
+    const nameMap = new Map<string, string>();
+    for (const row of secRows.slice(0, 100)) {
+      if (row[0] && row[2]) {
+        nameMap.set(String(row[0]), String(row[2]));
+      }
+    }
+
+    // Парсим marketdata для VALTODAY  
+    const mdRows = parseIssGrid(marketdata);
+    const result: TopTickerEntry[] = [];
+    
+    for (const row of mdRows.slice(0, 100)) {
+      const ticker = row[0];
+      const valtoday = Number(row[1]);
+      if (ticker && valtoday > 0) {
+        result.push({
+          ticker: String(ticker),
+          name: nameMap.get(String(ticker)) || String(ticker),
+          turnover: valtoday,
+        });
+      }
+    }
 
     if (result.length >= 1) {
       top100Cache = { value: result, ts: Date.now() };
@@ -175,19 +196,44 @@ export async function fetchTop100Tickers(): Promise<TopTickerEntry[]> {
 
     return getFallbackTickers();
   } catch (e: any) {
-    console.warn(`[fetchTop100Tickers] Error: ${e.message}, using fallback`);
+    console.warn(`[fetchTop100Tickers] Error: ${e.message}`);
     return getFallbackTickers();
   }
 }
 
-// Fallback - топ-5 самых ликвидных
+// Fallback - топ-30 самых ликвидных
 function getFallbackTickers(): TopTickerEntry[] {
   return [
     { ticker: 'SBER', name: 'Сбербанк', turnover: 1 },
     { ticker: 'GAZP', name: 'Газпром', turnover: 1 },
     { ticker: 'LKOH', name: 'ЛУКОЙЛ', turnover: 1 },
+    { ticker: 'GMKN', name: 'Норникель', turnover: 1 },
     { ticker: 'YNDX', name: 'Яндекс', turnover: 1 },
-    { ticker: 'SMLT', name: 'Самолёт', turnover: 1 },
+    { ticker: 'VTBR', name: 'ВТБ', turnover: 1 },
+    { ticker: 'ROSN', name: 'Роснефть', turnover: 1 },
+    { ticker: 'PLZL', name: 'Полюс', turnover: 1 },
+    { ticker: 'MGNT', name: 'Магнит', turnover: 1 },
+    { ticker: 'NVTK', name: 'Новатэк', turnover: 1 },
+    { ticker: 'SNGS', name: 'Сургутнефтегаз', turnover: 1 },
+    { ticker: 'TATN', name: 'Татнефть', turnover: 1 },
+    { ticker: 'ALRS', name: 'Алроса', turnover: 1 },
+    { ticker: 'CHMF', name: 'Северсталь', turnover: 1 },
+    { ticker: 'NLMK', name: 'НЛМК', turnover: 1 },
+    { ticker: 'SBERP', name: 'Сбербанк-п', turnover: 1 },
+    { ticker: 'GAZPP', name: 'Газпром-п', turnover: 1 },
+    { ticker: 'MOEX', name: 'Московская биржа', turnover: 1 },
+    { ticker: 'SIBN', name: 'Газпром нефть', turnover: 1 },
+    { ticker: 'AFKS', name: 'Система', turnover: 1 },
+    { ticker: 'MTLR', name: 'Мечел', turnover: 1 },
+    { ticker: 'IRAO', name: 'Интер РАО', turnover: 1 },
+    { ticker: 'PHOR', name: 'ФосАгро', turnover: 1 },
+    { ticker: 'FLOT', name: 'Совкомфлот', turnover: 1 },
+    { ticker: 'LENT', name: 'Лента', turnover: 1 },
+    { ticker: 'SGZH', name: 'Сегежа', turnover: 1 },
+    { ticker: 'TRMK', name: 'ТМК', turnover: 1 },
+    { ticker: 'PIKK', name: 'ПИК', turnover: 1 },
+    { ticker: 'RTKM', name: 'Ростелеком', turnover: 1 },
+    { ticker: 'HYDR', name: 'РусГидро', turnover: 1 },
   ];
 }
 
