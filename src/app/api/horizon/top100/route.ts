@@ -91,6 +91,22 @@ export async function POST(_request: NextRequest) {
 
     const sessionInfo = getSessionInfo();
 
+    // Очистка Redis кэша если есть дубликаты (force clear)
+    try {
+      // Проверить есть ли старые данные с дубликатами
+      const oldCache = await redis.get(CACHE_KEY);
+      if (oldCache) {
+        const oldData = JSON.parse(oldCache);
+        const tickers = oldData.map((x: any) => x.ticker);
+        const unique = new Set(tickers);
+        if (tickers.length !== unique.size) {
+          console.warn('[/api/horizon/top100] Found duplicates in cache, clearing...');
+          await redis.del(CACHE_KEY);
+          await redis.del(PROGRESS_KEY);
+        }
+      }
+    } catch { /* ignore */ }
+
     console.log('[/api/horizon/top100] Starting TOP-100 incremental scan...');
 
     // 1. Get dynamic top-100 tickers from MOEX by turnover
@@ -302,9 +318,18 @@ export async function POST(_request: NextRequest) {
       });
     }
 
-    // 10. Save to Redis (2 hours TTL — HOTFIX v4.1.5: raised from 30 min)
+    // 10. Save to Redis (2 hours TTL)
+    // Дедупликация по ticker перед сохранением
+    const uniqueData = cleanData.filter((item, index, self) => 
+      index === self.findIndex((t) => t.ticker === item.ticker)
+    );
+    
+    if (uniqueData.length < cleanData.length) {
+      console.warn(`[/api/horizon/top100] Removed ${cleanData.length - uniqueData.length} duplicate tickers before saving to cache`);
+    }
+
     try {
-      await redis.setex(CACHE_KEY, 7200, JSON.stringify(cleanData));
+      await redis.setex(CACHE_KEY, 7200, JSON.stringify(uniqueData));
     } catch (redisErr: any) {
       console.warn('[/api/horizon/top100] Redis save failed:', redisErr.message);
     }
