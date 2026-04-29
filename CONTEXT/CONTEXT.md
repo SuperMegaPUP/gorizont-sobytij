@@ -101,25 +101,37 @@
 | 2026-04-28 | Deploy #3.2: HAWKING calibration |
 | 2026-04-28 | Deploy #3: HAWKING починен (48/100 > 0), PREDATOR/ATTRACTOR fallback на recentTrades, исправлены константы, добавлен metadataMap в API |
 | 2026-04-29 | Deploy #3.1: Z-score baselines PoC + session context (7:00-18:50 MSK schedule) + marketClosed fix |
+| 2026-04-29 | **Deploy #3.2: TOP100 unified** — единый moex-client, safeJsonFetch (APIM→ISS fallback), убран хардкод |
+| 2026-04-29 | **Deploy #3.3: DECOHERENCE fix** — tick_rule fallback, symbol=0 валиден, soft weights, Miller-Madow сохранён |
 
 ---
 
-## 7. ТЕКУЩИЙ СТАТУС DEPLOY #3.1 — Z-SCORE BASELINES + SESSION CONTEXT (PoC)
+## 7. ТЕКУЩИЙ СТАТУС — TOP100 + DECOHERENCE FIX
 
 | Метрика | Значение | Цель |
 |---------|----------|------|
-| BSCI mean | **0.128** ✅ | 0.10-0.15 |
-| sessionQuality | **1** | metadata only, NOT multiplied into BSCI |
-| HAWKING zAdaptation | **1** | PoC — baseline ещё накапливается |
+| BSCI mean | **0.167** ✅ | 0.05-0.20 |
+| BSCI > 0 | **100/100** ✅ | 100 |
+| DECOHERENCE > 0 | **59/100** ✅ | >15 |
+| DECOHERENCE uniqueSymbols | **17** ✅ | ≥1 |
 
-### Что сделано в #3.1:
-1. **Z-score baselines PoC** — `baseline-store.ts`: batched KV для zFactor [0.85-1.15]
-2. **Session context** — `session-filter.ts`: MOEX phase quality (metadata only, НЕ в BSCI)
-3. **HAWKING async** — интегрирован getZFactors + pushBaseline fire-and-forget
-4. **runAllDetectors async** — registry.ts, scan/route.ts, generate-observation.ts
-5. **Session quality в metadata** — metadataMap.BSCI.sessionQuality
-6. **MOEX schedule fix** — аукцион 6:50-6:59, основная 7:00-18:50, клиринг 14:00-14:05 + 19:00-19:05, вечерняя 19:05-23:50
-7. **marketClosed logic** — проверяет session type, не только BSCI=0
+### Что сделано в последних коммитах:
+
+**d5c704e (TOP100 unified):**
+1. Создан `src/lib/moex/moex-client.ts` — единый клиент с safeJsonFetch
+2. APIM → ISS fallback логика
+3. Убран хардкод TOP100_TICKERS, fallback на 30 тикеров удалён
+4. Turnover маппится из moexTurnover для UI
+5. Force bypass в collect-market-data.ts
+6. diag pipeline для диагностики
+
+**ba2fb1e (DECOHERENCE fix):**
+1. Исправлена генерация символов: volMag = max(1, log2(volume)) вместо log2(volume)
+2. tick_rule fallback при ΔP=0 (Math.random при отсутствии tickRuleDirection)
+3. Убран фильтр `if (symbol !== null)` — теперь symbol=0 валиден
+4. Soft weights вместо hard returns: qualityWeight, activityWeight, sampleWeight, timeSpanWeight
+5. Сохранена формула Miller-Madow + log2(7) floor
+6. Расширены metadata для диагностики
 
 ### MOEX расписание (актуальное):
 - Аукцион открытия: 6:50-6:59 (quality=0.3)

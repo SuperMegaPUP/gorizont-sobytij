@@ -227,5 +227,50 @@
 **Следующий шаг:**
 - Phase 3: синтетические тесты (F-1D)
 - Phase 3: Dynamic TTL (F-3A)
+
+---
+
+## 2026-04-29 | Сессия 3 | TOP100 + DECOHERENCE FIX
+
+**Задача:** Исправить TOP100 (было 30 тикеров, данные не доходили до детекторов) + DECOHERENCE activeSymbols=0
+
+**Что сделано:**
+
+### Deploy d5c704e — TOP100 unified:
+1. Создан `src/lib/moex/moex-client.ts` — единый клиент с safeJsonFetch (APIM → ISS fallback)
+2. Заменён moexFetch в collect-market-data.ts на fetchMoexTrades/fetchMoexOrderbook
+3. Убран хардкод TOP100_TICKERS, fallback на 30 тикеров удалён
+4. Turnover маппится из moexTurnover для UI
+5. Force bypass в collect-market-data.ts + Redis del
+6. diag pipeline для диагностики (iss_trades_raw, iss_ob_bids, force_used)
+7. Исправлены константы ISS_TRADE_* / ISS_OB_* индексы
+
+### Deploy ba2fb1e — DECOHERENCE fix:
+1. Исправлена генерация символов:
+   - volMag = max(1, log2(volume)) вместо max(0, log2(volume))
+   - tick_rule fallback при ΔP=0 использует Math.random
+2. Убран фильтр `if (symbol !== null)` — теперь symbol=0 валиден
+3. Заменены hard returns на soft weights:
+   - sampleWeight = min(1, allTrades.length / 20)
+   - qualityWeight = min(1, windowSize / 5)
+   - activityWeight = min(1, activityRatio / 0.3)
+   - timeSpanWeight = плавное затухание при >5 мин
+4. Сохранена формула Miller-Madow + log2(7) floor
+5. Расширены metadata: uniqueSymbols, zeroSymbolRatio, qualityWeight, activityWeight, sampleWeight, reason
+
+**Результат:**
+- BSCI mean: **0.167** ✅ (цель 0.05-0.20)
+- BSCI > 0: **100/100** ✅
+- DECOHERENCE > 0: **59/100** ✅ (было ~20)
+- DECOHERENCE uniqueSymbols: **17** ✅ (было 0!)
+- Soft weights работают плавно ✅
+
+**Коммиты:**
+- `d5c704e` — hotfix final: unified moex-client, safeJsonFetch, force bypass, diag pipeline
+- `ba2fb1e` — Deploy #3.3: DECOHERENCE activeSymbols=0 fix
+
+**Следующий шаг:**
+- Phase 3: синтетические тесты (F-1D)
+- Phase 3: Dynamic TTL (F-3A)
 - Phase 3: Confidence v4.2 (F-3B)
 

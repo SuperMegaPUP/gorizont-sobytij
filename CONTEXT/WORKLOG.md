@@ -252,3 +252,47 @@
 - Phase 3: Dynamic TTL (F-3A)
 - Phase 3: Confidence v4.2 (F-3B)
 
+---
+
+## 2026-04-29 | Сессия #3 | TOP100 unified + DECOHERENCE fix
+
+### Проблема
+- TOP100 показывал 30 тикеров вместо 100 (fallback срабатывал)
+- Детекторы возвращали 0 для всех тикеров
+- DECOHERENCE: activeSymbols=0, uniqueSymbols=None
+
+### Решения
+
+**1. TOP100 unified (d5c704e)**
+- Создан единый moex-client.ts с safeJsonFetch
+- APIM → ISS fallback логика
+- Убран хардкод TOP100_TICKERS
+- Turnover маппится из moexTurnover
+- Force bypass + Redis del в collectMarketData
+- Диагностика: diag.iss_trades_raw, force_used
+
+**2. DECOHERENCE fix (ba2fb1e)**
+- volMag = max(1, log2(volume)) вместо max(0, log2(volume))
+- tick_rule fallback: Math.random при ΔP=0
+- Убран фильтр if(symbol !== null)
+- Soft weights вместо hard returns:
+  - sampleWeight, qualityWeight, activityWeight, timeSpanWeight
+- Сохранена формула Miller-Madow + log2(7) floor
+- Metadata расширены: uniqueSymbols, zeroSymbolRatio, reason
+
+### Результат
+- BSCI mean: 0.167 ✅
+- BSCI > 0: 100/100 ✅
+- DECOHERENCE > 0: 59/100 ✅ (было ~20)
+- DECOHERENCE uniqueSymbols: 17 ✅ (было 0)
+- Soft weights работают ✅
+
+### Коммиты
+- `d5c704e` — hotfix final: unified moex-client
+- `ba2fb1e` — Deploy #3.3: DECOHERENCE activeSymbols=0 fix
+
+### Следующий шаг
+- Phase 3: синтетические тесты (F-1D)
+- Phase 3: Dynamic TTL (F-3A)
+- Phase 3: Confidence v4.2 (F-3B)
+

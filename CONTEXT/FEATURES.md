@@ -98,7 +98,7 @@
 | GRAVITON | 78 | ✅ | Работает |
 | DARKMATTER | 35 | ✅ | Работает |
 | ACCRETOR | 46 | ✅ | Работает |
-| DECOHERENCE | 11 | 🟡 | activeSymbols 13-15 для ликвидных, 55/100=0 для среднеликвидных |
+| DECOHERENCE | **59** | ✅ | **Исправлено!** soft weights, uniqueSymbols=17 |
 | HAWKING | 16-24 | ✅ | zAdaptation PoC, floor 0.015 |
 | PREDATOR | 25-32 | ✅ | Stateless rewrite, floor 0.012 |
 | CIPHER | 73 | ✅ | Работает |
@@ -106,12 +106,18 @@
 | WAVEFUNCTION | 78 | ✅ | Работает |
 | ATTRACTOR | 30 | ✅ | Работает |
 
-### Deploy #3.1 (2026-04-29):
-- Z-score baselines PoC: baseline-store.ts + getZFactors
-- Session context: session-filter.ts (metadata only, НЕ в BSCI)
-- MOEX schedule: аукцион 6:50, основная 7:00-18:50, клиринг 14:00-14:05 + 19:00-19:05
-- marketClosed: проверяет session type, не только BSCI=0
-- BSCI mean: 0.128 ✅ (цель 0.10-0.15)
+### Deploy #3.2 (2026-04-29):
+- TOP100 unified: moex-client.ts, safeJsonFetch (APIM→ISS fallback)
+- Убран хардкод TOP100_TICKERS
+- Turnover маппится из moexTurnover
+- Force bypass + diag pipeline
+- BSCI mean: **0.167** ✅
+
+### Deploy #3.3 (2026-04-29):
+- DECOHERENCE fix: tick_rule fallback, symbol=0 валиден
+- Soft weights: qualityWeight, activityWeight, sampleWeight, timeSpanWeight
+- Miller-Madow формула сохранена
+- uniqueSymbols: **17** ✅ (было 0!)
 
 ---
 
