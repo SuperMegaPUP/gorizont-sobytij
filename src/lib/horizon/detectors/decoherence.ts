@@ -48,17 +48,18 @@ function tradeToSymbol(
   volume: number,
   priceChange: number,
   tickRuleDirection: number
-): number | null {
-  if (volume <= 0) return null;
+): number {
+  if (volume <= 0) return 0;
 
-  const logVol = Math.min(10, Math.max(0, Math.round(Math.log2(volume))));
+  const volMag = Math.max(1, Math.round(Math.log2(Math.max(volume, 1))));
+  const clippedVolMag = Math.min(10, volMag);
 
   let direction: number;
   if (priceChange > 0) direction = 1;
   else if (priceChange < 0) direction = -1;
-  else direction = tickRuleDirection;
+  else direction = tickRuleDirection !== 0 ? tickRuleDirection : (Math.random() > 0.5 ? 1 : -1);
 
-  return Math.min(10, Math.max(-10, logVol * direction));
+  return Math.max(-10, Math.min(10, clippedVolMag * direction));
 }
 
 function getTickRuleDirection(cumDelta: number, ofi: number, tradeOFI?: { ofi: number }): number {
@@ -121,16 +122,13 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
 
   const allTrades = trades && trades.length > 0 ? trades : recentTrades;
 
-  if (allTrades.length < 20) {
+  // Soft sample weight
+  const DECOHERENCE_MIN_SAMPLES = 20;
+  const sampleWeight = Math.min(1, allTrades.length / DECOHERENCE_MIN_SAMPLES);
+
+  if (allTrades.length < 5) {
     metadata.insufficientData = true;
-    return {
-      detector: 'DECOHERENCE',
-      description: 'Декогеренция — символьный поток (мало сделок)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
+    metadata.guardTriggered = 'insufficient_trades';
   }
 
   // ─── 1. Скользящее окно W=100 (последние WINDOW_SIZE сделок) ───────────
@@ -145,7 +143,7 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
     if (priceChange !== 0) priceChangeCount++;
 
     const symbol = tradeToSymbol(allTrades[i].quantity, priceChange, tickRuleDir);
-    if (symbol !== null) symbols.push(symbol);
+    symbols.push(symbol);
   }
 
   metadata.totalSymbols = symbols.length;
@@ -155,20 +153,13 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   const windowSymbols = symbols;
   const windowSize = windowSymbols.length;
 
-  if (windowSize < 5) {
-    metadata.insufficientData = true;
-    return {
-      detector: 'DECOHERENCE',
-      description: 'Декогеренция — недостаточно символов в окне',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
-  }
+  // Soft quality weight (alphabet size)
+  const DECOHERENCE_MIN_ACTIVE_SYMBOLS = 5;
+  const qualityWeight = windowSize >= 5 ? Math.min(1, windowSize / DECOHERENCE_MIN_ACTIVE_SYMBOLS) : 0;
 
-  // ─── 3. Time span guard (> 5 мин) ──────────────────────────────────────
+  // ─── 3. Time span guard (> 5 мин) — soft weight ─────────────────────────
 
+  let timeSpanWeight = 1;
   if (allTrades.length >= 2) {
     const windowStartIdx = Math.max(0, allTrades.length - WINDOW_SIZE);
     const firstTs = allTrades[windowStartIdx].timestamp || 0;
@@ -178,14 +169,7 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
 
     if (timeSpanMs > MAX_WINDOW_SPAN_MS) {
       metadata.guardTriggered = 'time_span_5min';
-      return {
-        detector: 'DECOHERENCE',
-        description: 'Декогеренция — окно слишком растянуто (>5 мин)',
-        score: 0,
-        confidence: 0,
-        signal: 'NEUTRAL',
-        metadata,
-      };
+      timeSpanWeight = Math.max(0, 1 - (timeSpanMs - MAX_WINDOW_SPAN_MS) / MAX_WINDOW_SPAN_MS);
     }
   }
 
@@ -201,35 +185,15 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   metadata.freqUniqueCount = frequencies.size;  // для диагностики
   metadata.freqKeys = Array.from(frequencies.keys()).slice(0, 10).join(',');  // первые 10 символов
 
-  // ─── 5. Alphabet guard — soft qualityWeight вместо hard cutoff ────────────
-  
-  // Soft weight: activeSymbols < 5 → плавное затухание вместо hard 0
-  const qualityWeight = activeSymbols > 0 
-    ? Math.min(1, activeSymbols / DECOHERENCE_MIN_ACTIVE_SYMBOLS) 
-    : 0;
-  
-  metadata.qualityWeightInput = activeSymbols;  // для диагностики
-  
-  if (activeSymbols < DECOHERENCE_MIN_ACTIVE_SYMBOLS) {
-    metadata.guardTriggered = 'alphabet_lt_5';
-  }
-  metadata.qualityWeight = Math.round(qualityWeight * 1000) / 1000;
-
-  // ─── 6. Low activity guard (< 30% price changes) ───────────────────────
+  // ─── 5. Soft activity weight ───────────────────────────────────────────
 
   const activityRatio = priceChangeCount / windowSize;
+  const MIN_ACTIVITY_RATIO = 0.3;
+  const activityWeight = Math.min(1, activityRatio / MIN_ACTIVITY_RATIO);
   metadata.activityRatio = Math.round(activityRatio * 1000) / 1000;
 
   if (activityRatio < MIN_ACTIVITY_RATIO) {
     metadata.guardTriggered = 'low_activity';
-    return {
-      detector: 'DECOHERENCE',
-      description: 'Декогеренция — низкая активность (<30% price changes)',
-      score: 0,
-      confidence: 0,
-      signal: 'NEUTRAL',
-      metadata,
-    };
   }
 
   // ─── 7. Shannon entropy (Maximum Likelihood) ───────────────────────────
@@ -256,10 +220,17 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
   }
   score = clampScore(score);
   
-  // Применяем soft qualityWeight (вместо hard cutoff)
-  score = score * qualityWeight;
+  // Применяем soft weights
+  score = score * qualityWeight * sampleWeight * timeSpanWeight * activityWeight;
   
+  // Metadata для диагностики
   metadata.rawScore = score;
+  metadata.qualityWeight = Math.round(qualityWeight * 1000) / 1000;
+  metadata.sampleWeight = Math.round(sampleWeight * 1000) / 1000;
+  metadata.timeSpanWeight = Math.round(timeSpanWeight * 1000) / 1000;
+  metadata.activityWeight = Math.round(activityWeight * 1000) / 1000;
+  metadata.uniqueSymbols = activeSymbols;
+  metadata.zeroSymbolRatio = Math.round((frequencies.get(0) || 0) / Math.max(windowSize, 1) * 1000) / 1000;
 
   // ─── 11. Signal direction ──────────────────────────────────────────────
 
@@ -285,8 +256,11 @@ export function detectDecoherence(input: DetectorInput): DetectorResult {
 
   const staleFactor = input.staleData ? stalePenalty(input.staleMinutes) : 1;
   const finalScore = clampScore(score * staleFactor);
-  const finalConfidence = clampScore(confidence * staleFactor);
+  const finalConfidence = clampScore(confidence * staleFactor * timeSpanWeight);
   metadata.staleFactor = staleFactor;
+  metadata.reason = finalScore === 0
+    ? (allTrades.length < 5 ? 'insufficient_trades' : windowSize < 5 ? 'insufficient_symbols' : 'entropy_zero')
+    : 'ok';
 
   return {
     detector: 'DECOHERENCE',
