@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchTop100FromMOEX } from '@/lib/moex/fetch-top100';
 
 export const dynamic = 'force-dynamic';
 
@@ -201,28 +202,12 @@ export async function GET(req: NextRequest) {
       }
 
       case 'top': {
-        // Топ инструментов по обороту — APIM с авторизацией
-        const res = await fetch(
-          `${MOEX_APIM_API}/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,VALTODAY,VOLTODAY,MARKETPRICE,OPEN,LOW,HIGH&limit=100&sort_column=VALTODAY&sort_order=desc`,
-          { headers: authHeaders(), cache: 'no-store' as RequestCache }
-        );
-        let data = !res.ok ? null : await res.json().catch(() => null);
-        if (!data) {
-          const fbRes = await fetch(
-            `${MOEX_ISS_API}/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,VALTODAY,VOLTODAY,MARKETPRICE,OPEN,LOW,HIGH&limit=100&sort_column=VALTODAY&sort_order=desc`,
-            { cache: 'no-store' as RequestCache }
-          );
-          data = await fbRes.json();
-        }
-        const top = (data?.marketdata?.data || []).map((m: any, i: number) => ({
+        const instruments = await fetchTop100FromMOEX();
+        const top = instruments.map((inst, i) => ({
           rank: i + 1,
-          ticker: m[0],
-          valueToday: m[1],
-          volToday: m[2],
-          marketPrice: m[3],
-          open: m[4],
-          low: m[5],
-          high: m[6],
+          ticker: inst.ticker,
+          name: inst.name,
+          valueToday: inst.turnover,
         }));
         return NextResponse.json({ top, total: top.length });
       }

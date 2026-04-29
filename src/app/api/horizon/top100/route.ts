@@ -11,7 +11,7 @@ export const maxDuration = 300; // 5 minutes for TOP-100 scan
 
 import { NextRequest, NextResponse } from 'next/server';
 import redis from '@/lib/redis';
-import { scanTicker, TOP100_TICKERS, type TickerScanResult } from '../scan/route';
+import { scanTicker, type TickerScanResult } from '../scan/route';
 import { fetchTop100Tickers } from '@/lib/horizon/observer/collect-market-data';
 import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
 import { crossSectionNormalize } from '@/lib/horizon/detectors/cross-section-normalize';

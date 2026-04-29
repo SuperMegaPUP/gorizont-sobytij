@@ -473,17 +473,8 @@ export async function scanBatch(
 // ─── Dynamic TOP-100 Helper ────────────────────────────────────────────────
 
 async function getTop100Tickers(): Promise<{ ticker: string; name: string; moexTurnover?: number }[]> {
-  try {
-    const dynamic = await fetchTop100Tickers();
-    if (dynamic.length >= 20) {
-      return dynamic.map(t => ({ ticker: t.ticker, name: t.name, moexTurnover: t.turnover }));
-    }
-  } catch (e: any) {
-    console.warn('[/api/horizon/scan] Dynamic TOP-100 fetch failed:', e.message);
-  }
-  // Fallback to hardcoded list
-  console.warn('[/api/horizon/scan] Using hardcoded TOP-100 list as fallback');
-  return [...TOP100_TICKERS];
+  const dynamic = await fetchTop100Tickers();
+  return dynamic.map(t => ({ ticker: t.ticker, name: t.name, moexTurnover: t.turnover }));
 }
 
 // ─── POST: Run Scanner ────────────────────────────────────────────────────
