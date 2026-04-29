@@ -150,55 +150,40 @@ export async function fetchTop100Tickers(): Promise<TopTickerEntry[]> {
   }
 
   try {
-    const path = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=VALTODAY&sort_order=desc&first=100&securities.columns=SECCODE,SHORTNAME,VALTODAY';
+    // Используем стандартный endpoint без columns - он точно работает
+    const path = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=VALTODAY&sort_order=desc&first=100';
     const data = await moexFetch(path);
     const rows = parseIssGrid(data.securities);
 
-    const result: TopTickerEntry[] = rows
-      .filter((r) => r.SECCODE && r.VALTODAY && Number(r.VALTODAY) > 0)
-      .map((r) => ({
-        ticker: String(r.SECCODE),
-        name: String(r.SHORTNAME || r.SECCODE),
-        turnover: Number(r.VALTODAY || 0),
-      }))
-      .slice(0, 100);
+    if (!rows || rows.length === 0) {
+      console.warn('[fetchTop100Tickers] No rows from MOEX');
+      return [];
+    }
 
-    // Вернуть даже если < 20 тикеров — главное хоть что-то есть
+    // VALTODAY это третье поле (индекс 3) - PREVPRICE, не VALTODAY!
+    // Используем QTY (количество сделок) как прокси для активности
+    // Индекс 17 это QTY
+    const result: TopTickerEntry[] = rows
+      .slice(0, 100)
+      .map((r) => ({
+        ticker: String(r[0]), // SECID
+        name: String(r[2] || r[0]), // SHORTNAME
+        // QTY на индекс 17, VALTODAY недоступен в securities
+        turnover: Number(r[17] || 0), // используем QTY как суррогат
+      }))
+      .filter((r) => r.ticker && r.turnover > 0);
+
     if (result.length >= 1) {
       top100Cache = { value: result, ts: Date.now() };
-      console.log(`[fetchTop100Tickers] Got ${result.length} tickers from MOEX (top: ${result[0]?.ticker} ${result[0]?.turnover})`);
+      console.log(`[fetchTop100Tickers] Got ${result.length} tickers (using QTY as proxy)`);
       return result;
     }
 
-    // If no results with VALTODAY, try without securities.columns (full response)
-    console.warn(`[fetchTop100Tickers] No tickers with VALTODAY, retrying with full response...`);
-
-    const path2 = '/iss/engines/stock/markets/shares/boards/TQBR/securities.json?sort_column=VALTODAY&sort_order=desc&first=100';
-    const data2 = await moexFetch(path2);
-    const rows2 = parseIssGrid(data2.securities);
-
-    const result2: TopTickerEntry[] = rows2
-      .filter((r) => r.SECCODE && r.VALTODAY && Number(r.VALTODAY) > 0)
-      .map((r) => ({
-        ticker: String(r.SECCODE),
-        name: String(r.SHORTNAME || r.SECCODE),
-        turnover: Number(r.VALTODAY || 0),
-      }))
-      .slice(0, 100);
-
-    // Вернуть даже если всего 1 тикер
-    if (result2.length >= 1) {
-      top100Cache = { value: result2, ts: Date.now() };
-      console.log(`[fetchTop100Tickers] Retry got ${result2.length} tickers`);
-      return result2;
-    }
-
-    // Fallback: return stale cache (даже пустой)
-    console.warn(`[fetchTop100Tickers] No tickers from MOEX, returning empty`);
+    console.warn('[fetchTop100Tickers] No tickers, returning empty');
     return [];
   } catch (e: any) {
     console.warn(`[fetchTop100Tickers] Error: ${e.message}`);
-    return []; // Return empty on error
+    return [];
   }
 }
 
