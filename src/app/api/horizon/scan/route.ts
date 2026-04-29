@@ -861,6 +861,8 @@ export async function POST(request: NextRequest) {
       signalsGenerated: generatedSignals.length,
       elapsed,
       ts: Date.now(),
+      marketClosed: false,
+      sessionInfo: sessionInfo.description,
     });
   } catch (error: any) {
     console.error('[/api/horizon/scan] Error:', error);

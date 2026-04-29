@@ -317,6 +317,8 @@ export async function POST(_request: NextRequest) {
       data: cleanData,
       elapsed,
       ts: Date.now(),
+      marketClosed: false,
+      sessionInfo: sessionInfo.description,
     });
   } catch (error: any) {
     console.error('[/api/horizon/top100] POST error:', error);
