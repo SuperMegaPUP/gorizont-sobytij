@@ -206,6 +206,14 @@ export async function detectHawking(input: DetectorInput): Promise<DetectorResul
   if (n < HAWKING_ABSOLUTE_MIN_TRADES) {
     metadata.insufficientData = true;
     metadata.guardTriggered = 'insufficient_data';
+    return {
+      detector: 'HAWKING',
+      description: 'Insufficient trades for analysis',
+      score: 0,
+      confidence: 0,
+      signal: 'NEUTRAL',
+      metadata,
+    };
   }
   metadata.tradeWeight = Math.round(tradeWeight * 1000) / 1000;
   metadata.trades = n;

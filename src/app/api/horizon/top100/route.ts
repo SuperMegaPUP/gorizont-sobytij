@@ -195,7 +195,7 @@ export async function POST(_request: NextRequest) {
             ofi: 0,
             realtimeOFI: undefined,
             ofiSource: undefined,
-            turnover: 0,
+            turnover: tickerInfo.turnover || 0,
             moexTurnover: tickerInfo.turnover,
             type: 'STOCK',
             error: r.reason?.message,
@@ -255,7 +255,7 @@ export async function POST(_request: NextRequest) {
           ofi: result.ofi,
           cumDelta: result.cumDelta,
           vpin: result.vpin,
-          turnover: result.turnover,
+          turnover: result.turnover > 0 ? result.turnover : (result.moexTurnover || 0),
           prevTurnover: result.turnover,
         });
 
@@ -274,6 +274,11 @@ export async function POST(_request: NextRequest) {
     // 7. Show ALL tickers — do NOT filter by BSCI level!
     // Even on weekends when BSCI ≈ 0, users should see tickers.
     // Low BSCI tickers are displayed as GREEN (calm) — that's correct.
+
+    // 7b. Map moexTurnover → turnover for UI (for ALL results, not just valid)
+    for (const r of scannedResults) {
+      r.turnover = r.turnover > 0 ? r.turnover : (r.moexTurnover || 0);
+    }
 
     // 8. Sort by moexTurnover (VALTODAY) descending — TOP-100 = по обороту!
     const sorted = scannedResults.sort((a, b) =>

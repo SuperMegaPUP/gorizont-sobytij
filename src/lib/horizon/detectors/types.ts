@@ -73,6 +73,8 @@ export interface DetectorInput {
   staleData?: boolean;
   /** Самая свежая сделка старше этого количества минут */
   staleMinutes?: number;
+  /** Данные отсутствуют полностью (нет сделок) */
+  insufficientData?: boolean;
 }
 
 // ─── Интерфейс детектора ──────────────────────────────────────────────────

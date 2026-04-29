@@ -11,7 +11,9 @@ export async function pushBaseline(ticker: string, metrics: Record<string, numbe
     const key = `${BASELINE_PREFIX}${ticker}`;
     const raw = (await kv.get<Record<string, number[]>>(key)) || {};
     for (const [metric, value] of Object.entries(metrics)) {
-      if (!raw[metric]) raw[metric] = [];
+      if (!raw[metric] || !Array.isArray(raw[metric])) {
+        raw[metric] = [];
+      }
       raw[metric].push(value);
       if (raw[metric].length > WINDOW_SIZE) raw[metric].shift();
     }
@@ -31,7 +33,7 @@ export async function getZFactors(
     const result: Record<string, { zFactor: number; n: number; mu: number; sigma: number }> = {};
 
     for (const [metric, value] of Object.entries(metrics)) {
-      const history = raw[metric] || [];
+      const history = (raw[metric] && Array.isArray(raw[metric])) ? raw[metric] : [];
       const n = history.length;
       if (n < 5) {
         result[metric] = { zFactor: 1.0, n, mu: 0, sigma: 0 };

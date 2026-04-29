@@ -469,8 +469,8 @@ export async function collectMarketData(
     }
   } else {
     staleData = true;
-    staleMinutes = 999;
-    console.log(`[collect-market-data] ${ticker}: STALE DATA — no trades at all`);
+    staleMinutes = 0;
+    console.log(`[collect-market-data] ${ticker}: insufficientData — no trades at all`);
   }
 
   // Пустой стакан: НЕ автоматически stale!
@@ -626,6 +626,7 @@ export async function collectMarketData(
     zScoreIntervals: zScoreIntervals.length > 0 ? zScoreIntervals : undefined,
     staleData: staleData || undefined,
     staleMinutes: staleData ? staleMinutes : undefined,
+    insufficientData: trades.length === 0 || undefined,
   };
 
   // DATA-DEBUG: диагностика (Sprint 5B — добавлен ofiSource)
