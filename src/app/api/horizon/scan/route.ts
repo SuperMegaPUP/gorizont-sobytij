@@ -149,6 +149,8 @@ export const TOP100_TICKERS: readonly { ticker: string; name: string }[] = [
   { ticker: 'KAZT', name: 'КАЗТ' },
   { ticker: 'KAZTP', name: 'КАЗТ-п' },
   { ticker: 'MEGP', name: 'Мегаполис' },
+  // Дополнительные (из CORE списка)
+  { ticker: 'RNFT', name: 'Распадская' },
 ];
 
 // ─── Single Ticker Scan ───────────────────────────────────────────────────
