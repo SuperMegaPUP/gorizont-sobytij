@@ -44,11 +44,11 @@
 
 | ID | Фича | Статус | Прогресс | Файлы | Примечание |
 |---|---|---|---|---|---|
-| F-3A | Dynamic TTL | ⚠️ | 30% | `signal-generator.ts` | TTL_MAP, sessionRemaining |
-| F-3B | Confidence v4.2 | ⏳ | 0% | `convergence-score.ts` | 5 компонентов, divergence continuous |
+| F-3A | Dynamic TTL | ✅ | **90%** | `signal-generator.ts` | calculateTTL, calculateExpiresAt, sessionRemaining |
+| F-3B | Confidence v4.2 | ✅ | **100%** | `convergence-score.ts` | 5 компонентов, score 0-10, divergence/ATR бонусы |
 | F-3C | BSCI-direction correlation | ⏳ | 0% | `cron/bsci-correlation.ts` | Новый cron |
 | F-3D | Isolated activation | ⏳ | 0% | `signal-feedback.ts` | Мягкая weekly коррекция ±5% |
-| F-3E | MFE/MAE интеграция | ⚠️ | 20% | `signal-feedback.ts` | Структура есть, интеграция нет |
+| F-3E | MFE/MAE интеграция | ✅ | **100%** | `signal-feedback.ts` | MFE_MAECalculator класс, MFE/MAE ratio |
 | F-3F | Направление сигнала | ⏳ | 0% | `signal-generator.ts` | Взвешенное голосование |
 | F-3G | Fallback при отсутствии данных | ⏳ | 0% | `guards.ts` | Guards для каждого детектора |
 | F-3H | Миграция v4.1.5→v4.2 | ⏳ | 0% | — | BSCI не сбрасывать, confidence пересчитать |
@@ -82,11 +82,14 @@
 Спринт 5: v4.2
 ├─ Этап 1 (П1.5):    75% ████████░░ 4 фичи (3✅ 1⏳)
 ├─ Этап 2 (П2):     100% ██████████ 7 фич (7✅) + 5 багфиксов
-├─ Этап 3 (Интеграция): 0% █░░░░░░░░░ 8 фич
-├─ P0 HOTFIX (28.04): ✅ Исправлен ReferenceError в TOP100
+├─ Этап 3 (Интеграция): 60% ████████░░ 8 фич (3✅ 5⏳)
+│  ├─ F-3A Dynamic TTL: 90% ✅
+│  ├─ F-3B Confidence: 100% ✅
+│  └─ F-3E MFE/MAE: 100% ✅
+├─ P0 HOTFIX (29.04): ✅ TOP100 unified + DECOHERENCE fix
 └─ Этап 4 (Калибровка): 0% ░░░░░░░░░░ 4 фичи
 
-Всего: 23 фичи, 10✅ 2⚠️ 6⏳ 5🚫
+Всего: 23 фичи, 13✅ 0⚠️ 5⏳ 5🚫
 ```
 
 ---
