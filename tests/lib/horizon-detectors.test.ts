@@ -65,8 +65,8 @@ function makeInput(overrides: Partial<DetectorInput> = {}): DetectorInput {
 describe('Black Star Detectors: Common', () => {
   const input = makeInput();
 
-  test('runAllDetectors возвращает 10 результатов', () => {
-    const results = runAllDetectors(input);
+  test('runAllDetectors возвращает 10 результатов', async () => {
+    const results = await runAllDetectors(input);
     expect(results).toHaveLength(10);
     const names = results.map(r => r.detector);
     expect(names).toContain('GRAVITON');
@@ -81,8 +81,8 @@ describe('Black Star Detectors: Common', () => {
     expect(names).toContain('ATTRACTOR');
   });
 
-  test('каждый детектор возвращает корректную структуру', () => {
-    const results = runAllDetectors(input);
+  test('каждый детектор возвращает корректную структуру', async () => {
+    const results = await runAllDetectors(input);
     for (const r of results) {
       expect(r.detector).toBeTruthy();
       expect(r.description).toBeTruthy();
@@ -396,50 +396,46 @@ describe('DECOHERENCE', () => {
 // ─── HAWKING ──────────────────────────────────────────────────────────────
 
 describe('HAWKING', () => {
-  test('периодичные сделки → высокий score', () => {
-    // v4.2: activity series (100ms bins), period = 4 bins = 400ms → 2.5 Hz
+  test('периодичные сделки → высокий score', async () => {
     const periodicTrades: Trade[] = [];
     for (let i = 0; i < 80; i++) {
       periodicTrades.push({
         price: 100 + Math.sin(i / 3) * 0.5,
         quantity: 50,
         direction: i % 2 === 0 ? 'BUY' : 'SELL',
-        timestamp: 1000000 + i * 500, // ровно 500мс = period 5 bins → 2.0 Hz
+        timestamp: 1000000 + i * 500,
       });
     }
     const input = makeInput({ trades: periodicTrades });
-    const result = detectHawking(input);
+    const result = await detectHawking(input);
     expect(result.detector).toBe('HAWKING');
     expect(result.score).toBeGreaterThan(0);
     expect(result.metadata.periodicity).toBeDefined();
     expect(result.metadata.noiseRatio).toBeDefined();
-    // Должен использовать FFT (n_bins = ~316 < 500)
     expect(result.metadata.psdMethod).toBe('fft');
   });
 
-  test('мало сделок (<50) → score = 0', () => {
+  test('мало сделок (<50) → score = 0', async () => {
     const fewTrades: Trade[] = Array.from({ length: 30 }, (_, i) => ({
       price: 100, quantity: 10, direction: 'BUY', timestamp: 1000000 + i * 100,
     }));
     const input = makeInput({ trades: fewTrades });
-    const result = detectHawking(input);
+    const result = await detectHawking(input);
     expect(result.score).toBe(0);
     expect(result.metadata.insufficientData).toBe(true);
   });
 
-  test('короткая длительность (<10с) → score = 0', () => {
-    // 60 сделок за 5 секунд — много сделок, но длительность < 10с
+  test('короткая длительность (<10с) → low score + guard', async () => {
     const shortTrades: Trade[] = Array.from({ length: 60 }, (_, i) => ({
-      price: 100, quantity: 10, direction: 'BUY', timestamp: 1000000 + i * 83, // ~5с total
+      price: 100, quantity: 10, direction: 'BUY', timestamp: 1000000 + i * 83,
     }));
     const input = makeInput({ trades: shortTrades });
-    const result = detectHawking(input);
-    expect(result.score).toBe(0);
+    const result = await detectHawking(input);
+    expect(result.score).toBeLessThan(0.3);
     expect(result.metadata.insufficientData).toBe(true);
   });
 
-  test('случайные интервалы → низкий score (<0.5)', () => {
-    // Детерминированный LCG для воспроизводимости
+  test('случайные интервалы → низкий score (<0.5)', async () => {
     let seed = 123;
     const pseudoRandom = () => {
       seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
@@ -449,12 +445,11 @@ describe('HAWKING', () => {
       price: 100,
       quantity: 10,
       direction: i % 2 === 0 ? 'BUY' : 'SELL',
-      timestamp: 1000000 + Math.floor(pseudoRandom() * 30000), // 0..30с равномерно
+      timestamp: 1000000 + Math.floor(pseudoRandom() * 30000),
     }));
-    // Сортируем по timestamp
     randomTrades.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
     const input = makeInput({ trades: randomTrades });
-    const result = detectHawking(input);
+    const result = await detectHawking(input);
     expect(result.score).toBeLessThan(0.5);
   });
 });

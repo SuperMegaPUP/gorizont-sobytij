@@ -89,9 +89,9 @@ describe('AI Observer Slots', () => {
 // ─── Integration: collectMarketData → detectors → BSCI ──────────────────────
 
 describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
-  test('runAllDetectors returns 10 results on valid input', () => {
+  test('runAllDetectors returns 10 results on valid input', async () => {
     const input = makeDetectorInput();
-    const results = runAllDetectors(input);
+    const results = await runAllDetectors(input);
     expect(results).toHaveLength(10);
     for (const r of results) {
       expect(r.score).toBeGreaterThanOrEqual(0);
@@ -100,9 +100,9 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
     }
   });
 
-  test('calcBSCI on detector results produces valid composite', () => {
+  test('calcBSCI on detector results produces valid composite', async () => {
     const input = makeDetectorInput();
-    const scores = runAllDetectors(input);
+    const scores = await runAllDetectors(input);
     const weights: Record<string, number> = {};
     const detectorNames = ['GRAVITON', 'DARKMATTER', 'ACCRETOR', 'DECOHERENCE', 'HAWKING', 'PREDATOR', 'CIPHER', 'ENTANGLE', 'WAVEFUNCTION', 'ATTRACTOR'];
     for (const d of detectorNames) weights[d] = 0.1;
@@ -117,7 +117,7 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
     expect(bsci.scores).toHaveLength(10);
   });
 
-  test('BSCI with all zero scores → GREEN', () => {
+  test('BSCI with all zero scores → GREEN', async () => {
     const input = makeDetectorInput({
       orderbook: { bids: [], asks: [] },
       trades: [],
@@ -130,13 +130,12 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
       volumes: [],
       candles: [],
     });
-    const scores = runAllDetectors(input);
+    const scores = await runAllDetectors(input);
     const weights: Record<string, number> = {};
     const detectorNames = ['GRAVITON', 'DARKMATTER', 'ACCRETOR', 'DECOHERENCE', 'HAWKING', 'PREDATOR', 'CIPHER', 'ENTANGLE', 'WAVEFUNCTION', 'ATTRACTOR'];
     for (const d of detectorNames) weights[d] = 0.1;
 
     const bsci = calcBSCI(scores, weights);
-    // Даже с пустыми данными детекторы могут вернуть малые score (noise floor)
     expect(bsci.bsci).toBeLessThan(0.05);
     expect(bsci.alertLevel).toBe('GREEN');
   });
@@ -144,7 +143,6 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
   test('pipeline: OFI + CumDelta + VPIN calculated from raw data', () => {
     const input = makeDetectorInput();
 
-    // Verify the calculations module works
     const ofi = calcOFI(input.orderbook);
     expect(ofi).toBeGreaterThanOrEqual(-1);
     expect(ofi).toBeLessThanOrEqual(1);
@@ -164,11 +162,10 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
     }
   });
 
-  test('BSCI with skewed weights → correct result', () => {
+  test('BSCI with skewed weights → correct result', async () => {
     const input = makeDetectorInput();
-    const scores = runAllDetectors(input);
+    const scores = await runAllDetectors(input);
 
-    // Give GRAVITON a much higher weight
     const weights: Record<string, number> = {};
     const detectorNames = ['GRAVITON', 'DARKMATTER', 'ACCRETOR', 'DECOHERENCE', 'HAWKING', 'PREDATOR', 'CIPHER', 'ENTANGLE', 'WAVEFUNCTION', 'ATTRACTOR'];
     for (const d of detectorNames) weights[d] = d === 'GRAVITON' ? 0.5 : 0.0556;
@@ -182,7 +179,7 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
 // ─── Edge Cases ──────────────────────────────────────────────────────────────
 
 describe('Observer edge cases', () => {
-  test('empty market data → all detectors return safe defaults', () => {
+  test('empty market data → all detectors return safe defaults', async () => {
     const input = makeDetectorInput({
       orderbook: { bids: [], asks: [] },
       trades: [],
@@ -198,16 +195,14 @@ describe('Observer edge cases', () => {
       rvi: undefined,
     });
 
-    const results = runAllDetectors(input);
+    const results = await runAllDetectors(input);
     for (const r of results) {
       expect(r.score).toBeGreaterThanOrEqual(0);
       expect(r.score).toBeLessThanOrEqual(1);
     }
   });
 
-  test('extreme OFI → GRAVITON detects anomaly', () => {
-    // П2: v5.1 GRAVITON использует центры масс + стены
-    // Огромная bid-стена на лучшем уровне → wall_score > 0
+  test('extreme OFI → GRAVITON detects anomaly', async () => {
     const input = makeDetectorInput({
       ofi: 0.95,
       weightedOFI: 3.5,
@@ -217,16 +212,14 @@ describe('Observer edge cases', () => {
       },
     });
 
-    const results = runAllDetectors(input);
+    const results = await runAllDetectors(input);
     const graviton = results.find(r => r.detector === 'GRAVITON');
     expect(graviton).toBeDefined();
-    // П2: wall detection → score > 0 при огромной bid-стене
-    expect(graviton!.score).toBeGreaterThanOrEqual(0); // может быть 0 если 80% cutoff не захватит стену
-    expect(graviton!.metadata.cmBid).toBeDefined(); // v5.1 metadata
+    expect(graviton!.score).toBeGreaterThanOrEqual(0);
+    expect(graviton!.metadata.cmBid).toBeDefined();
   });
 
-  test('high VPIN → HAWKING detects toxicity', () => {
-    // v4.1: HAWKING теперь требует 50+ сделок с timestamp для ACF+PSD анализа
+  test('high VPIN → HAWKING detects toxicity', async () => {
     const periodicTrades = Array.from({ length: 60 }, (_, i) => ({
       price: 100 + Math.sin(i / 3) * 0.5,
       quantity: 50,
@@ -247,7 +240,7 @@ describe('Observer edge cases', () => {
       })),
     });
 
-    const results = runAllDetectors(input);
+    const results = await runAllDetectors(input);
     const hawking = results.find(r => r.detector === 'HAWKING');
     expect(hawking).toBeDefined();
     expect(hawking!.score).toBeGreaterThan(0);

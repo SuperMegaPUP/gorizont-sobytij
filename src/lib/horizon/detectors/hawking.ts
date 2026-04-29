@@ -34,6 +34,7 @@
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty } from './guards';
 import { HAWKING_MIN_TRADES, HAWKING_ABSOLUTE_MIN_TRADES, HAWKING_FWHM_DENOMINATOR } from '../constants';
+import { getZFactors, pushBaseline } from '../engine/baseline-store';
 
 const EPS = 1e-6;
 const BIN_MS = 100;                         // 100ms ресэмплинг
@@ -174,8 +175,8 @@ function simplePSD(series: number[], sampleRate: number): { freqs: number[]; psd
 
 // ─── Главный детектор ──────────────────────────────────────────────────────
 
-export function detectHawking(input: DetectorInput): DetectorResult {
-  const { trades, recentTrades } = input;
+export async function detectHawking(input: DetectorInput): Promise<DetectorResult> {
+  const { ticker, trades, recentTrades } = input;
   const metadata: Record<string, number | string | boolean> = {};
   
   const validTrades = trades && trades.length > 0 ? trades : (recentTrades || []);
@@ -315,7 +316,31 @@ export function detectHawking(input: DetectorInput): DetectorResult {
   // Адаптивная нормировка: медиана bandwidth за сессию или fallback
   const fwhmNorm = Math.min(1, bandwidth / HAWKING_FWHM_DENOMINATOR);  // normalized bandwidth
   const effectiveNoiseRatio = noiseRatio;
-  let rawScore = periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm;
+
+  // ─── Z-score адаптация (PoC) ────────────────────────────────────────────
+  let zAdaptation = 1.0;
+  try {
+    const zMetrics = await getZFactors(ticker || 'UNKNOWN', {
+      bandwidth,
+      periodicity: periodicityCapped
+    });
+    const bwZ = zMetrics.bandwidth;
+    const perZ = zMetrics.periodicity;
+    zAdaptation = (bwZ.zFactor + perZ.zFactor) / 2;
+
+    // Fire-and-forget обновление базлайна
+    void pushBaseline(ticker || 'UNKNOWN', { hawking_bandwidth: bandwidth, hawking_periodicity: periodicityCapped });
+
+    metadata.zAdaptation = Math.round(zAdaptation * 1000) / 1000;
+    metadata.bwZ_n = bwZ.n;
+    metadata.perZ_n = perZ.n;
+    metadata.bwZ_mu = Math.round(bwZ.mu * 100) / 100;
+    metadata.perZ_mu = Math.round(perZ.mu * 100) / 100;
+  } catch {
+    metadata.zAdaptation = 1.0;
+  }
+
+  let rawScore = periodicityCapped * (1 - effectiveNoiseRatio) * fwhmNorm * zAdaptation;
   
   // Применяем soft weights (вместо hard cutoffs)
   rawScore *= tradeWeight;

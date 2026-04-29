@@ -12,9 +12,10 @@ import { detectCipher } from './cipher';
 import { detectEntangle } from './entangle';
 import { detectWavefunction } from './wavefunction';
 import { detectAttractor } from './attractor';
+import { getSessionQuality } from '../engine/session-filter';
 
-/** Все 10 детекторов в массиве */
-export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: DetectorInput) => DetectorResult }> = [
+/** Все 10 детекторов в массиве. HAWKING теперь async. */
+export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: DetectorInput) => DetectorResult | Promise<DetectorResult> }> = [
   { name: 'GRAVITON',     detect: detectGraviton },
   { name: 'DARKMATTER',   detect: detectDarkmatter },
   { name: 'ACCRETOR',     detect: detectAccretor },
@@ -27,11 +28,11 @@ export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: Detector
   { name: 'ATTRACTOR',    detect: detectAttractor },
 ];
 
-/** Запустить все детекторы на одном входе */
-export function runAllDetectors(input: DetectorInput): DetectorResult[] {
-  return ALL_DETECTORS.map(d => {
+/** Запустить все детекторы на одном входе (async для HAWKING) */
+export async function runAllDetectors(input: DetectorInput): Promise<DetectorResult[]> {
+  const results = await Promise.all(ALL_DETECTORS.map(async d => {
     try {
-      return d.detect(input);
+      return await d.detect(input);
     } catch (e: any) {
       console.warn(`[runAllDetectors] ${d.name} failed:`, e.message);
       return {
@@ -43,7 +44,8 @@ export function runAllDetectors(input: DetectorInput): DetectorResult[] {
         metadata: { error: e.message, insufficientData: true },
       };
     }
-  });
+  }));
+  return results;
 }
 
 /** Запустить конкретный детектор по имени */
@@ -69,6 +71,8 @@ export interface BSCIResult {
   multicollPenalties?: Record<string, number>;
   /** v4.2: BSCI raw before scale factor (for diagnostics) */
   rawBeforeScale?: number;
+  /** v4.2: Session quality (0..1) for metadata only, not multiplied into BSCI */
+  sessionQuality?: number;
 }
 
 /**
@@ -250,14 +254,15 @@ export function calcBSCI(
   const direction = bullWeight > bearWeight * 1.3 ? 'BULLISH'
     : bearWeight > bullWeight * 1.3 ? 'BEARISH' : 'NEUTRAL';
 
-  return {
-    bsci: Math.round(clampedBsci * 1000) / 1000,
-    alertLevel,
-    direction,
-    topDetector,
-    scores,
-    weights,
-    multicollPenalties,
-    rawBeforeScale: Math.round(rawBsci * 1000) / 1000,
-  };
+   return {
+     bsci: Math.round(clampedBsci * 1000) / 1000,
+     alertLevel,
+     direction,
+     topDetector,
+     scores,
+     weights,
+     multicollPenalties,
+     rawBeforeScale: Math.round(rawBsci * 1000) / 1000,
+     sessionQuality: getSessionQuality(),
+   };
 }

@@ -185,8 +185,8 @@ export async function generateObservation(
       for (const d of detectorNames) weights[d] = 0.1;
     }
 
-    // 4. Запускаем все 10 детекторов
-    let detectorScores = runAllDetectors(detectorInput);
+    // 4. Запускаем все 10 детекторов (HAWKING is async)
+    let detectorScores = await runAllDetectors(detectorInput);
 
     // 4.5 Кросс-секционная нормализация (если есть кэшированные статистики из батча)
     try {

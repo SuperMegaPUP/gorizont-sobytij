@@ -271,8 +271,8 @@ export async function scanTicker(
       for (const d of detectorNames) weights[d] = 0.1;
     }
 
-    // 3. Run all 10 detectors
-    const detectorScores = runAllDetectors(detectorInput);
+    // 3. Run all 10 detectors (HAWKING is async)
+    const detectorScores = await runAllDetectors(detectorInput);
 
     // 3.5 Level-0: Internal Consistency Check
     // Проверяем галлюцинации детекторов на пустых данных
