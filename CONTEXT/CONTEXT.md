@@ -120,9 +120,123 @@ docker ps
 - `docker-compose.yml` — 3 сервиса
 - `.env.dev`, `.env.test`, `.env.acceptance` — переменные для каждого контура
 
+### Локальные БД
+| Сервис | Хост | Порт | БД | Пользователь |
+|--------|------|------|-----|--------------|
+| PostgreSQL | 192.168.122.3 | 5432 | horizon_db | horizon |
+| Redis | 192.168.122.3 | 6379 | - | - |
+
+Подключение: Prisma + Redis client работают внутри контейнеров через IP хоста.
+
 ---
 
-## 6. ПОСЛЕДНИЕ ИЗМЕНЕНИЯ (конец сессии)
+## 6. АРХИТЕКТУРНЫЕ ПРОБЛЕМЫ (Анализ #3 - 01.05.2025)
+
+### 🚨 КРИТИЧЕСКИЕ (7 штук, 35-50 часов)
+
+| ID | Проблема | Решение | Приоритет |
+|----|----------|----------|-----------|
+| 🚨-1 | **Единая PostgreSQL на 3 контура** — риск контаминации данных | Создать 4 БД: horizon_dev, horizon_test, horizon_acceptance, horizon_prod_sync | **Срочно** |
+| 🚨-2 | **Redis без аутентификации** — дыра в локальной сети | requirepass + bind 172.17.0.1 | **Срочно** |
+| 🚨-3 | **Общий volume ./data** — конфликт параллельных записей | Разделить на ./data/{dev,test,acceptance} | **Срочно** |
+| 🚨-4 | **Stateful Docker vs Stateless Vercel** — разное поведение EMA/окон | IStateStore интерфейс + 3 реализации (Redis/Upstash/Memory) | Deploy #5.5 |
+| 🚨-5 | **Redis parity** — локальный Redis 7 vs Vercel KV (Upstash) | UpstashStateStore с Lua scripts | Deploy #5.5 |
+| 🚨-6 | **PostgreSQL vs Neon** — ECONNRESET при cold start | withRetry wrapper + pgbouncer в connection string | Deploy #5.5 |
+| 🚨-7 | **Cron на хосте vs Vercel Cron** — рассинхронизированные данные | Vercel Cron endpoint единым источником, локальный — только JSONL | Deploy #5.5 |
+
+### ⚠️ ВЫСОКИЕ (6 штук, 12-18 часов)
+
+| ID | Проблема | Решение |
+|----|----------|---------|
+| ⚠️-1 | Нет Prisma Migrations в пайплайне | Добавить в Dockerfile: `npx prisma migrate deploy` |
+| ⚠️-2 | Нет /api/health эндпоинта | Создать health route с DB/Redis/MOEX checks |
+| ⚠️-3 | Нет отката в deploy-pipeline.sh | Добавить trap cleanup + health gate |
+| ⚠️-4 | Vercel Cron hard timeout (10/60 сек) | Timeout guard + chunking (2 cron по 50 тикеров) |
+| ⚠️-5 | Shadow-gate не интегрирован в acceptance | Интегрировать в pipeline |
+| ⚠️-6 | Нет cleanup cron для JSONL | Добавить в crontab: `find ... -mtime +20 -delete` |
+
+### 🔶 СРЕДНИЕ (5 штук, 8-12 часов)
+
+| ID | Проблема | Решение |
+|----|----------|---------|
+| 🔶-1 | Нет Config API / UI Control Panel интеграции | Redis seed + миграции config_history, experiments |
+| 🔶-2 | Vercel Preview Deployments не используются для parity | Добавить parity-check этап |
+| 🔶-3 | .env дублирование — 3 файла | .env.base + overlay (dev/test/acceptance) |
+| 🔶-4 | Нет GitHub Actions CI | lint + typecheck + prisma validate + unit tests |
+| 🔶-5 | Rollback стратегия отсутствует | 3 уровня: Config API kill / Vercel rollback / Git revert |
+
+### 💡 НИЗКИЕ (4 штука, 8-10 часов)
+
+| ID | Проблема | Решение |
+|----|----------|---------|
+| 💡-1 | Docker Compose не унифицирован | YAML anchors + profiles |
+| 💡-2 | Нет BSCI HTML-дашборда | JSONL агрегатор |
+| 💡-3 | Нет .env.example в git | Создать шаблон с placeholder'ами |
+| 💡-4 | Vercel promote не автоматизирован | promote-to-prod.sh с gate-проверкой |
+
+---
+
+### 📅 ПЛАН ИСПРАВЛЕНИЙ
+
+**Фаза 1 (немедленно, ~1 час):**
+- 🚨-1: Создать 4 PostgreSQL БД
+- 🚨-2: Redis requirepass
+- 🚨-3: Разделить volume
+- ⚠️-6: JSONL cleanup cron
+- 💡-3: .env.example
+
+**Фаза 2 (1 неделя, ~4 часа):**
+- ⚠️-2: /api/health endpoint
+- ⚠️-1: Prisma migrations в пайплайне
+- ⚠️-3: deploy-pipeline.sh с rollback
+- 🔶-3: .env.base + overlay
+
+**Фаза 3 (2 недели, ~25 часов):**
+- 🚨-4: IStateStore абстракция
+- 🚨-5: UpstashStateStore
+- 🚨-6: withRetry + Neon retry
+- 🚨-7: Vercel Cron endpoint
+- ⚠️-4: Timeout guard
+
+**Фаза 4 (3 недели, ~10 часов):**
+- ⚠️-5: Shadow-gate интеграция
+- 🔶-5: Rollback стратегия
+- 🔶-4: GitHub Actions CI
+
+**Фаза 5 (4 недели, ~12 часов):**
+- 🔶-2: Preview parity
+- 🔶-1: Config API
+- 💡-2: BSCI дашборд
+- 💡-1: Docker profiles
+- 💡-4: Vercel promote automation
+
+---
+
+### 🔄 DEPLOY STRATEGY: DEV → TEST → ACCEPTANCE → LAB → PROD
+
+```
+DEV (локально:3000) ──▶ TEST (локально:3001) ──▶ ACCEPTANCE (локально:3002)
+        │                        │                        │
+   npm run test:ci          docker build             full regression
+   docker run (3000)        docker run (3001)         health check
+   manual testing           API tests                 BSCI/PREDATOR metrics
+                                                  │
+                                                  ▼
+                                           GitHub Push
+                                                  │
+                                                  ▼
+                                    Vercel LAB (auto-deploy)
+                                                  │
+                                                  ▼
+                                          Smoke tests + metrics
+                                                  │
+                                                  ▼
+                                    Vercel PROD (promote)
+```
+
+---
+
+## 7. ПОСЛЕДНИЕ ИЗМЕНЕНИЯ (конец сессии)
 
 | Дата | Что изменено |
 |---|---|
@@ -141,6 +255,8 @@ docker ps
 | 2026-04-29 | **Deploy #4: PREDATOR STALK** — scale-invariant radius min(1.5*ATR_abs, 3% price), spread floor max(radius, 2*spread), plateau 33→24, BSCI 0.174→0.169 |
 | 2026-04-30 | **v4.3-rev3 бэклог добавлен** — 18 задач в FEATURES.md (Sprint 7), TODO обновлён |
 | 2026-04-30 | **Docker локально развёрнут** — 3 контура (dev/test/acceptance), порты 3000/3001/3002, docker-manager.sh |
+| 2026-04-30 | **Локальные БД подняты** — PostgreSQL (192.168.122.3:5432, horizon_db) + Redis (192.168.122.3:6379), настроен listen_addresses='*', protected-mode=no |
+| 2026-04-30 | **Анализ #3: Архитектурные проблемы** — 22 замечания (7🚨 + 6⚠️ + 5🔶 + 4💡), план исправлений на 5 фаз (~52 часа), стратегия деплоя DEV→TEST→ACCEPTANCE→LAB→PROD |
 
 ---
 
