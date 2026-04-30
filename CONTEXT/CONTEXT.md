@@ -87,6 +87,38 @@
 - Ритуалы: `RITUALS.md`
 - Чеклист деплоя: `VERSIONING.md`
 - Рабочий лог: `WORKLOG.md`
+- Docker: `docker-compose.yml`, `docker-manager.sh`
+
+---
+
+## 5. DOCKER (ЛОКАЛЬНЫЙ ЗАПУСК)
+
+### Контуры
+| Контур | Порт | Назначение |
+|--------|------|------------|
+| dev | 3000 | Разработка, отладка |
+| test | 3001 | Автотесты |
+| acceptance | 3002 | Ручное тестирование перед Vercel |
+
+### Управление
+```bash
+# Скрипт управления
+./docker-manager.sh status        # Показать статус
+./docker-manager.sh start dev     # Запустить dev
+./docker-manager.sh start test   # Запустить test
+./docker-manager.sh start acceptance # Запустить acceptance
+./docker-manager.sh stop dev     # Остановить
+./docker-manager.sh clean         # Остановить все
+
+# Или через docker compose
+docker compose -f docker-compose.yml up -d
+docker ps
+```
+
+### Файлы
+- `Dockerfile` — образ для Node.js 20 Alpine
+- `docker-compose.yml` — 3 сервиса
+- `.env.dev`, `.env.test`, `.env.acceptance` — переменные для каждого контура
 
 ---
 
@@ -108,6 +140,7 @@
 | 2026-04-29 | **HOTFIX v4: moex-client integration** — diag field добавлен в TickerScanResult, STALK metadata (stalkPhase, stalkTriggered, stalkRadius, distanceToStop, stalkProximity) |
 | 2026-04-29 | **Deploy #4: PREDATOR STALK** — scale-invariant radius min(1.5*ATR_abs, 3% price), spread floor max(radius, 2*spread), plateau 33→24, BSCI 0.174→0.169 |
 | 2026-04-30 | **v4.3-rev3 бэклог добавлен** — 18 задач в FEATURES.md (Sprint 7), TODO обновлён |
+| 2026-04-30 | **Docker локально развёрнут** — 3 контура (dev/test/acceptance), порты 3000/3001/3002, docker-manager.sh |
 
 ---
 
