@@ -1,0 +1,46 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build
+.next
+out
+build
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Tests
+coverage
+*.test.ts
+*.spec.ts
+
+# Docs
+*.md
+!README.md
+
+# Env (keep only in root)
+.env.local
+.env.test
+.env.acceptance
+
+# Data (generated at runtime)
+data
+logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp
+temp
+*.tmp
