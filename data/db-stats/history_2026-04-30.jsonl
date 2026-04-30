@@ -1,0 +1,16 @@
+{"ts":1777525496175,"type":"bsci_log","ticker":"SBER","data":{"bsci":0.184,"alertLevel":"GREEN","direction":"BULLISH","topDetector":"CIPHER","timestamp":"2026-04-30T05:04:56.175Z"},"ensure_ascii":false}
+{"ts":1777527861844,"type":"bsci_log","ticker":"MX","data":{"bsci":0.173,"alertLevel":"GREEN","direction":"NEUTRAL","topDetector":"WAVEFUNCTION","timestamp":"2026-04-30T05:44:21.844Z"},"ensure_ascii":false}
+{"ts":1777527861844,"type":"bsci_log","ticker":"GZ","data":{"bsci":0.155,"alertLevel":"GREEN","direction":"BULLISH","topDetector":"WAVEFUNCTION","timestamp":"2026-04-30T05:44:21.844Z"},"ensure_ascii":false}
+{"ts":1777527861844,"type":"bsci_log","ticker":"GK","data":{"bsci":0.122,"alertLevel":"GREEN","direction":"NEUTRAL","topDetector":"CIPHER","timestamp":"2026-04-30T05:44:21.844Z"},"ensure_ascii":false}
+{"ts":1777527861844,"type":"bsci_log","ticker":"SR","data":{"bsci":0.201,"alertLevel":"YELLOW","direction":"BULLISH","topDetector":"PREDATOR","timestamp":"2026-04-30T05:44:21.844Z"},"ensure_ascii":false}
+{"ts":1777527861844,"type":"bsci_log","ticker":"LK","data":{"bsci":0.148,"alertLevel":"GREEN","direction":"BULLISH","topDetector":"WAVEFUNCTION","timestamp":"2026-04-30T05:44:21.844Z"},"ensure_ascii":false}
+{"ts":1777527861844,"type":"bsci_log","ticker":"RN","data":{"bsci":0.148,"alertLevel":"GREEN","direction":"NEUTRAL","topDetector":"CIPHER","timestamp":"2026-04-30T05:44:21.844Z"},"ensure_ascii":false}
+{"ts":1777527862070,"type":"bsci_log","ticker":"MX","data":{"bsci":0.174,"alertLevel":"GREEN","direction":"NEUTRAL","topDetector":"WAVEFUNCTION","timestamp":"2026-04-30T05:44:22.070Z"},"ensure_ascii":false}
+{"ts":1777527862070,"type":"bsci_log","ticker":"GZ","data":{"bsci":0.155,"alertLevel":"GREEN","direction":"BULLISH","topDetector":"WAVEFUNCTION","timestamp":"2026-04-30T05:44:22.070Z"},"ensure_ascii":false}
+{"ts":1777527862070,"type":"bsci_log","ticker":"GK","data":{"bsci":0.122,"alertLevel":"GREEN","direction":"BEARISH","topDetector":"CIPHER","timestamp":"2026-04-30T05:44:22.070Z"},"ensure_ascii":false}
+{"ts":1777527862070,"type":"bsci_log","ticker":"SR","data":{"bsci":0.201,"alertLevel":"YELLOW","direction":"BULLISH","topDetector":"PREDATOR","timestamp":"2026-04-30T05:44:22.070Z"},"ensure_ascii":false}
+{"ts":1777527862070,"type":"bsci_log","ticker":"LK","data":{"bsci":0.138,"alertLevel":"GREEN","direction":"BULLISH","topDetector":"CIPHER","timestamp":"2026-04-30T05:44:22.070Z"},"ensure_ascii":false}
+{"ts":1777527862070,"type":"bsci_log","ticker":"RN","data":{"bsci":0.148,"alertLevel":"GREEN","direction":"NEUTRAL","topDetector":"CIPHER","timestamp":"2026-04-30T05:44:22.070Z"},"ensure_ascii":false}
+{"ts":1777537358241,"type":"bsci_log","ticker":"SBER","data":{"bsci":0.221,"alertLevel":"YELLOW","direction":"NEUTRAL","topDetector":"CIPHER","timestamp":"2026-04-30T08:22:38.241Z"},"ensure_ascii":false}
+{"ts":1777542244233,"type":"bsci_log","ticker":"SBER","data":{"bsci":0.123,"alertLevel":"GREEN","direction":"BEARISH","topDetector":"GRAVITON","timestamp":"2026-04-30T09:44:04.233Z"},"ensure_ascii":false}
+{"ts":1777551280335,"type":"bsci_log","ticker":"SBER","data":{"bsci":0.243,"alertLevel":"YELLOW","direction":"BULLISH","topDetector":"WAVEFUNCTION","timestamp":"2026-04-30T12:14:40.335Z"},"ensure_ascii":false}

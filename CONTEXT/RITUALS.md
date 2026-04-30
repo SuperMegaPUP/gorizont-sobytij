@@ -60,15 +60,24 @@
 **Когда:** Перед каждым деплоем.
 
 **Порядок:**
-1. Все тесты проходят
-2. Линт чистый
-3. `npx next build` — успешен
+1. **Тесты:** `npm run test:ci` — ВСЕГДА, 197 тестов должны пройти
+2. **Линт:** `npm run lint` — чистый
+3. **Билд:** `rm -rf .next && npm run build` — 0 errors, 0 warnings
 4. Проверить `.vercel/project.json` — правильный проект
-5. Деплой LAB → smoke-test
-6. Деплой PROD → smoke-test
+5. **Деплой LAB** → проверить URL
+6. **Деплой PROD** → проверить URL
 7. Обновить `HISTORY.md` и `WORKLOG.md`
 
 **Цель:** Рабочий деплой, никаких сюрпризов.
+
+### Команда деплоя LAB (megasuperiluha-3731)
+
+```bash
+VERCEL_TOKEN=YOUR_TOKEN_HERE \
+VERCEL_PROJECT_ID=prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp \
+VERCEL_ORG_ID=team_ZroUqWr5FNDvTY9ebB8JfI0f \
+npx vercel deploy --prod --yes
+```
 
 ---
 

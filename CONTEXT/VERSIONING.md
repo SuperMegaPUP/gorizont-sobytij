@@ -63,18 +63,43 @@ refactor(detectors): extract clampScore to guards.ts
 ## 3. ЧЕК-ЛИСТ ДЕПЛОЯ (Pre-Deploy)
 
 ### Обязательный порядок
-- [ ] 1. Все тесты проходят: `npm run test:ci`
-- [ ] 2. Линт чистый: `npm run lint`
-- [ ] 3. Билд успешен: `npx next build`
-- [ ] 4. PROD деплой через Vercel CLI
-- [ ] 5. LAB деплой через Vercel CLI
-- [ ] 6. Smoke-test PROD: `curl -s https://robot-detect-v3.vercel.app/ | head -5`
-- [ ] 7. Smoke-test LAB: `curl -s https://robot-lab-v3.vercel.app/ | head -5`
-- [ ] 8. Проверить API health: `/api/horizon/scanner`
-- [ ] 9. Обновить HISTORY.md
-- [ ] 10. Обновить WORKLOG.md
+- [ ] 1. **Тесты:** `npm run test:ci` (197 тестов, все должны пройти ✅)
+- [ ] 2. **Smoke-тесты:** `npm run test:smoke` (20 тестов, ~0.5 сек)
+- [ ] 3. **Линт:** `npm run lint` (чистый)
+- [ ] 4. **Билд:** `rm -rf .next && npm run build` (0 errors, 0 warnings)
+- [ ] 5. **Деплой LAB** через Vercel CLI (под megasuperiluha-3731)
+- [ ] 6. **Деплой PROD** через Vercel CLI
+- [ ] 7. **Smoke-test LAB:** `curl -s https://robot-lab-v3.vercel.app/ | head -5`
+- [ ] 8. **Smoke-test PROD:** `curl -s https://robot-detect-v3.vercel.app/ | head -5`
+- [ ] 9. Проверить API health: `/api/horizon/scanner`
+- [ ] 10. Обновить HISTORY.md
+- [ ] 11. Обновить WORKLOG.md
+
+### Команда запуска тестов
+
+```bash
+# Все тесты (CI) — обязательно перед деплоем
+npm run test:ci
+
+# Только smoke-тесты (быстрая проверка)
+npm run test:smoke
+```
+
+### Тестовые параметры
+
+| Параметр | Значение |
+|---|---|
+| testEnvironment | node |
+| forceExit | true |
+| detectOpenHandles | true |
+| testPathIgnorePatterns | horizon-synthetic |
+| coverageThreshold (branches) | 10% |
+| coverageThreshold (functions) | 20% |
+| coverageThreshold (lines) | 20% |
+| coverageThreshold (statements) | 20% |
 
 ### GitHub CI/CD Pipeline
+
 - Test job: lint + test + coverage
 - Deploy-LAB: после test, только на push в main
 - Deploy-PROD: после deploy-LAB + smoke-test

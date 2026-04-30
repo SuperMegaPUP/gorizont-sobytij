@@ -98,20 +98,53 @@
 | 2026-04-28 | Deploy #4.1b: PREDATOR floor=0.012, priceStallFactor в metadata, 32/100, mean=0.16, BSCI=0.132 |
 | 2026-04-28 | Deploy #4: PREDATOR stateless rewrite — 25/100, Mean 0.138, ALERTs 16, BSCI 0.128 |
 | 2026-04-28 | Deploy #3.3: DECOHERENCE diagnostics - activeSymbols=13-15 для ликвидных, 55/100=0 для среднеликвидных |
+| 2026-04-30 | Сессия: Deploy #5 (z-score normalization), откат из-за пережатия, Deploy LAB→PROD синхронизированы (SHA 1327daa), 9 коммитов запушено в origin/main |
 | 2026-04-28 | Deploy #3.2: HAWKING calibration |
 | 2026-04-28 | Deploy #3: HAWKING починен (48/100 > 0), PREDATOR/ATTRACTOR fallback на recentTrades, исправлены константы, добавлен metadataMap в API |
 | 2026-04-29 | Deploy #3.1: Z-score baselines PoC + session context (7:00-18:50 MSK schedule) + marketClosed fix |
 | 2026-04-29 | **Deploy #3.2: TOP100 unified** — единый moex-client, safeJsonFetch (APIM→ISS fallback), убран хардкод |
 | 2026-04-29 | **Deploy #3.3: DECOHERENCE fix** — tick_rule fallback, symbol=0 валиден, soft weights, Miller-Madow сохранён |
+| 2026-04-29 | **Тесты и CI/CD** — исправлены 10 падающих тестов (197 passed), настроены smoke-тесты (20 passed), обновлены DEPLOY.md, RITUALS.md, VERSIONING.md |
+| 2026-04-29 | **HOTFIX v4: moex-client integration** — diag field добавлен в TickerScanResult, STALK metadata (stalkPhase, stalkTriggered, stalkRadius, distanceToStop, stalkProximity) |
+| 2026-04-29 | **Deploy #4: PREDATOR STALK** — scale-invariant radius min(1.5*ATR_abs, 3% price), spread floor max(radius, 2*spread), plateau 33→24, BSCI 0.174→0.169 |
+| 2026-04-30 | **v4.3-rev3 бэклог добавлен** — 18 задач в FEATURES.md (Sprint 7), TODO обновлён |
 
 ---
 
-## 7. ТЕКУЩИЙ СТАТУС — TOP100 + DECOHERENCE FIX
+## 7. ТЕКУЩИЙ СТАТУС — ТЕСТЫ И CI/CD
 
 | Метрика | Значение | Цель |
 |---------|----------|------|
-| BSCI mean | **0.167** ✅ | 0.05-0.20 |
+| Всего тестов | **197** ✅ | — |
+| Passed | **197** ✅ | 100% |
+| Smoke-тесты | **20** ✅ | — |
+| Билд errors | **0** ✅ | 0 |
+| Билд warnings | **0** ✅ | 0 |
+| Деплой LAB | ✅ | robot-lab-v3.vercel.app |
+
+### Команды перед деплоем (ЗАФИКСИРОВАНЫ В CONTEXT)
+
+```bash
+# 1. Тесты
+npm run test:ci
+
+# 2. Билд
+rm -rf .next && npm run build
+
+# 3. Деплой LAB (megasuperiluha-3731)
+VERCEL_TOKEN=YOUR_TOKEN_HERE \
+VERCEL_PROJECT_ID=prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp \
+VERCEL_ORG_ID=team_ZroUqWr5FNDvTY9ebB8JfI0f \
+npx vercel deploy --prod --yes
+```
+
+| Метрика | Значение | Цель |
+|---------|----------|------|
+| BSCI mean | **0.169** ✅ | 0.05-0.20 |
 | BSCI > 0 | **100/100** ✅ | 100 |
+| PREDATOR > 0 | **45/100** | - |
+| PREDATOR plateau 0.12-0.14 | **24/100** | <5 (was 33) |
+| STALK triggered | **54/100** | - |
 | DECOHERENCE > 0 | **59/100** ✅ | >15 |
 | DECOHERENCE uniqueSymbols | **17** ✅ | ≥1 |
 
@@ -140,10 +173,40 @@
 - Вечерняя: 19:05-23:50 (quality=1.0)
 - Ночь: quality=0.15
 
+### PREDATOR STALK (Deploy #4):
+- Scale-invariant radius: `min(1.5 * ATR_abs, 3% price)` — NO /100 division!
+- Spread floor: `max(radius, 2 * spread)` for microstructural noise filter
+- Stop level: `midPrice - 2 * ATR` (proxy for support/resistance)
+- STALK triggered: distanceToStop <= effectiveRadius
+- Semantic proximity: `1 - distanceToStop/effectiveRadius` (1=close, 0=far)
+- Metadata fields: stalkPhase, stalkTriggered, stalkRadius, distanceToStop, stalkProximity
+- Result: Plateau reduced 33→24, BSCI stable at 0.169
+
 ### Статус: ✅ PRODUCTION-READY
 
 ### TODO:
-- [ ] Phase 3: синтетические тесты (F-1D)
-- [ ] Phase 3: Dynamic TTL (F-3A)
-- [ ] Phase 3: Confidence v4.2 (F-3B)
+
+#### v4.2 (Завершить):
+- [x] Phase 3: синтетические тесты (F-1D)
+- [x] Phase 3: Dynamic TTL (F-3A)
+- [x] Phase 3: Confidence v4.2 (F-3B)
+
+#### v4.3-rev3 (Новые):
+- [ ] P0: INFRA — StateManager + Redis persistence (сохраняет EMA/окна между вызовами)
+- [ ] P0: Q-0 — Shadow Mode Framework (валидация без влияния на алерты)
+- [ ] P0: Q-10 — EMA-сглаживание PREDATOR (убирает стробирование 0↔0.88)
+- [ ] P1: Q-1 — OFI/rtOFI detectPriceControl (выявляет фальшивые продажи/покупки)
+- [ ] P1: Q-8 — SQUEEZE_ALERT + EMA(Cancel%) DROP (ловит разгрузку стакана перед импульсом)
+- [ ] P1: Q-11 — ROTATION_DETECTOR (определяет перекладку позиции крупняка)
+- [ ] P2: Q-9 — PRE_IMPULSE_SILENCE (TIER 1/2) (предупреждает о манипуляторе перед импульсом)
+- [ ] P2: Q-12 — Algorithmic Reset (ловит сброс робота перед новым циклом)
+- [ ] P2: CIPHER — Перцентильный CN-штраф (отсекает структурный шум PCA)
+- [ ] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах)
+- [ ] P3: Q-4 — ICEBERG Direction (эвристика направления айсбергов)
+- [ ] P3: Q-7 — DISTRIBUTION детектор (защищает розницу от Pump&Dump)
+- [ ] P4: Q-2 — ACCRETOR калибровка порогов (эмпирическая шкала)
+- [ ] P4: Q-3 — PHASE_SHIFT v2 (интеграция PREDATOR + Cancel%)
+- [ ] P4: Q-5 — SPOOF модуль (aggressive vs passive спуфинг)
+- [ ] P4: Q-6 — ENTANGLE soft p-value (уход от бинарности)
+- [ ] BUG: A-3 — Volume Bug board fallback (исправление оборотов для TQPI/SMAL)
 

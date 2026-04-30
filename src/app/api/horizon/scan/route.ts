@@ -85,6 +85,8 @@ export interface TickerScanResult {
     confidence: number;
     reason: string;
   };
+  // Diagnostics from collect-market-data
+  diag?: Record<string, any>;
   // Internal fields for cross-section normalization (stripped before API response)
   _rawDetectorResults?: DetectorResult[];
   _weights?: Record<string, number>;
@@ -329,6 +331,7 @@ export async function scanTicker(
       convergenceScore,
       consistencyCheck,
       robotContext,
+      diag: detectorInput.diag,
       // Internal: for cross-section normalization
       _rawDetectorResults: detectorScores,
       _weights: weights,

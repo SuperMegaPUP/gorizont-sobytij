@@ -1,0 +1,6 @@
+{"ts":1777551882186,"source":"neon_postgresql","collection":"observations","collectedAt":"2026-04-30"}
+{"ts":1777551882186,"source":"neon_postgresql","collection":"detector_scores_agg","collectedAt":"2026-04-30"}
+{"ts":1777551882186,"source":"neon_postgresql","collection":"bsci_log","collectedAt":"2026-04-30"}
+{"ts":1777551882186,"source":"neon_postgresql","collection":"bsci_weights","collectedAt":"2026-04-30"}
+{"ts":1777551882186,"source":"neon_postgresql","collection":"reports","collectedAt":"2026-04-30"}
+{"ts":1777551882186,"source":"redis","collection":"keys","data":{"totalKeys":107,"keyPatterns":{"scanner":104,"obs":1,"signals":0,"algopack":1,"other":1},"mainTTLs":{"scanner_top100":4658,"signals_active":-2,"algopack":93},"dataCounts":{"scannerTop100Items":100},"sampleKeys":["horizon:scanner:bsci:HYDR","horizon:scanner:bsci:TATN","horizon:scanner:bsci:SOFL","horizon:scanner:bsci:FIXR","horizon:scanner:bsci:LENT","horizon:scanner:bsci:SIBN","horizon:scanner:bsci:IVAT","horizon:scanner:bsci:NVTK","horizon:scanner:bsci:MRKC","horizon:scanner:bsci:SNGS","horizon:scanner:bsci:IRKT","horizon:scanner:bsci:RENI","horizon:scanner:bsci:LKOH","horizon:scanner:bsci:MRKV","horizon:scanner:bsci:MVID"]},"collectedAt":"2026-04-30"}

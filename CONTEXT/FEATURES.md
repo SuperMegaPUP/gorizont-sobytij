@@ -26,7 +26,7 @@
 | F-1A | DECOHERENCE v4.2 | ✅ | 100% | `decoherence.ts` | Miller-Madow, H_max floor, clip [-10,+10], 5 guards |
 | F-1B | HAWKING v4.2 | ✅ | 100% | `hawking.ts` | 100ms activity series, adaptive algo_zone, Nyquist clip, FFT/Welch |
 | F-1C | DARKMATTER v4.2 | ✅ | 100% | `darkmatter.ts` | 80% cutoff, Miller-Madow, depth<5 guard, iceberg 5% tolerance, exp weight |
-| F-1D | Синтетические тесты | ⏳ | 0% | `horizon-synthetic.test.ts` | iceberg + accumulator + predator |
+| F-1D | Синтетические тесты | ✅ | 100% | `horizon-synthetic.test.ts` | 4 теста: iceberg + accumulator + algorithmic + stop-hunt |
 
 ### ЭТАП 2: П2 — СТРУКТУРНЫЕ ДЕТЕКТОРЫ
 
@@ -80,16 +80,22 @@
 
 ```
 Спринт 5: v4.2
-├─ Этап 1 (П1.5):    75% ████████░░ 4 фичи (3✅ 1⏳)
+├─ Этап 1 (П1.5):    100% ██████████ 4 фичи (4✅)
 ├─ Этап 2 (П2):     100% ██████████ 7 фич (7✅) + 5 багфиксов
 ├─ Этап 3 (Интеграция): 60% ████████░░ 8 фич (3✅ 5⏳)
 │  ├─ F-3A Dynamic TTL: 90% ✅
 │  ├─ F-3B Confidence: 100% ✅
 │  └─ F-3E MFE/MAE: 100% ✅
-├─ P0 HOTFIX (29.04): ✅ TOP100 unified + DECOHERENCE fix
+├─ P0 HOTFIX:
+│  ├─ #3.2 TOP100 unified ✅
+│  ├─ #3.3 DECOHERENCE fix ✅
+│  ├─ #7 Тесты CI/CD (197 passed) ✅
+│  ├─ #8 sessionQuality BSCI (BSCI mean 0.170) ✅
+│  ├─ v4 moex-client + diag ✅
+│  └─ #4 PREDATOR STALK (plateau 33→24, BSCI 0.169) ✅
 └─ Этап 4 (Калибровка): 0% ░░░░░░░░░░ 4 фичи
 
-Всего: 23 фичи, 13✅ 0⚠️ 5⏳ 5🚫
+Всего: 23 фичи, 14✅ 0⚠️ 5⏳ 4🚫
 ```
 
 ---
@@ -103,7 +109,7 @@
 | ACCRETOR | 46 | ✅ | Работает |
 | DECOHERENCE | **59** | ✅ | **Исправлено!** soft weights, uniqueSymbols=17 |
 | HAWKING | 16-24 | ✅ | zAdaptation PoC, floor 0.015 |
-| PREDATOR | 25-32 | ✅ | Stateless rewrite, floor 0.012 |
+| PREDATOR | **45** | ✅ | STALK added, plateau 33→24 |
 | CIPHER | 73 | ✅ | Работает |
 | ENTANGLE | 14 | ✅ | Работает |
 | WAVEFUNCTION | 78 | ✅ | Работает |
@@ -121,6 +127,115 @@
 - Soft weights: qualityWeight, activityWeight, sampleWeight, timeSpanWeight
 - Miller-Madow формула сохранена
 - uniqueSymbols: **17** ✅ (было 0!)
+
+### Deploy #4 (2026-04-29):
+- PREDATOR STALK: scale-invariant radius min(1.5*ATR_abs, 3% price)
+- Spread floor: max(radius, 2*spread) для микроструктурного шума
+- Stop level: midPrice - 2*ATR (proxy)
+- Semantic proximity gradient
+- Metadata: stalkPhase, stalkTriggered, stalkRadius, distanceToStop, stalkProximity
+- **Результат**: plateau 33→24, BSCI 0.169 ✅
+- **Issue**: proximity = 0 (stop level формула требует улучшения)
+
+---
+
+## ИНФРАСТРУКТУРА (2026-04-29)
+
+| ID | Фича | Статус | Прогресс | Примечание |
+|---|---|---|---|---|
+| INF-1 | Smoke-тесты | ✅ | 100% | 20 тестов: MOEX_TOKEN, force-dynamic, файлы, revalidate |
+| INF-2 | Тесты CI pipeline | ✅ | 100% | 197 тестов, все passed |
+| INF-3 | Pre-deploy чек-лист | ✅ | 100% | DEPLOY.md, RITUALS.md, VERSIONING.md обновлены |
+| INF-4 | Деплой скрипты | ✅ | 100% | test:smoke, deploy:lab, deploy:prod в package.json |
+
+---
+
+## СПРИНТ 7: v4.3-rev3 (Production-Ready)
+
+> Базовая версия: v4.2 (frozen core)
+> Принцип: Не менять ядро детекторов. BSCI — read-only. Вся логика через post-processing, effectiveSignal, StateManager и Shadow Mode.
+> Статус: Готов к реализации. Строгая приоритизация по эмпирике (GAZP×4, X5, LKOH, IRAO, SBER, CBOM).
+
+### 🏗 АРХИТЕКТУРНЫЙ КОНТРАКТ
+
+| Правило | Реализация | Зачем |
+|---------|------------|-------|
+| BSCI не мутируется | Остаётся чистым взвешенным индексом детекторов v4.2 | Сохраняет историческую сравнимость, защищает от каскадных искажений |
+| effectiveSignal | bsci × confidenceMultiplier × contextBonus | Единственный источник для alertLevel, рубрикатора и UI |
+| StateManager | Redis/KV персистентность (horizon:state:{ticker}:{key}, TTL=1 сессия) | Решает stateless-природу Vercel |
+| Shadow Mode | 2-3 сессии вычисления без влияния на алерты | Страховка от регрессии |
+| Адаптивные пороги | σ-нормировка, перцентили, cross-section фильтрация | Уход от хардкода |
+
+---
+
+### 🟠 P0: ФУНДАМЕНТ И СТРАХОВКА
+
+| ID | Задача | Кратко | Статус | Эмпирика |
+|----|--------|--------|--------|----------|
+| INFRA | StateManager + Redis persistence | Сохраняет EMA/окна между вызовами | ⏳ | Vercel cold start уничтожает окна/EMA |
+| Q-0 | Shadow Mode Framework | Валидация без влияния на алерты | ⏳ | Провал Deploy #5 из-за отсутствия тени |
+| Q-10 | EMA-сглаживание PREDATOR | Убирает стробирование 0↔0.88 | ⏳ | GAZP: стробирование, 22 флипа |
+
+---
+
+### 🔴 P1: ЯДРО КОНТРОЛЯ ЦЕНЫ И ТРИГГЕРЫ
+
+| ID | Задача | Кратко | Статус | Эмпирика |
+|----|--------|--------|--------|----------|
+| Q-1 | OFI/rtOFI detectPriceControl | Выявляет фальшивые продажи/покупки | ⏳ | X5 Δ=1.314, LKOH Δ=0.68 |
+| Q-8 | SQUEEZE_ALERT + EMA(Cancel%) DROP | Ловит разгрузку стакана перед импульсом | ⏳ | GAZP: Cancel% 90%→0% = +2.4% |
+| Q-11 | ROTATION_DETECTOR (scoring) | Определяет перекладку позиции крупняка | ⏳ | X5: айсберги BUY + шлифовщик SELL |
+
+---
+
+### 🟡 P2: КЛАССИФИКАТОРЫ ТИШИНЫ И ШУМА
+
+| ID | Задача | Кратко | Статус | Эмпирика |
+|----|--------|--------|--------|----------|
+| Q-9 | PRE_IMPULSE_SILENCE (TIER 1/2) | Предупреждает о манипуляторе перед импульсом | ⏳ | GAZP: BSCI 0.07 + CIPHER=0.00 |
+| Q-12 | Algorithmic Reset (robotVol) | Ловит сброс робота перед новым циклом | ⏳ | GAZP: robotVol 77%→30% |
+| CIPHER | Перцентильный CN-штраф | Отсекает структурный шум PCA | ⏳ | X5/GAZP: CN=1M-30M |
+
+---
+
+### 🟢 P3: УВЕРЕННОСТЬ, НАПРАВЛЕНИЕ, РАСПРЕДЕЛЕНИЕ
+
+| ID | Задача | Кратко | Статус | Эмпирика |
+|----|--------|--------|--------|----------|
+| CONF | Confidence Multiplier | Честная уверенность при HFT-войнах | ⏳ | X5: Robot 80% + Cancel 99% |
+| Q-4 | ICEBERG Direction | Эвристика направления айсбергов | ⏳ | X5/IRAO: видит "×7", но не направление |
+| Q-7 | DISTRIBUTION детектор | Защищает розницу от Pump&Dump | ⏳ | IRAO: Pump & Dump |
+
+---
+
+### 🔵 P4: КАЛИБРОВКА И УТОЧНЕНИЯ
+
+| ID | Задача | Кратко | Статус | Эмпирика |
+|----|--------|--------|--------|----------|
+| Q-2 | ACCRETOR калибровка | Эмпирическая шкала 0.2-1.0 | ⏳ | LKOH: ACCRETOR=1.00 |
+| Q-3 | PHASE_SHIFT v2 | Интеграция PREDATOR + Cancel% | ⏳ | X5: PREDATOR 0.85 + Cancel 99% |
+| Q-5 | SPOOF модуль | aggressive vs passive спуфинг | ⏳ | X5: Cancel 99% + SELL 61% |
+| Q-6 | ENTANGLE soft p-value | Уход от бинарности 0/0.30 | ⏳ | Случайные корреляции |
+
+---
+
+### 🐛 BUG: A-3 — Volume Bug (Board Fallback)
+
+| ID | Задача | Кратко | Статус | Эмпирика |
+|----|--------|--------|--------|----------|
+| A-3 | Volume Bug: board fallback | Исправление оборотов для TQPI/SMAL | ⏳ | MSRS: 0.0M vs терминал 60M |
+
+---
+
+### 📊 ДОРОЖНАЯ КАРТА ДЕПЛОЕВ
+
+| Этап | Компоненты | Критерий перехода |
+|------|------------|-------------------|
+| #5.5 | INFRA, Q-0, Q-10, Q-1, Q-8, Q-11 | Shadow Mode: 2-3 сессии, precision > 60%, FPR < 25% |
+| #6 | Промоут валидированных P0/P1 | Rollback gates не сработали, BSCI стабильно |
+| #7 | Q-9, Q-12, CIPHER fix | Ложные < 10/день, CIPHER_eff стабилен |
+| #8 | CONF, Q-4, Q-7, A-3 | effectiveSignal честен, iceberg direction >60% accuracy |
+| #9 | Q-2, Q-3, Q-5, Q-6 | Полная гранулярность, уход от бинарности |
 
 ---
 

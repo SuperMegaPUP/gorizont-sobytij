@@ -72,6 +72,75 @@ echo '{"projectId":"prj_eHCVFpiI0gYHrfGNGuXdrUqJN3Bd","orgId":"team_ZroUqWr5FNDv
 3. Перед деплоем — проверить `npx next build` локально
 4. После деплоя — проверить URL в браузере
 5. LAB деплой **меняет** `.vercel/project.json` — **ВСЕГДА** возвращать линк на PROD
+
+## Тесты (ОБЯЗАТЕЛЬНО перед деплоем)
+
+### Команды
+
+```bash
+# 1. Все тесты (CI) — ЗАПУСКАТЬ ВСЕГДА
+npm run test:ci
+
+# 2. Только smoke-тесты (быстрая проверка)
+npm run test:smoke
+
+# 3. Билд после тестов
+rm -rf .next && npm run build
+```
+
+### Smoke-тесты
+
+**Путь:** `tests/smoke/api-smoke.test.ts`
+
+**Что проверяют:**
+- ✅ MOEX_TOKEN запрещён в коде
+- ✅ force-dynamic обязателен во всех API route.ts
+- ✅ 18 критических файлов существуют
+- ✅ revalidate запрещён в API route.ts
+
+**Запуск:** `npm run test:smoke` — 20 тестов, ~0.5 сек
+
+### Полный pipeline перед деплоем
+
+```bash
+cd /home/g/gorizont-sobytij
+
+# 1. Тесты (обязательно!)
+npm run test:ci
+
+# 2. Билд
+rm -rf .next && npm run build
+
+# 3. Деплой LAB (под megasuperiluha-3731)
+VERCEL_TOKEN=YOUR_TOKEN_HERE \
+VERCEL_PROJECT_ID=prj_Hs520wEKU27KpsqTdqwHeK9ZVsVp \
+VERCEL_ORG_ID=team_ZroUqWr5FNDvTY9ebB8JfI0f \
+npx vercel deploy --prod --yes
+```
+
+### Тестовые параметры Jest
+
+- **testPathIgnorePatterns:** `horizon-synthetic` (исключён в CI — долгие)
+- **testEnvironment:** `node`
+- **forceExit:** true (принудительное завершение)
+- **detectOpenHandles:** true (ловит утечки)
+- **Коэффициенты покрытия:** branches 10%, functions 20%, lines 20%, statements 20%
+
+### Текущий статус тестов (2026-04-29)
+
+| Метрика | Значение |
+|---------|----------|
+| Всего тестов | 197 |
+| Passed | 197 ✅ |
+| Failed | 0 |
+| Test Suites | 10 passed |
+
+### Важно
+
+- **Smoke-тесты запускаются ВСЕГДА** — они часть `test:ci`
+- Тесты **НЕ запускаются автоматически** при `npx vercel deploy` — только вручную
+- Перед деплоем **ОБЯЗАТЕЛЬНО** запускать `npm run test:ci`
+- Если тесты падают — **НЕ ДЕПЛОИТЬ**, сначала исправить тесты
 6. **НИКОГДА** не создавать новые Vercel проекты — только robot-detect-v3 и robot-lab-v3
 7. Vercel CLI установлен глобально: `npm install -g vercel`
 8. **`reversed=1`** — КРИТИЧЕСКИЙ параметр MOEX ISS. Никогда не убирать из trades.json URL!
