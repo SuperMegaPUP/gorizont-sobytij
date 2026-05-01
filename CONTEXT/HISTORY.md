@@ -427,3 +427,31 @@
 **Следующий шаг:**
 - Фаза 1: создать 4 PostgreSQL БД, настроить Redis requirepass, разделить volume
 
+---
+
+## 2026-04-30 | Сессия Y | main | ИНФРАСТРУКТУРА ФАЗА 1
+
+**Задача:** Выполнить Фазу 1 исправлений (30 минут)
+
+**Что сделано (Commit 1: 867caca):**
+- 🚨-1: Созданы 4 PostgreSQL БД (horizon_dev, horizon_test, horizon_acceptance, horizon_prod_sync)
+- 🚨-2: Redis с requirepass в docker-compose (пароль: 081e7c1083c3dee0b443c44f2398e39d)
+- 🚨-3: Разделение volume в docker-compose.yml (./data/{dev,test,acceptance})
+- Обновлены .env.dev/test/acceptance с изолированными БД и Redis auth URL
+
+**Что сделано (Commit 2: d33c798):**
+- ⚠️-2: Создан /api/health endpoint (проверка PostgreSQL, Redis, MOEX)
+- 💡-3: Создан .env.example шаблон
+- ⚠️-6: Добавлен cleanup-jsonl.sh скрипт (20 дней retention, crontab 2:00 AM)
+- 🚨-4 (partial): Создан IStateStore интерфейс с MemoryStateStore
+
+**Результат:**
+- Все 3 контура работают с изолированными БД ✅
+- Redis с аутентификацией ✅
+- Health endpoint работает: `curl http://localhost:3000/api/health` → {"status":"ok"} ✅
+- JSONL cleanup настроен в crontab ✅
+- .env.example добавлен в git ✅
+
+**Следующий шаг:**
+- Фаза 2 (параллельно с кодингом Q-10/Q-1): IStateStore полная реализация, Upstash, Neon retry, Vercel Cron
+

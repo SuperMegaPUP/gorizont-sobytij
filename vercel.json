@@ -1,68 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/reports/cron",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/reports/cron",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/reports/cron",
-      "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/reports/cron",
-      "schedule": "0 17 * * *"
-    },
-    {
-      "path": "/api/horizon/observe?auto=1&ticker=SBER",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/horizon/observe?auto=1&ticker=SBER",
-      "schedule": "30 7 * * *"
-    },
-    {
-      "path": "/api/horizon/observe?auto=1&ticker=SBER",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/horizon/observe?auto=1&ticker=SBER",
-      "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/horizon/observe?auto=1&ticker=SBER",
-      "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/horizon/observe?auto=1&ticker=SBER",
-      "schedule": "0 17 * * *"
-    },
-    {
-      "path": "/api/horizon/scan",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/horizon/scan?mode=top100",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/horizon/top100",
-      "schedule": "5 7 * * 1-5"
-    },
-    {
-      "path": "/api/horizon/top100",
-      "schedule": "0 10 * * 1-5"
-    },
-    {
-      "path": "/api/horizon/top100",
-      "schedule": "0 13 * * 1-5"
-    },
-    {
-      "path": "/api/horizon/top100",
-      "schedule": "0 16 * * 1-5"
+      "path": "/api/horizon/collect?cron=true",
+      "schedule": "* * * * *"
     }
   ]
 }

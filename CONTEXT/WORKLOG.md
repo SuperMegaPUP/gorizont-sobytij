@@ -483,3 +483,32 @@ npx vercel deploy --prod --yes
 
 ### Следующий шаг
 - Начать с Фазы 1: создать 4 PostgreSQL БД, настроить Redis requirepass, разделить volume
+
+---
+
+## 2026-04-30 | Сессия #Z | ИНФРАСТРУКТУРА ФАЗА 1 DONE
+
+### Запрос пользователя
+- Пользователь: "давай коммит а потом продолжай"
+
+### Что сделано
+1. **Commit 1 (867caca): Инфраструктура**
+   - 🚨-1: 4 PostgreSQL БД с миграциями
+   - 🚨-2: Redis requirepass в docker-compose
+   - 🚨-3: Разделение volume ./data/{dev,test,acceptance}
+   - CONTEXT: анализ архитектуры + стратегия деплоя
+
+2. **Commit 2 (d33c798): Health + Cleanup**
+   - ⚠️-2: /api/health endpoint (DB/Redis/MOEX checks)
+   - 💡-3: .env.example template
+   - ⚠️-6: cleanup-jsonl.sh + crontab
+   - 🚨-4 partial: IStateStore интерфейс
+
+### Результат
+- Фаза 1 полностью выполнена (6/22 замечаний)
+- 2 коммита в GitHub: 867caca, d33c798
+- Health check: `{"status":"ok","checks":{"database":{"status":"ok"...}}}`
+
+### Следующий шаг
+- Фаза 2: 🚨-4 (IStateStore), 🚨-5 (Upstash), 🚨-6 (Neon retry), 🚨-7 (Vercel Cron)
+- Делаются параллельно с кодингом Q-10/Q-1
