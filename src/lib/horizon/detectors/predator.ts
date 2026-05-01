@@ -8,10 +8,11 @@
 
 import type { DetectorInput, DetectorResult } from './types';
 import { clampScore, stalePenalty, safeDivide } from './guards';
-import { 
+import {
   PREDATOR_MIN_TRADES, PREDATOR_ABSOLUTE_MIN_TRADES,
-  PREDATOR_TICK_DOMINANCE, PREDATOR_VOLUME_SPIKE, PREDATOR_DELTA_DIVERGENCE 
+  PREDATOR_TICK_DOMINANCE, PREDATOR_VOLUME_SPIKE, PREDATOR_DELTA_DIVERGENCE
 } from '../constants';
+import { detectPriceControl, detectPriceControlFromTrades } from '../calculations/ofi';
 
 const EPS = 1e-6;
 
@@ -264,7 +265,10 @@ export function detectPredator(input: DetectorInput): DetectorResult {
 
   // Soft floor (как HAWKING) — подавление микрошума без разрыва градиента
   const afterClamp = clampScore(rawScore);
-  const score = afterClamp < 0.012 ? 0 : afterClamp;
+  let score = afterClamp < 0.012 ? 0 : afterClamp;
+
+  // Backup original score before enhancement
+  const originalScore = score;
 
   // Metadata
   metadata.accumulate = Math.round(accumulateScore * 1000) / 1000;
@@ -273,6 +277,32 @@ export function detectPredator(input: DetectorInput): DetectorResult {
   metadata.concurrent = concurrent;
   metadata.confluenceFactor = confluenceFactor;
   metadata.rawScoreBeforeFloor = Math.round(rawScore * 1000) / 10000;
+
+  // Q-1: Price Control detection (fake moves: OFI vs price direction)
+  const priceControl = detectPriceControlFromTrades(
+    { ofi: ofi, weightedOFI: input.weightedOFI || 0 },
+    allTrades,
+    25,
+    atr
+  );
+  metadata.priceControlScore = priceControl.score;
+  metadata.priceControlDir = priceControl.direction;
+  metadata.priceControlDelta = priceControl.priceDeltaPct;
+
+  // Enhance absorption with price control detection (Q-1)
+  // If price control detected (fake move), boost absorption score
+  let enhancedAbsorption = absorptionScore;
+  if (priceControl.direction !== 'normal' && absorptionScore > 0.1) {
+    enhancedAbsorption = Math.min(1, absorptionScore + Math.abs(priceControl.score) * 0.3);
+    metadata.absorptionEnhanced = true;
+  }
+  metadata.absorptionEnhanced = enhancedAbsorption;
+
+  // Recalculate base score with enhanced absorption
+  const enhancedBaseScore = accumulateScore * 0.4 + pushScore * 0.35 + enhancedAbsorption * 0.25;
+  const enhancedRawScore = enhancedBaseScore * confluenceFactor * tradeWeight * staleWeight;
+  const enhancedScore = clampScore(enhancedRawScore);
+  const finalScore = enhancedScore < 0.012 ? 0 : enhancedScore;
 
   // Диагностика priceStallFactor (пересчёт на окне для metadata, без изменения логики детектора)
   const diagPrices = allTrades.slice(-50).map(t => t.price);
@@ -284,18 +314,23 @@ export function detectPredator(input: DetectorInput): DetectorResult {
 
   // Signal direction
   let signalDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-  if (score > 0.3) {
+  if (finalScore > 0.3) {
     // Use cumDelta direction
     if (cumDelta.delta > 0) signalDirection = 'BULLISH';
     else if (cumDelta.delta < 0) signalDirection = 'BEARISH';
   }
 
-  const confidence = score > 0.3 ? Math.min(1, score * 1.2) : 0;
+  const confidence = finalScore > 0.3 ? Math.min(1, finalScore * 1.2) : 0;
+
+  // Q-1: Include price control in description
+  const pcInfo = priceControl.direction !== 'normal'
+    ? `, PRICE_CONTROL(${priceControl.direction}:${priceControl.score.toFixed(2)})`
+    : '';
 
   return {
     detector: 'PREDATOR',
-    description: `Хищник — stateless v4.2 (ACCUMULATE ${accumulateScore.toFixed(2)}, PUSH ${pushScore.toFixed(2)}, ABSORPTION ${absorptionScore.toFixed(2)})`,
-    score,
+    description: `Хищник — stateless v4.2 (ACCUMULATE ${accumulateScore.toFixed(2)}, PUSH ${pushScore.toFixed(2)}, ABSORPTION ${enhancedAbsorption.toFixed(2)}${pcInfo})`,
+    score: finalScore,
     confidence,
     signal: signalDirection,
     metadata,

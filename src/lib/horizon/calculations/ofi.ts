@@ -330,3 +330,118 @@ export function calcTradeOFI(
     source: 'trades',
   };
 }
+
+// ─── Price Control Detection (Q-1) ──────────────────────────────────────────
+// Выявляет "фальшивые" движения: OFI говорит одно направление, цена идёт в другое.
+// Это признак поглощения (absorption) — крупный игрок съедает ликвидность без движения цены.
+//
+// Формула: priceControlScore = -sign(OFI) × sign(priceDelta) × |priceDelta| / ATR
+//   +1 = поглощение покупок (OFI+, price↓)
+//   -1 = поглощение продаж (OFI-, price↑)
+//    0 = согласованное движение (норма)
+
+export interface PriceControlResult {
+  /** Score ∈ [-1, +1]: + = fake buy, - = fake sell, 0 = normal */
+  score: number;
+  /** normalized score using ATR */
+  normalizedScore: number;
+  /** Direction: 'fake_buy' | 'fake_sell' | 'normal' */
+  direction: 'fake_buy' | 'fake_sell' | 'normal';
+  /** Price delta in price units */
+  priceDelta: number;
+  /** Price delta in percent */
+  priceDeltaPct: number;
+  /** OFI at time of detection */
+  ofi: number;
+}
+
+/**
+ * Q-1: Detect price control - fake moves where price goes against OFI direction
+ * @param ofi - OFI value [-1, +1], positive = buying pressure
+ * @param priceStart - Starting price (or mid price before window)
+ * @param priceEnd - Ending price (or mid price after window)
+ * @param atr - Average True Range for normalization (optional)
+ * @returns PriceControlResult with score and direction
+ */
+export function detectPriceControl(
+  ofi: number,
+  priceStart: number,
+  priceEnd: number,
+  atr?: number
+): PriceControlResult {
+  const priceDelta = priceEnd - priceStart;
+  const priceDeltaPct = priceStart > 0 ? (priceDelta / priceStart) * 100 : 0;
+
+  // Determine direction: positive OFI = buyers, negative OFI = sellers
+  const ofiSign = Math.sign(ofi);
+  const priceSign = Math.sign(priceDelta);
+
+  // Fake buy: OFI positive (buyers) but price dropped
+  // Fake sell: OFI negative (sellers) but price rose
+  const isFakeMove = ofiSign !== 0 && priceSign !== 0 && ofiSign !== priceSign;
+
+  // Score: magnitude of divergence
+  let score = 0;
+  if (isFakeMove) {
+    // Score = -sign(OFI) × sign(priceDelta) × |priceDelta| normalized
+    // For fake buy (OFI+, price↓): score = -1 × -1 × |Δ| = +|Δ|
+    // For fake sell (OFI-, price↑): score = -(-1) × +1 × |Δ| = -|Δ|
+    const absDelta = Math.abs(priceDeltaPct);
+    score = -ofiSign * priceSign * Math.min(absDelta, 10) / 10; // cap at 1.0
+  }
+
+  // Normalized by ATR if provided
+  let normalizedScore = 0;
+  if (atr && atr > 0) {
+    normalizedScore = Math.abs(priceDelta) / atr * Math.sign(score);
+  }
+
+  let direction: 'fake_buy' | 'fake_sell' | 'normal';
+  if (score > 0.1) {
+    direction = 'fake_buy';
+  } else if (score < -0.1) {
+    direction = 'fake_sell';
+  } else {
+    direction = 'normal';
+  }
+
+  return {
+    score: Math.round(score * 1000) / 1000,
+    normalizedScore: Math.round(normalizedScore * 1000) / 1000,
+    direction,
+    priceDelta: Math.round(priceDelta * 10000) / 10000,
+    priceDeltaPct: Math.round(priceDeltaPct * 1000) / 1000,
+    ofi: Math.round(ofi * 10000) / 10000,
+  };
+}
+
+/**
+ * Detect price control using trade-based OFI and recent price window
+ * @param tradeOFI - TradeOFIResult from calcTradeOFI
+ * @param trades - Array of trades for price calculation
+ * @param windowSize - Number of recent trades to compare (default: 25)
+ * @param atr - ATR for normalization
+ */
+export function detectPriceControlFromTrades(
+  tradeOFI: { ofi: number; weightedOFI: number },
+  trades: Array<{ price: number; timestamp?: number; direction?: string }>,
+  windowSize: number = 25,
+  atr?: number
+): PriceControlResult {
+  if (trades.length < 2) {
+    return {
+      score: 0,
+      normalizedScore: 0,
+      direction: 'normal',
+      priceDelta: 0,
+      priceDeltaPct: 0,
+      ofi: tradeOFI.ofi,
+    };
+  }
+
+  const window = trades.slice(-windowSize);
+  const priceStart = window[0].price;
+  const priceEnd = window[window.length - 1].price;
+
+  return detectPriceControl(tradeOFI.ofi, priceStart, priceEnd, atr);
+}

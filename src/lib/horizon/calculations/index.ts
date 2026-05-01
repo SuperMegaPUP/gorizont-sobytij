@@ -1,7 +1,7 @@
 // ─── Horizon Calculations — экспорт ──────────────────────────────────────
 
-export { calcOFI, calcWeightedOFI, calcOFIByLevel, calcRealtimeOFI, calcRealtimeOFIMultiLevel } from './ofi';
-export type { OrderBookData, OrderBookLevel, OrderBookSnapshot } from './ofi';
+export { calcOFI, calcWeightedOFI, calcOFIByLevel, calcRealtimeOFI, calcRealtimeOFIMultiLevel, detectPriceControl, detectPriceControlFromTrades } from './ofi';
+export type { OrderBookData, OrderBookLevel, OrderBookSnapshot, PriceControlResult } from './ofi';
 
 export {
   calcCumDelta,
