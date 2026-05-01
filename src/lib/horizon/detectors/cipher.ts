@@ -54,6 +54,52 @@ function resetSeed(): void { _seed = 42; }
 const kurtosisHistory: number[] = [];
 const MAX_KURTOSIS_HISTORY = 50;
 
+// ─── CN Condition Number history (для перцентильного штрафа) ─────────────
+
+const cnHistory: number[] = [];
+const MAX_CN_HISTORY = 100;
+
+function getPercentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, idx)];
+}
+
+/**
+ * Вычислить перцентильный CN штраф
+ * CN > 95-го перцентиля → штраф пропорционально отклонению
+ */
+function calculateCnPenalty(conditionNumber: number): number {
+  if (cnHistory.length < 20 || conditionNumber <= 0) return 0;
+
+  // Вычисляем перцентили
+  const p50 = getPercentile(cnHistory, 50);
+  const p75 = getPercentile(cnHistory, 75);
+  const p90 = getPercentile(cnHistory, 90);
+  const p95 = getPercentile(cnHistory, 95);
+  const p99 = getPercentile(cnHistory, 99);
+
+  // Добавляем текущее значение в историю
+  cnHistory.push(conditionNumber);
+  if (cnHistory.length > MAX_CN_HISTORY) cnHistory.shift();
+
+  // Штраф: чем выше CN относительно перцентилей, тем сильнее штраф
+  let penalty = 0;
+  if (conditionNumber > p99) {
+    // Экстремальное значение - максимальный штраф
+    penalty = Math.min(0.5, (conditionNumber - p99) / conditionNumber);
+  } else if (conditionNumber > p95) {
+    penalty = 0.2 + 0.3 * ((conditionNumber - p95) / (p99 - p95 || 1));
+  } else if (conditionNumber > p90) {
+    penalty = 0.1 * ((conditionNumber - p90) / (p95 - p90 || 1));
+  } else if (conditionNumber > p75) {
+    penalty = 0.05 * ((conditionNumber - p75) / (p90 - p75 || 1));
+  }
+
+  return Math.round(penalty * 1000) / 1000;
+}
+
 function mad(values: number[]): number {
   const med = values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
   const absDeviations = values.map(v => Math.abs(v - med));
@@ -495,10 +541,15 @@ export function detectCipher(input: DetectorInput): DetectorResult {
   if (level2Active) {
     level = 2;
     // Check condition number before ICA
+    let cnPenalty = 0;
     if (pcaResult.conditionNumber > 1000) {
+      // Перцентильный CN штраф (P2: отсекает структурный шум PCA)
+      cnPenalty = calculateCnPenalty(pcaResult.conditionNumber);
+      metadata.cnPenalty = cnPenalty;
       metadata.icaSkipped = true;
       metadata.icaSkipReason = 'high_condition_number';
-      cipherScore = cipherQuick;
+      // Применяем штраф к quick score
+      cipherScore = Math.max(0, cipherQuick - cnPenalty);
     } else {
       // Run ICA (seeded, max_iterations=200)
       const icaResult = fastICA(normalizedFeatures, 3, 200);
