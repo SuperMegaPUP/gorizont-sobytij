@@ -353,7 +353,7 @@ npx vercel deploy --prod --yes
 - [x] P2: Q-9 — PRE_IMPULSE_SILENCE (TIER 1/2) (предупреждает о манипуляторе перед импульсом) ✅
 - [x] P2: Q-12 — Algorithmic Reset (ловит сброс робота перед новым циклом) ✅
 - [x] P2: CIPHER — Перцентильный CN-штраф (отсекает структурный шум PCA) ✅
-- [ ] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах)
+- [x] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах) ✅
 - [ ] P3: Q-4 — ICEBERG Direction (эвристика направления айсбергов)
 - [ ] P3: Q-7 — DISTRIBUTION детектор (защищает розницу от Pump&Dump)
 - [ ] P4: Q-2 — ACCRETOR калибровка порогов (эмпирическая шкала)
