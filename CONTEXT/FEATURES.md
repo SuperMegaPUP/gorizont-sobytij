@@ -142,14 +142,29 @@
 | CP-4.1 | Horizon Layout | ✅ | `app/horizon/layout.tsx` |
 | CP-4.2 | Config Page | ✅ | `app/horizon/config/page.tsx` |
 
-### Remaining
+### UI Components (Спринт 5)
 
-| ID | Фича | Статус | Приоритет |
-|----|------|--------|-----------|
-| CP-5 | UI Components (16 файлов) | ⏳ | P3 |
-| CP-6 | Integration в scan route | ⏳ | P4 |
+| ID | Компонент | Статус |
+|----|-----------|--------|
+| CP-5.1 | ControlPanel.tsx | ✅ |
+| CP-5.2 | TabNav.tsx | ✅ |
+| CP-5.3 | StatusBar.tsx | ✅ |
+| CP-5.4 | ConfigPanel.tsx | ✅ |
+| CP-5.5 | GroupCard.tsx | ✅ |
+| CP-5.6 | ParamSlider.tsx | ✅ |
+| CP-5.7 | ParamToggle.tsx | ✅ |
+| CP-5.8 | ParamInput.tsx | ✅ |
+| CP-5.9 | LivePreview.tsx | ✅ |
+| CP-5.10 | ExperimentPanel.tsx | ✅ |
+| CP-5.11 | ConfigHistory.tsx | ✅ |
 
-**Progress: 17/22 задач (77%)**
+### Integration (Спринт 6)
+
+| ID | Фича | Статус |
+|----|------|--------|
+| CP-6 | Integration в scan route | ⏳ |
+
+**Progress: 27/28 задач (96%)**
 
 ---
 
