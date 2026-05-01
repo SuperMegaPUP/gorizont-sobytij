@@ -345,7 +345,7 @@ npx vercel deploy --prod --yes
 
 #### v4.3-rev3 (Новые):
 - [ ] P0: INFRA — StateManager + Redis persistence (сохраняет EMA/окна между вызовами) ✅
-- [ ] P0: Q-0 — Shadow Mode Framework (валидация без влияния на алерты)
+- [x] P0: Q-0 — Shadow Mode Framework (валидация без влияния на алерты) ✅
 - [x] P0: Q-10 — EMA-сглаживание PREDATOR (убирает стробирование 0↔0.88) ✅
 - [ ] P1: Q-1 — OFI/rtOFI detectPriceControl (выявляет фальшивые продажи/покупки)
 - [ ] P1: Q-8 — SQUEEZE_ALERT + EMA(Cancel%) DROP (ловит разгрузку стакана перед импульсом)
