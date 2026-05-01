@@ -351,7 +351,7 @@ npx vercel deploy --prod --yes
 - [ ] P1: Q-8 — SQUEEZE_ALERT + EMA(Cancel%) DROP (ловит разгрузку стакана перед импульсом)
 - [x] P1: Q-11 — ROTATION_DETECTOR (определяет перекладку позиции крупняка) ✅
 - [ ] P2: Q-9 — PRE_IMPULSE_SILENCE (TIER 1/2) (предупреждает о манипуляторе перед импульсом)
-- [ ] P2: Q-12 — Algorithmic Reset (ловит сброс робота перед новым циклом)
+- [x] P2: Q-12 — Algorithmic Reset (ловит сброс робота перед новым циклом) ✅
 - [ ] P2: CIPHER — Перцентильный CN-штраф (отсекает структурный шум PCA)
 - [ ] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах)
 - [ ] P3: Q-4 — ICEBERG Direction (эвристика направления айсбергов)
