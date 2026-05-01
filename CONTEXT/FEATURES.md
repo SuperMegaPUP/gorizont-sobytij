@@ -100,6 +100,59 @@
 
 ---
 
+## 🎯 UI CONTROL PANEL v4.3-rev4 (Спринты 1-4: 75%)
+
+### Backend Config API Foundation (Спринт 1)
+
+| ID | Фича | Статус | Файлы |
+|----|------|--------|-------|
+| CP-1.1 | Config Schema Types | ✅ | `config-schema.ts` |
+| CP-1.2 | Zod Validation | ✅ | `config-zod.ts` |
+| CP-1.3 | Default Config + UI Meta | ✅ | `default-config.ts` |
+| CP-1.4 | Config Store (Redis/Memory) | ✅ | `config-redis.ts` |
+| CP-1.5 | Store Factory | ✅ | `store-factory.ts` |
+| CP-1.6 | Config Validator | ✅ | `config-validator.ts` |
+| CP-1.7 | **Config Resolver** (КРИТИЧЕСКИЙ) | ✅ | `config-resolver.ts` |
+| CP-1.12 | Confidence Multiplier | ✅ | `conf-multiplier.ts` |
+
+### API Routes (Спринт 2)
+
+| ID | Фича | Статус | Route |
+|----|------|--------|-------|
+| CP-2.1 | Config GET/PUT | ✅ | `/api/horizon/config` |
+| CP-2.2 | Preview POST | ✅ | `/api/horizon/config/preview` |
+| CP-2.3 | History GET | ✅ | `/api/horizon/config/history` |
+| CP-2.4 | Rollback POST | ✅ | `/api/horizon/config/rollback` |
+| CP-2.5 | Freeze POST | ✅ | `/api/horizon/config/freeze` |
+| CP-2.6 | Monitor GET/POST | ✅ | `/api/horizon/config/monitor` |
+| CP-2.7 | Experiments GET/POST | ✅ | `/api/horizon/config/experiments` |
+| CP-2.8 | Experiment [id] | ✅ | `/api/horizon/config/experiments/[id]` |
+
+### Infrastructure (Спринт 3)
+
+| ID | Фича | Статус | Файл |
+|----|------|--------|------|
+| CP-3.1 | Auth Middleware | ✅ | `middleware.ts` |
+| CP-3.2 | Vercel Cron Config | ✅ | `vercel.json` |
+
+### Pages (Спринт 4)
+
+| ID | Фича | Статус | Файл |
+|----|------|--------|------|
+| CP-4.1 | Horizon Layout | ✅ | `app/horizon/layout.tsx` |
+| CP-4.2 | Config Page | ✅ | `app/horizon/config/page.tsx` |
+
+### Remaining
+
+| ID | Фича | Статус | Приоритет |
+|----|------|--------|-----------|
+| CP-5 | UI Components (16 файлов) | ⏳ | P3 |
+| CP-6 | Integration в scan route | ⏳ | P4 |
+
+**Progress: 17/22 задач (77%)**
+
+---
+
 ## ДЕТЕКТОРЫ v4.2 СТАТУС (2026-04-29)
 
 | Детектор | > 0 /100 | Статус | Notes |
