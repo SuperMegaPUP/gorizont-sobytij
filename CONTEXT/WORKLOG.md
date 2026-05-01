@@ -512,3 +512,23 @@ npx vercel deploy --prod --yes
 ### Следующий шаг
 - Фаза 2: 🚨-4 (IStateStore), 🚨-5 (Upstash), 🚨-6 (Neon retry), 🚨-7 (Vercel Cron)
 - Делаются параллельно с кодингом Q-10/Q-1
+
+---
+
+## 2026-04-30 | Сессия | ИНФРАСТРУКТУРА ФАЗА 2-3 DONE
+
+### Что сделано (Фаза 2 - 0243c77):
+- IStateStore: MemoryStateStore, RedisStateStore, UpstashStateStore
+- Upstash с Lua scripts для atomic operations
+- withRetry wrapper для Neon
+- Vercel Cron endpoint + vercel.json
+
+### Что сделано (Фаза 3 - 450fc9f, ab5d6cc):
+- deploy-pipeline.sh с health check
+- promote-to-prod.sh, rollback-emergency.sh
+- GitHub Actions CI
+- .env.base
+
+### Результат:
+- 18/22 замечаний выполнено (82%)
+- Готов к Q-10/Q-1 кодингу

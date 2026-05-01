@@ -258,6 +258,8 @@ DEV (локально:3000) ──▶ TEST (локально:3001) ──▶ ACC
 | 2026-04-30 | **Локальные БД подняты** — PostgreSQL (192.168.122.3:5432, horizon_db) + Redis (192.168.122.3:6379), настроен listen_addresses='*', protected-mode=no |
 | 2026-04-30 | **Анализ #3: Архитектурные проблемы** — 22 замечания (7🚨 + 6⚠️ + 5🔶 + 4💡), план исправлений на 5 фаз (~52 часа), стратегия деплоя DEV→TEST→ACCEPTANCE→LAB→PROD |
 | 2026-04-30 | **Фаза 1 инфраструктуры выполнена** — 867caca (4 БД, Redis auth, volumes), d33c798 (/api/health, .env.example, cleanup cron) |
+| 2026-04-30 | **Фаза 2 выполнена** — 0243c77 (IStateStore: Memory/Redis/Upstash, withRetry, Vercel Cron) |
+| 2026-04-30 | **Фаза 3 выполнена** — 450fc9f, ab5d6cc (deploy-pipeline, CI, rollback, .env.base) |
 
 ---
 

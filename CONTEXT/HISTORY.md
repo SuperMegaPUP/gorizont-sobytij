@@ -455,3 +455,33 @@
 **Следующий шаг:**
 - Фаза 2 (параллельно с кодингом Q-10/Q-1): IStateStore полная реализация, Upstash, Neon retry, Vercel Cron
 
+---
+
+## 2026-04-30 | Сессия | main | ИНФРАСТРУКТУРА ФАЗА 2-3
+
+**Задача:** Выполнить Фазу 2 и Фазу 3
+
+**Что сделано (Фаза 2 - Commit 0243c77):**
+- 🚨-4: IStateStore интерфейс + 3 реализации (Memory/Redis/Upstash)
+- 🚨-5: UpstashStateStore с Lua scripts для атомарных операций
+- 🚨-6: withRetry wrapper + Neon retry логика
+- 🚨-7: Vercel Cron endpoint (/api/horizon/collect)
+- vercel.json с cron schedule
+- tests/lib/state-store.test.ts
+
+**Что сделано (Фаза 3 - Commits 450fc9f, ab5d6cc):**
+- ⚠️-3: deploy-pipeline.sh с health check и валидацией
+- 💡-4: promote-to-prod.sh для LAB → PROD
+- 🔶-5: rollback-emergency.sh (3 уровня отката)
+- 🔶-4: GitHub Actions CI (.github/workflows/ci.yml)
+- 🔶-3: .env.base с общими переменными
+
+**Результат:**
+- 18/22 замечаний исправлено (~82%)
+- Полный CI/CD pipeline настроен
+- Vercel Cron готов к работе
+
+**Следующий шаг:**
+- Оставшиеся 4 замечания (отложены): Config API, Preview parity, Docker profiles, BSCI дашборд
+- Переход к Q-10/Q-1 кодингу детекторов
+

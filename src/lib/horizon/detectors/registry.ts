@@ -13,6 +13,10 @@ import { detectEntangle } from './entangle';
 import { detectWavefunction } from './wavefunction';
 import { detectAttractor } from './attractor';
 import { getSessionQuality } from '../engine/session-filter';
+import { createStateStore, IStateStore } from '../state/factory';
+
+// Q-10: EMA smoothing alpha for PREDATOR
+const PREDATOR_EMA_ALPHA = 0.3;
 
 /** Все 10 детекторов в массиве. HAWKING теперь async. */
 export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: DetectorInput) => DetectorResult | Promise<DetectorResult> }> = [
@@ -30,9 +34,38 @@ export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: Detector
 
 /** Запустить все детекторы на одном входе (async для HAWKING) */
 export async function runAllDetectors(input: DetectorInput): Promise<DetectorResult[]> {
+  // Q-10: Create state store for EMA smoothing
+  let stateStore: IStateStore | null = null;
+  try {
+    stateStore = createStateStore();
+  } catch (e) {
+    console.warn('[runAllDetectors] StateStore not available, skipping EMA');
+  }
+
   const results = await Promise.all(ALL_DETECTORS.map(async d => {
     try {
-      return await d.detect(input);
+      let result = await d.detect(input);
+
+      // Q-10: Apply EMA smoothing to PREDATOR
+      if (d.name === 'PREDATOR' && stateStore && input.ticker) {
+        const emaKey = `horizon:ema:predator:${input.ticker}`;
+        const emaResult = await stateStore.calcEMA(emaKey, result.score, PREDATOR_EMA_ALPHA);
+
+        // Use smoothed score, preserve original in metadata
+        result = {
+          ...result,
+          score: emaResult.smoothed,
+          metadata: {
+            ...result.metadata,
+            emaSmoothed: true,
+            emaPrev: emaResult.prev,
+            emaDelta: emaResult.delta,
+            emaColdStart: emaResult.isColdStart,
+          },
+        };
+      }
+
+      return result;
     } catch (e: any) {
       console.warn(`[runAllDetectors] ${d.name} failed:`, e.message);
       return {
