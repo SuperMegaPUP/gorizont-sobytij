@@ -213,6 +213,37 @@ export async function resolveTicker(shortCode: string): Promise<TickerConfig> {
   };
 }
 
+// BUG A-3: Board fallback для тикеров с нулевым оборотом
+// Некоторые борды (TQPI, SMAL) могут возвращать 0.0 — пробуем альтернативные
+const BOARD_FALLBACK_ORDER = ['TQBR', 'TQPI', 'SMAL', 'AUCTION'];
+
+export async function fetchWithBoardFallback(
+  ticker: string,
+  fetchFn: (board: string) => Promise<any>,
+  boards: string[] = BOARD_FALLBACK_ORDER
+): Promise<any> {
+  let lastError: Error | null = null;
+  let lastResult: any = null;
+
+  for (const board of boards) {
+    try {
+      const result = await fetchFn(board);
+      // Проверяем есть ли данные (не пустой массив)
+      if (result && (Array.isArray(result.trades) ? result.trades.length > 0 : true)) {
+        return result;
+      }
+      lastResult = result; // сохраняем для fallback
+    } catch (e: any) {
+      lastError = e;
+      // Продолжаем пробовать следующий board
+    }
+  }
+
+  // Возвращаем последний результат или кидаем ошибку
+  if (lastResult) return lastResult;
+  throw lastError || new Error(`All boards failed for ${ticker}`);
+}
+
 // ─── Data Fetchers ──────────────────────────────────────────────────────────
 
 interface OrderbookResult {
