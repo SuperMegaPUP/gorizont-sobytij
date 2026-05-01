@@ -18,6 +18,14 @@ const EPS = 1e-6;
 const MIN_OBSERVATIONS = 60;
 const P_THRESHOLD = 0.025; // Bonferroni: 0.05 / 2
 
+// Q-6: Soft p-value — уход от бинарности
+// Вместо hard threshold используем непрерывный score
+const SOFT_P_WEIGHTS = {
+  significant: 0.7,    // p < 0.025
+  marginal: 0.3,       // 0.025 < p < 0.1
+  weak: 0.1,           // p > 0.1
+};
+
 // ─── ADF Test (simplified) ────────────────────────────────────────────────
 
 function adfTest(series: number[]): { pvalue: number; isStationary: boolean } {

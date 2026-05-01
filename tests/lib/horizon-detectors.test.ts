@@ -67,7 +67,7 @@ describe('Black Star Detectors: Common', () => {
 
   test('runAllDetectors возвращает 10 результатов', async () => {
     const results = await runAllDetectors(input);
-    expect(results).toHaveLength(17);
+    expect(results).toHaveLength(18);
     const names = results.map(r => r.detector);
     expect(names).toContain('GRAVITON');
     expect(names).toContain('DARKMATTER');

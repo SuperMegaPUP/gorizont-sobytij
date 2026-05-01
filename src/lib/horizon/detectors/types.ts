@@ -105,6 +105,7 @@ export const DETECTOR_NAMES = [
   'ICEBERG',
   'DISTRIBUTION',
   'PHASE_SHIFT',
+  'SPOOF',
 ] as const;
 
 export type DetectorName = typeof DETECTOR_NAMES[number];

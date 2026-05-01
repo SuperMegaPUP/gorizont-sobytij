@@ -19,6 +19,7 @@ import { detectPreImpulseFromDetectorInput } from './pre-impulse';
 import { detectIcebergFromInput } from './iceberg';
 import { detectDistributionFromInput } from './distribution';
 import { detectPhaseShiftFromInput } from './phase-shift';
+import { detectSpoofFromInput } from './spoof';
 import { getSessionQuality } from '../engine/session-filter';
 import { createStateStore, IStateStore } from '../state/factory';
 
@@ -44,6 +45,7 @@ export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: Detector
   { name: 'ICEBERG',     detect: detectIcebergFromInput },
   { name: 'DISTRIBUTION', detect: detectDistributionFromInput },
   { name: 'PHASE_SHIFT',  detect: detectPhaseShiftFromInput },
+  { name: 'SPOOF',        detect: detectSpoofFromInput },
 ];
 
 /** Запустить все детекторы на одном входе (async для HAWKING) */
