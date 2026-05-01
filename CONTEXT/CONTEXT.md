@@ -21,7 +21,7 @@
 | Подсистема | Описание | Статус |
 |---|---|---|
 | **Детектор Роботов** (оригинал) | Burst detection (HFT/ALGO/STRUCT), 13 паттернов, AlgoPack, FUTOI/SMI, Neuro Hint | ✅ Работает |
-| **Горизонт Событий** (фаза 5) | 10 Black Star детекторов, BSCI Composite Index, AI Observer, торговые сигналы, виртуальный P&L | 🔄 Переход на v4.2 |
+| **Горизонт Событий** (v4.3-rev3) | 18 Black Star детекторов, BSCI Composite Index, AI Observer, торговые сигналы, Shadow Mode, Config API | ✅ Активен |
 
 ---
 
@@ -344,7 +344,7 @@ npx vercel deploy --prod --yes
 - [x] Phase 3: Confidence v4.2 (F-3B)
 
 #### v4.3-rev3 (Новые):
-- [ ] P0: INFRA — StateManager + Redis persistence (сохраняет EMA/окна между вызовами) ✅
+- [x] P0: INFRA — StateManager + Redis persistence (сохраняет EMA/окна между вызовами) ✅
 - [x] P0: Q-0 — Shadow Mode Framework (валидация без влияния на алерты) ✅
 - [x] P0: Q-10 — EMA-сглаживание PREDATOR (убирает стробирование 0↔0.88) ✅
 - [x] P1: Q-1 — OFI/rtOFI detectPriceControl (выявляет фальшивые продажи/покупки) ✅
@@ -355,10 +355,11 @@ npx vercel deploy --prod --yes
 - [x] P2: CIPHER — Перцентильный CN-штраф (отсекает структурный шум PCA) ✅
 - [x] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах) ✅
 - [x] P3: Q-4 — ICEBERG Direction (эвристика направления айсбергов) ✅
-- [ ] P3: Q-7 — DISTRIBUTION детектор (защищает розницу от Pump&Dump)
+- [x] P3: Q-7 — DISTRIBUTION детектор (защищает розницу от Pump&Dump) ✅
 - [x] P4: Q-2 — ACCRETOR калибровка порогов (эмпирическая шкала) ✅
 - [x] P4: Q-3 — PHASE_SHIFT v2 (интеграция PREDATOR + Cancel%) ✅
 - [x] P4: Q-5 — SPOOF модуль (aggressive vs passive спуфинг) ✅
 - [x] P4: Q-6 — ENTANGLE soft p-value (уход от бинарности) ✅
 - [x] BUG: A-3 — Volume Bug board fallback (исправление оборотов для TQPI/SMAL) ✅
+- [ ] UI: Control Panel — Config API + UI для настройки детекторов (72-100ч)
 

@@ -485,3 +485,51 @@
 - Оставшиеся 4 замечания (отложены): Config API, Preview parity, Docker profiles, BSCI дашборд
 - Переход к Q-10/Q-1 кодингу детекторов
 
+---
+
+## 2026-05-01 | Сессия 1 | main | v4.3-rev3 ПОЛНАЯ РЕАЛИЗАЦИЯ
+
+**Задача:** Реализовать все задачи из бэклога v4.3-rev3 (16 задач)
+
+**Что сделано:**
+
+**Инфраструктура:**
+- 0243c77: IStateStore интерфейс с 3 реализациями (Memory/Redis/Upstash)
+- StateManager для сохранения EMA/окон между вызовами
+
+**Новые детекторы:**
+- Q-10 (1cda16b): EMA-сглаживание PREDATOR (убирает стробирование 0↔0.88)
+- Q-0 (d8383cc): Shadow Mode Framework (валидация без влияния на алерты)
+- Q-1 (a262317): detectPriceControl — выявление фальшивых движений (OFI vs price)
+- Q-11 (d6c4143): ROTATION_DETECTOR — определение перекладки позиции крупняка
+- Q-12 (4303081): Algorithmic Reset — ловит сброс робота перед новым циклом
+- Q-8 (e1d5830): SQUEEZE_ALERT — ловит разгрузку стакана перед импульсом
+- Q-9 (4d30325): PRE_IMPULSE_SILENCE — предупреждение о манипуляторе перед импульсом
+- Q-4 (7aa3ea9): ICEBERG Direction — эвристика направления айсбергов
+- Q-7 (54f7073): DISTRIBUTION — защита розницы от Pump&Dump
+- Q-3 (fd74c50): PHASE_SHIFT v2 — интеграция PREDATOR + Cancel%
+- Q-5 (c93d7fb): SPOOF модуль — aggressive vs passive спуфинг
+
+**Улучшения ядра:**
+- fef8c72: CIPHER перцентильный CN-штраф
+- 7350c90: CONF Confidence Multiplier
+- 199de6b: Q-2 ACCRETOR калибровка порогов
+- c93d7fb: Q-6 ENTANGLE soft p-value
+- fa25d1b: BUG A-3 Volume Bug board fallback
+
+**UI:**
+- 6a98f85: Добавлена колонка "Оборот" в TOP-100 таблицу
+
+**Теперь 18 детекторов:**
+```
+GRAVITON → DARKMATTER → ACCRETOR → DECOHERENCE → HAWKING 
+→ PREDATOR → CIPHER → ENTANGLE → WAVEFUNCTION → ATTRACTOR 
+→ ROTATION → ALGORITHM → SQUEEZE → PREIMPULSE → ICEBERG 
+→ DISTRIBUTION → PHASE_SHIFT → SPOOF
+```
+
+**Следующий шаг:**
+- UI Control Panel (Config API + слайдеры) — 72-100ч
+- Или валидация Shadow Mode (2-3 торговые сессии)
+- Или исправление оставшихся 4 замечаний из анализа
+
