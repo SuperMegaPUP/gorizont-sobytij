@@ -3,6 +3,10 @@
     {
       "path": "/api/horizon/collect?cron=true",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/horizon/config/monitor",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

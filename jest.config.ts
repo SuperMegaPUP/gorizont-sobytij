@@ -14,6 +14,9 @@ const config: Config = {
       tsconfig: 'tsconfig.json',
     }],
   },
+  transformIgnorePatterns: [
+    'node_modules/(?!(zod)/)',
+  ],
   // Coverage settings
   collectCoverageFrom: [
     'src/app/api/**/*.ts',
