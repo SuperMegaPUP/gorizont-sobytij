@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import redis from '@/lib/redis';
 import { collectMarketData, fetchTop100Tickers } from '@/lib/horizon/observer/collect-market-data';
-import { runAllDetectors, calcBSCI } from '@/lib/horizon/detectors/registry';
+import { runAllDetectors, runShadowDetectors, compareShadowResults, calcBSCI } from '@/lib/horizon/detectors/registry';
 import type { DetectorResult } from '@/lib/horizon/detectors/types';
 import { crossSectionNormalize, computeCrossSectionStats } from '@/lib/horizon/detectors/cross-section-normalize';
 import { calculateTAIndicators, calculateSignalConvergence, type SignalConvergence } from '@/lib/horizon/ta-context';
@@ -199,6 +199,36 @@ export async function scanTicker(
     const scoresMap: Record<string, number> = {};
     for (const ds of detectorScores) {
       scoresMap[ds.detector] = ds.score;
+    }
+
+    // Q-0: Shadow Mode — run detectors without affecting alerts
+    let shadowResult: { drift: Record<string, number>; maxDrift: number; alerts: string[] } | null = null;
+    const url = request.nextUrl;
+    const shadowMode = url.searchParams.get('shadow') === 'true';
+    if (shadowMode) {
+      console.log(`[horizon/scan] Running shadow mode for ${ticker}`);
+      const shadowScores = await runShadowDetectors(detectorInput);
+      shadowResult = compareShadowResults(detectorScores, shadowScores);
+
+      // Store shadow comparison in Redis for analysis
+      try {
+        await redis.set(
+          `horizon:shadow:${ticker}:${Date.now()}`,
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            ticker,
+            drift: shadowResult.drift,
+            maxDrift: shadowResult.maxDrift,
+            alerts: shadowResult.alerts,
+          }),
+          { ex: 86400 * 7 }, // 7 days retention
+        );
+      } catch (e) { /* ignore Redis errors */ }
+
+      // Log significant drift
+      if (shadowResult.maxDrift > 0.05) {
+        console.warn(`[horizon/scan] SHADOW DRIFT ${ticker}: max=${shadowResult.maxDrift.toFixed(3)}, alerts=${shadowResult.alerts.length}`);
+      }
     }
 
     // 6. Get previous BSCI from Redis
@@ -753,6 +783,7 @@ export async function POST(request: NextRequest) {
       ts: Date.now(),
       marketClosed: false,
       sessionInfo: sessionInfo.description,
+      ...(shadowMode && shadowResult ? { shadow: { enabled: true, maxDrift: shadowResult.maxDrift, alerts: shadowResult.alerts } } : {}),
     });
   } catch (error: any) {
     console.error('[/api/horizon/scan] Error:', error);

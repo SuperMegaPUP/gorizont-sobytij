@@ -81,6 +81,63 @@ export async function runAllDetectors(input: DetectorInput): Promise<DetectorRes
   return results;
 }
 
+/** Q-0: Shadow Mode — запускает детекторы без влияния на алерты
+ * Используется для валидации экспериментальных изменений
+ * Результаты сохраняются в Redis для анализа, но НЕ влияют на production alerts
+ */
+export async function runShadowDetectors(input: DetectorInput): Promise<DetectorResult[]> {
+  // Run all detectors WITHOUT EMA smoothing (raw scores for comparison)
+  const results = await Promise.all(ALL_DETECTORS.map(async d => {
+    try {
+      const result = await d.detect(input);
+      // Mark as shadow run in metadata
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          shadowMode: true,
+          shadowTimestamp: new Date().toISOString(),
+        },
+      };
+    } catch (e: any) {
+      console.warn(`[runShadowDetectors] ${d.name} failed:`, e.message);
+      return {
+        detector: d.name,
+        description: `SHADOW ERROR: ${e.message}`,
+        score: 0,
+        confidence: 0,
+        signal: 'NEUTRAL',
+        metadata: { error: e.message, insufficientData: true, shadowMode: true },
+      };
+    }
+  }));
+  return results;
+}
+
+/** Сравнить shadow и production результаты */
+export function compareShadowResults(
+  production: DetectorResult[],
+  shadow: DetectorResult[]
+): { drift: Record<string, number>; maxDrift: number; alerts: string[] } {
+  const drift: Record<string, number> = {};
+  let maxDrift = 0;
+  const alerts: string[] = [];
+
+  for (const prod of production) {
+    const shad = shadow.find(s => s.detector === prod.detector);
+    if (shad) {
+      const diff = Math.abs(prod.score - shad.score);
+      drift[prod.detector] = diff;
+      if (diff > maxDrift) maxDrift = diff;
+      if (diff > 0.1) {
+        alerts.push(`${prod.detector}: ${prod.score.toFixed(3)} → ${shad.score.toFixed(3)} (Δ${diff.toFixed(3)})`);
+      }
+    }
+  }
+
+  return { drift, maxDrift, alerts };
+}
+
 /** Запустить конкретный детектор по имени */
 export function runDetector(name: DetectorName, input: DetectorInput): DetectorResult {
   const det = ALL_DETECTORS.find(d => d.name === name);
