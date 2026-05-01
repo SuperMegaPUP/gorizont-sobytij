@@ -26,6 +26,9 @@ import { applyDailyWeightDecay } from '@/lib/horizon/bsci/save-observation';
 import { BSCI_SCALE_FACTOR } from '@/lib/horizon/constants';
 import { serializeSignal } from '@/lib/horizon/signals/signal-store';
 import { getSessionInfo } from '@/lib/horizon/signals/moex-sessions';
+import { getConfigStore } from '@/lib/horizon/config/store-factory';
+import { getConfigResolver } from '@/lib/horizon/config/config-resolver';
+import { applyConfidenceMultiplier } from '@/lib/horizon/config/conf-multiplier';
 
 // ─── 9 Core Tickers (short codes → real MOEX tickers resolved by collectMarketData) ─────
 
@@ -147,6 +150,18 @@ export async function scanTicker(
     );
     const { detectorInput } = await Promise.race([collectPromise, timeoutPromise]);
 
+    // Config API: Load runtime config for detectors
+    let runtimeConfig: any = null;
+    let effectiveConfig: any = null;
+    try {
+      const configStore = getConfigStore();
+      const configResolver = getConfigResolver(configStore);
+      runtimeConfig = await configResolver.resolve();
+      effectiveConfig = runtimeConfig;
+    } catch (err) {
+      console.warn(`[horizon/scan] ${ticker}: failed to load config, using defaults`, String(err));
+    }
+
     // NOTE: Stale data shortcut removed!
     // Even with stale data (weekends, nights), we still run detectors.
     // The detectors themselves + internal consistency check handle
@@ -194,6 +209,23 @@ export async function scanTicker(
 
     // 4. Calculate BSCI (with consistency-adjusted weights)
     const bsciResult = calcBSCI(detectorScores, effectiveWeights);
+
+    // Config API: Apply confidence multiplier to BSCI
+    let effectiveSignal = bsciResult.bsci;
+    if (effectiveConfig?.conf?.enabled && detectorInput?.trades?.length) {
+      const slotData = {
+        cancelRatio: detectorInput.cancelRatio?.ratio ?? 0,
+        cipherScore: scoresMap['CIPHER'] ?? 0,
+        icebergCount: detectorInput.iceberg?.count ?? 0,
+        tradeCount: detectorInput.trades.length,
+        sessionPhase: detectorInput.session?.phase ?? 'MAIN',
+        dataQuality: detectorInput.session?.quality ?? 1,
+      };
+      effectiveSignal = applyConfidenceMultiplier(bsciResult.bsci, slotData, effectiveConfig.conf);
+      if (effectiveSignal !== bsciResult.bsci) {
+        console.log(`[horizon/scan] ${ticker}: BSCI ${bsciResult.bsci.toFixed(3)} → effectiveSignal ${effectiveSignal.toFixed(3)} (conf multiplier)`);
+      }
+    }
 
     // 5. Build detector scores map
     const scoresMap: Record<string, number> = {};
@@ -246,7 +278,7 @@ export async function scanTicker(
 
     // 8. Apply scanner rules
     const scannerResult: ScannerResult = applyScannerRules({
-      bsci: bsciResult.bsci,
+      bsci: effectiveSignal,
       prevBsci,
       alertLevel: bsciResult.alertLevel,
       direction: bsciResult.direction,
@@ -328,7 +360,7 @@ export async function scanTicker(
     return {
       ticker,
       name,
-      bsci: bsciResult.bsci,
+      bsci: effectiveSignal,
       prevBsci,
       alertLevel: bsciResult.alertLevel,
       direction: bsciResult.direction,
@@ -416,7 +448,7 @@ async function applyCrossSectionNorm(results: TickerScanResult[]): Promise<Ticke
 
     // Пересчитываем scanner rules с новыми BSCI/scores
     const scannerResult: ScannerResult = applyScannerRules({
-      bsci: bsciResult.bsci,
+      bsci: effectiveSignal,
       prevBsci: result.prevBsci,
       alertLevel: bsciResult.alertLevel,
       direction: bsciResult.direction,
@@ -675,6 +707,16 @@ export async function POST(request: NextRequest) {
 
       if (logEntries.length > 0) {
         await prisma.bsciLog.createMany({ data: logEntries });
+      }
+
+      // Config API: Record alert rate for auto-rollback monitoring
+      try {
+        const alertCount = results.filter((r) => r.action !== 'WATCH').length;
+        const alertRate = tickersToScan.length > 0 ? alertCount / tickersToScan.length : 0;
+        const configStore = getConfigStore();
+        await configStore.addAlertRate(new Date().toISOString(), alertRate);
+      } catch (alertErr) {
+        console.warn('[/api/horizon/scan] alert rate recording failed:', String(alertErr));
       }
     } catch (dbErr: any) {
       console.warn('[/api/horizon/scan] bsci_log batch insert failed:', dbErr.message);
