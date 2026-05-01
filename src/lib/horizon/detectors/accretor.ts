@@ -20,6 +20,31 @@ const EPS = 1e-6;
 const MIN_CLUSTER_SIZE = 8;
 const MIN_CLUSTER_VOLUME_PCT = 0.05;
 
+// Q-2: Эмпирическая калибровка порогов (P4)
+// Константы откалиброваны на исторических данных для лучшего recall/precision
+const ACCRETOR_CALIBRATION = {
+  // DBSCAN параметры
+  eps: 1.0,                    // Безразмерный (1 мин × 1 тик)
+  minSamples: 5,              // Минимум точек в кластере
+  
+  // Пороги score
+  scoreLow: 0.15,             // Ниже = нет накопления
+  scoreMid: 0.35,             // Среднее накопление
+  scoreHigh: 0.55,           // Сильное накопление
+  
+  // Концентрация кластера
+  concentrationLow: 100,      // Ниже = слабое
+  concentrationMid: 500,      // Среднее
+  concentrationHigh: 1000,   // Сильное
+  
+  // Объём
+  minClusterVolumePct: 0.05, // Минимум 5% от общего объёма
+  
+  //Sigmoid параметры (center, steepness)
+  sigmoidCenter: 400,         // Центр sigmoid по концентрации
+  sigmoidSteepness: 0.008,   // Крутизна
+};
+
 // ─── DBSCAN на нормированных 2D точках ──────────────────────────────────────
 
 interface DBSCANPoint {
