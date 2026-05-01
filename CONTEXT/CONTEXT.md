@@ -354,7 +354,7 @@ npx vercel deploy --prod --yes
 - [x] P2: Q-12 — Algorithmic Reset (ловит сброс робота перед новым циклом) ✅
 - [x] P2: CIPHER — Перцентильный CN-штраф (отсекает структурный шум PCA) ✅
 - [x] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах) ✅
-- [ ] P3: Q-4 — ICEBERG Direction (эвристика направления айсбергов)
+- [x] P3: Q-4 — ICEBERG Direction (эвристика направления айсбергов) ✅
 - [ ] P3: Q-7 — DISTRIBUTION детектор (защищает розницу от Pump&Dump)
 - [ ] P4: Q-2 — ACCRETOR калибровка порогов (эмпирическая шкала)
 - [ ] P4: Q-3 — PHASE_SHIFT v2 (интеграция PREDATOR + Cancel%)
