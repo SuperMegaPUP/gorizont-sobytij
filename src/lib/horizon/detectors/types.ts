@@ -103,6 +103,7 @@ export const DETECTOR_NAMES = [
   'SQUEEZE',
   'PREIMPULSE',
   'ICEBERG',
+  'DISTRIBUTION',
 ] as const;
 
 export type DetectorName = typeof DETECTOR_NAMES[number];
