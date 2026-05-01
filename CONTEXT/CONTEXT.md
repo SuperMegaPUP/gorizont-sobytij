@@ -356,9 +356,9 @@ npx vercel deploy --prod --yes
 - [x] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах) ✅
 - [x] P3: Q-4 — ICEBERG Direction (эвристика направления айсбергов) ✅
 - [ ] P3: Q-7 — DISTRIBUTION детектор (защищает розницу от Pump&Dump)
-- [ ] P4: Q-2 — ACCRETOR калибровка порогов (эмпирическая шкала)
-- [ ] P4: Q-3 — PHASE_SHIFT v2 (интеграция PREDATOR + Cancel%)
-- [ ] P4: Q-5 — SPOOF модуль (aggressive vs passive спуфинг)
-- [ ] P4: Q-6 — ENTANGLE soft p-value (уход от бинарности)
+- [x] P4: Q-2 — ACCRETOR калибровка порогов (эмпирическая шкала) ✅
+- [x] P4: Q-3 — PHASE_SHIFT v2 (интеграция PREDATOR + Cancel%) ✅
+- [x] P4: Q-5 — SPOOF модуль (aggressive vs passive спуфинг) ✅
+- [x] P4: Q-6 — ENTANGLE soft p-value (уход от бинарности) ✅
 - [ ] BUG: A-3 — Volume Bug board fallback (исправление оборотов для TQPI/SMAL)
 
