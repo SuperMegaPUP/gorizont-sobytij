@@ -360,5 +360,5 @@ npx vercel deploy --prod --yes
 - [x] P4: Q-3 — PHASE_SHIFT v2 (интеграция PREDATOR + Cancel%) ✅
 - [x] P4: Q-5 — SPOOF модуль (aggressive vs passive спуфинг) ✅
 - [x] P4: Q-6 — ENTANGLE soft p-value (уход от бинарности) ✅
-- [ ] BUG: A-3 — Volume Bug board fallback (исправление оборотов для TQPI/SMAL)
+- [x] BUG: A-3 — Volume Bug board fallback (исправление оборотов для TQPI/SMAL) ✅
 
