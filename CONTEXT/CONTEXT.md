@@ -350,7 +350,7 @@ npx vercel deploy --prod --yes
 - [x] P1: Q-1 — OFI/rtOFI detectPriceControl (выявляет фальшивые продажи/покупки) ✅
 - [x] P1: Q-8 — SQUEEZE_ALERT + EMA(Cancel%) DROP (ловит разгрузку стакана перед импульсом) ✅
 - [x] P1: Q-11 — ROTATION_DETECTOR (определяет перекладку позиции крупняка) ✅
-- [ ] P2: Q-9 — PRE_IMPULSE_SILENCE (TIER 1/2) (предупреждает о манипуляторе перед импульсом)
+- [x] P2: Q-9 — PRE_IMPULSE_SILENCE (TIER 1/2) (предупреждает о манипуляторе перед импульсом) ✅
 - [x] P2: Q-12 — Algorithmic Reset (ловит сброс робота перед новым циклом) ✅
 - [ ] P2: CIPHER — Перцентильный CN-штраф (отсекает структурный шум PCA)
 - [ ] P3: CONF — Confidence Multiplier (честная уверенность при HFT-войнах)
