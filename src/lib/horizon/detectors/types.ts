@@ -100,6 +100,7 @@ export const DETECTOR_NAMES = [
   'ATTRACTOR',
   'ROTATION',
   'ALGORITHM',
+  'SQUEEZE',
 ] as const;
 
 export type DetectorName = typeof DETECTOR_NAMES[number];
