@@ -1,4 +1,4 @@
-// ─── Detector Registry — все 13 Black Star детекторов ─────────────────────
+// ─── Detector Registry — все 14 Black Star детекторов ─────────────────────
 
 import type { IDetector, DetectorInput, DetectorResult, DetectorName } from './types';
 import { BSCI_ALERT_THRESHOLD, MIN_TRADES_FOR_SESSION_QUALITY, SPREAD_PENALTY_THRESHOLD, SPREAD_PENALTY_MAX, BSCI_WEIGHTS, MAX_DETECTOR_CONTRIBUTION, BSCI_SCALE_FACTOR } from '../constants';
@@ -15,6 +15,7 @@ import { detectAttractor } from './attractor';
 import { detectRotation } from './rotation';
 import { detectAlgorithm } from './algorithm';
 import { detectSqueezeFromDetectorInput } from './squeeze-alert';
+import { detectPreImpulseFromDetectorInput } from './pre-impulse';
 import { getSessionQuality } from '../engine/session-filter';
 import { createStateStore, IStateStore } from '../state/factory';
 
@@ -36,6 +37,7 @@ export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: Detector
   { name: 'ROTATION',     detect: detectRotation },
   { name: 'ALGORITHM',   detect: detectAlgorithm },
   { name: 'SQUEEZE',     detect: detectSqueezeFromDetectorInput },
+  { name: 'PREIMPULSE',  detect: detectPreImpulseFromDetectorInput },
 ];
 
 /** Запустить все детекторы на одном входе (async для HAWKING) */
