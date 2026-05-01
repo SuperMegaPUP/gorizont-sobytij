@@ -99,6 +99,7 @@ export const DETECTOR_NAMES = [
   'WAVEFUNCTION',
   'ATTRACTOR',
   'ROTATION',
+  'ALGORITHM',
 ] as const;
 
 export type DetectorName = typeof DETECTOR_NAMES[number];

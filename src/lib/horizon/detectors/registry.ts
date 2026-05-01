@@ -1,4 +1,4 @@
-// ─── Detector Registry — все 11 Black Star детекторов ─────────────────────
+// ─── Detector Registry — все 12 Black Star детекторов ─────────────────────
 
 import type { IDetector, DetectorInput, DetectorResult, DetectorName } from './types';
 import { BSCI_ALERT_THRESHOLD, MIN_TRADES_FOR_SESSION_QUALITY, SPREAD_PENALTY_THRESHOLD, SPREAD_PENALTY_MAX, BSCI_WEIGHTS, MAX_DETECTOR_CONTRIBUTION, BSCI_SCALE_FACTOR } from '../constants';
@@ -13,6 +13,7 @@ import { detectEntangle } from './entangle';
 import { detectWavefunction } from './wavefunction';
 import { detectAttractor } from './attractor';
 import { detectRotation } from './rotation';
+import { detectAlgorithm } from './algorithm';
 import { getSessionQuality } from '../engine/session-filter';
 import { createStateStore, IStateStore } from '../state/factory';
 
@@ -32,6 +33,7 @@ export const ALL_DETECTORS: Array<{ name: DetectorName; detect: (input: Detector
   { name: 'WAVEFUNCTION', detect: detectWavefunction },
   { name: 'ATTRACTOR',    detect: detectAttractor },
   { name: 'ROTATION',     detect: detectRotation },
+  { name: 'ALGORITHM',   detect: detectAlgorithm },
 ];
 
 /** Запустить все детекторы на одном входе (async для HAWKING) */

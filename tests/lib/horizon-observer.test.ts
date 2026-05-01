@@ -89,10 +89,10 @@ describe('AI Observer Slots', () => {
 // ─── Integration: collectMarketData → detectors → BSCI ──────────────────────
 
 describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
-  test('runAllDetectors returns 11 results on valid input', async () => {
+  test('runAllDetectors returns 12 results on valid input', async () => {
     const input = makeDetectorInput();
     const results = await runAllDetectors(input);
-    expect(results).toHaveLength(11);
+    expect(results).toHaveLength(12);
     for (const r of results) {
       expect(r.score).toBeGreaterThanOrEqual(0);
       expect(r.score).toBeLessThanOrEqual(1);
@@ -104,7 +104,7 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
     const input = makeDetectorInput();
     const scores = await runAllDetectors(input);
     const weights: Record<string, number> = {};
-    const detectorNames = ['GRAVITON', 'DARKMATTER', 'ACCRETOR', 'DECOHERENCE', 'HAWKING', 'PREDATOR', 'CIPHER', 'ENTANGLE', 'WAVEFUNCTION', 'ATTRACTOR', 'ROTATION'];
+    const detectorNames = ['GRAVITON', 'DARKMATTER', 'ACCRETOR', 'DECOHERENCE', 'HAWKING', 'PREDATOR', 'CIPHER', 'ENTANGLE', 'WAVEFUNCTION', 'ATTRACTOR', 'ROTATION', 'ALGORITHM'];
     for (const d of detectorNames) weights[d] = 0.1;
 
     const bsci = calcBSCI(scores, weights);
@@ -114,7 +114,7 @@ describe('Observer Pipeline: detectors + BSCI on synthetic data', () => {
     expect(['GREEN', 'YELLOW', 'ORANGE', 'RED']).toContain(bsci.alertLevel);
     expect(['BULLISH', 'BEARISH', 'NEUTRAL']).toContain(bsci.direction);
     expect(detectorNames).toContain(bsci.topDetector);
-    expect(bsci.scores).toHaveLength(11);
+    expect(bsci.scores).toHaveLength(12);
   });
 
   test('BSCI with all zero scores → GREEN', async () => {
