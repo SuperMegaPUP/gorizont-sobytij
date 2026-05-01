@@ -348,6 +348,9 @@ export function HorizonScannerFrame() {
                 <th className="text-left px-1.5 py-0.5 font-normal">Конверг.</th>
                 <th className="text-left px-1.5 py-0.5 font-normal">Ключ.сигнал</th>
                 <th className="text-center px-1 py-0.5 font-normal">Действие</th>
+                {scannerMode === 'top100' && (
+                  <th className="text-right px-1.5 py-0.5 font-normal">Оборот</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -416,6 +419,17 @@ export function HorizonScannerFrame() {
                     <td className={`px-1 py-0.5 text-center ${actionStyle}`}>
                       {ticker.action}
                     </td>
+                    {scannerMode === 'top100' && (
+                      <td className="px-1.5 py-0.5 text-right text-[var(--terminal-muted)]">
+                        {(() => {
+                          const val = (ticker as any).moexTurnover || ticker.turnover;
+                          if (!val) return '-';
+                          if (val >= 1e9) return `${(val / 1e9).toFixed(1)} млрд`;
+                          if (val >= 1e6) return `${(val / 1e6).toFixed(1)} млн`;
+                          return `${(val / 1e3).toFixed(0)} тыс`;
+                        })()}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
