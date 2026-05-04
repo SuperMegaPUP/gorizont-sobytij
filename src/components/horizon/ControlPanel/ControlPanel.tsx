@@ -22,40 +22,59 @@ export function ControlPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionId] = useState(() => `session_${Date.now()}`);
-
+  
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    let cancelled = false;
+    
+    const load = async () => {
+      try {
+        const [configRes, healthRes] = await Promise.all([
+          fetch('/api/horizon/config', { headers: { 'x-session-id': sessionId } }),
+          fetch('/api/horizon/health'),
+        ]);
+        if (cancelled) return;
+        
+        if (configRes.ok) {
+          const data = await configRes.json();
+          if (cancelled) return;
+          setConfig(data.config);
+          setDefaults(data.defaults);
+          setFreeze(data.freeze);
+        }
+        
+        if (healthRes.ok) {
+          const healthData = await healthRes.json();
+          if (cancelled) return;
+          setHealth(healthData);
+        }
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    
+    load();
+    return () => { cancelled = true; };
   }, []);
 
-  const fetchData = async () => {
+  const refetchAll = async () => {
     try {
       const headers = { 'x-session-id': sessionId };
-
-      const [configRes, healthRes, experimentsRes, historyRes] = await Promise.all([
-        fetch('/api/horizon/config', { headers }),
-        fetch('/api/horizon/health'),
-        fetch('/api/horizon/config/experiments', { headers }),
-        fetch('/api/horizon/config/history?limit=50', { headers }),
-      ]);
-
-      if (!configRes.ok) throw new Error('Failed to fetch config');
-      
-      const configData = await configRes.json();
-      setConfig(configData.config);
-      setDefaults(configData.defaults);
-      setFreeze(configData.freeze);
-
-      setHealth(await healthRes.json());
-      setExperiments((await experimentsRes.json()).experiments);
-      setHistory((await historyRes.json()).history);
-    } catch (err) {
-      console.error('Failed to fetch data:', err);
-      setError(String(err));
-    } finally {
-      setLoading(false);
-    }
+      const configRes = await fetch('/api/horizon/config', { headers });
+      if (configRes.ok) {
+        const data = await configRes.json();
+        setConfig(data.config);
+        setDefaults(data.defaults);
+        setFreeze(data.freeze);
+      }
+      const h = await fetch('/api/horizon/health');
+      if (h.ok) setHealth(await h.json());
+      const e = await fetch('/api/horizon/config/experiments');
+      if (e.ok) setExperiments((await e.json()).experiments);
+      const hi = await fetch('/api/horizon/config/history?limit=10');
+      if (hi.ok) setHistory((await hi.json()).history);
+    } catch (e) { console.error('refetch error', e); }
   };
 
   const handleUpdate = async (group: ConfigGroup, values: Record<string, unknown>, reason: string) => {
@@ -64,14 +83,8 @@ export function ControlPanel() {
       headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
       body: JSON.stringify({ group, values, reason }),
     });
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(err.error || 'Update failed');
-      return;
-    }
-
-    await fetchData();
+    if (!res.ok) { const err = await res.json(); alert(err.error || 'Update failed'); return; }
+    await refetchAll();
   };
 
   const handleFreeze = async (freezeState: boolean, reason: string) => {
@@ -80,7 +93,7 @@ export function ControlPanel() {
       headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
       body: JSON.stringify({ freeze: freezeState, reason }),
     });
-    await fetchData();
+    await refetchAll();
   };
 
   const handleRollback = async (historyId: string, reason: string) => {
@@ -89,7 +102,7 @@ export function ControlPanel() {
       headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
       body: JSON.stringify({ historyId, reason }),
     });
-    await fetchData();
+    await refetchAll();
   };
 
   if (loading) {
@@ -111,7 +124,7 @@ export function ControlPanel() {
           <h2 className="text-xl font-semibold text-white mb-2">Ошибка загрузки</h2>
           <p className="text-gray-400 text-sm mb-4">{error}</p>
           <button
-            onClick={fetchData}
+            onClick={() => window.location.reload()}
             className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-500"
           >
             Повторить

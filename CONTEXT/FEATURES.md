@@ -162,11 +162,9 @@
 
 | ID | Фича | Статус |
 |----|------|--------|
-| CP-6.1 | ConfigResolver в scan route | ✅ |
-| CP-6.2 | Confidence multiplier → effectiveSignal | ✅ |
-| CP-6.3 | Alert rate recording для мониторинга | ✅ |
+| CP-6 | Integration в scan route | ⏳ |
 
-**Progress: 28/28 задач (100%)** ✅
+**Progress: 27/28 задач (96%)**
 
 ---
 

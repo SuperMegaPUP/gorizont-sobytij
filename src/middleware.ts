@@ -4,6 +4,7 @@ const PUBLIC_PATHS = [
   '/api/horizon/health',
   '/api/horizon/scan',
   '/api/horizon/config/monitor',
+  '/api/horizon/config/preview',
 ];
 
 export function middleware(request: NextRequest) {
@@ -24,6 +25,10 @@ export function middleware(request: NextRequest) {
   }
 
   if (PUBLIC_PATHS.some((p) => pathname === p)) {
+    return NextResponse.next();
+  }
+
+  if (pathname.startsWith('/api/horizon/config') && request.method === 'GET') {
     return NextResponse.next();
   }
 

@@ -2,10 +2,13 @@
   "name": "nextjs_tailwind_shadcn_ts",
   "version": "3.2.1",
   "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
-    "dev": "next dev -p 3000 2>&1 | tee dev.log",
+    "dev": "NODE_OPTIONS='--max-old-space-size=3072' node node_modules/next/dist/bin/next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
+    "start": "NODE_ENV=production node .next/standalone/server.js",
     "lint": "eslint .",
     "test": "jest --verbose",
     "test:ci": "jest --ci --verbose --forceExit --detectOpenHandles --testPathIgnorePatterns=horizon-synthetic",

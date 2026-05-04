@@ -6,8 +6,15 @@ let _store: IConfigStore | null = null;
 export function getConfigStore(): IConfigStore {
   if (_store) return _store;
 
+  const forceMemory = process.env.CONFIG_STORE_MODE === 'memory';
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (forceMemory) {
+    console.log('[ConfigStore] CONFIG_STORE_MODE=memory → Using in-memory store');
+    _store = new MemoryConfigStore();
+    return _store;
+  }
 
   if (url && token) {
     try {
@@ -21,7 +28,7 @@ export function getConfigStore(): IConfigStore {
     }
   }
 
-  console.warn('[ConfigStore] No Redis — using in-memory (NO PERSISTENCE!)');
+  console.warn('[ConfigStore] No Redis config — using in-memory (NO PERSISTENCE!)');
   _store = new MemoryConfigStore();
   return _store;
 }

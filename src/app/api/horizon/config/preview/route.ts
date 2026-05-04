@@ -1,35 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfigStore } from '@/lib/horizon/config/store-factory';
-import { ConfigPreviewRequestSchema } from '@/lib/horizon/config/config-zod';
-import type { ConfigPreviewResponse } from '@/lib/horizon/config/config-schema';
+import type { ConfigPreviewResponse, ConfigGroup } from '@/lib/horizon/config/config-schema';
+
+const VALID_GROUPS = ['global', 'q10_predator', 'q1_priceControl', 'q8_squeeze', 'q11_rotation', 'q9_preImpulse', 'q12_algorithmic', 'cipher', 'conf'];
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const parsed = ConfigPreviewRequestSchema.safeParse(body);
+    const { group, values, ticker } = body as { group?: string; values?: Record<string, unknown>; ticker?: string };
 
-    if (!parsed.success) {
+    if (!group || !VALID_GROUPS.includes(group)) {
       return NextResponse.json(
-        { error: 'Invalid', details: parsed.error.issues },
+        { error: 'Invalid group', details: `Group must be one of: ${VALID_GROUPS.join(', ')}` },
         { status: 400 }
       );
+    }
+
+    if (!values || typeof values !== 'object') {
+      return NextResponse.json({ error: 'Invalid values', details: 'values must be an object' }, { status: 400 });
+    }
+
+    if (!ticker || typeof ticker !== 'string') {
+      return NextResponse.json({ error: 'Invalid ticker', details: 'ticker is required' }, { status: 400 });
     }
 
     const store = getConfigStore();
     const config = await store.getConfig();
 
-    const proposedGroupConfig = {
-      ...config[parsed.data.group],
-      ...parsed.data.values,
-    };
+    const currentGroupConfig = config[group as ConfigGroup];
+    if (!currentGroupConfig) {
+      return NextResponse.json(
+        { error: 'Invalid group', details: `Group '${group}' not found in config` },
+        { status: 400 }
+      );
+    }
 
-    const proposedConfig = {
-      ...config,
-      [parsed.data.group]: proposedGroupConfig,
+    const proposedGroupConfig = {
+      ...currentGroupConfig,
+      ...values,
     };
 
     const preview: ConfigPreviewResponse = {
-      ticker: parsed.data.ticker,
+      ticker,
       timestamp: new Date().toISOString(),
       current: {
         alerts: 0,

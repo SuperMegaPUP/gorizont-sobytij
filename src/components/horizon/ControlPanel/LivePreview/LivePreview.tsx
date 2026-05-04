@@ -35,6 +35,7 @@ export function LivePreview({ config }: LivePreviewProps) {
     if (Object.keys(proposedValues).length === 0) return;
 
     setLoading(true);
+    setPreview(null);
     try {
       const res = await fetch('/api/horizon/config/preview', {
         method: 'POST',
@@ -46,9 +47,15 @@ export function LivePreview({ config }: LivePreviewProps) {
         }),
       });
       const data = await res.json();
-      setPreview(data);
+      if (res.ok && data.delta) {
+        setPreview(data);
+      } else {
+        console.error('Preview error:', data.error || data.details);
+        setPreview(null);
+      }
     } catch (err) {
       console.error('Preview failed:', err);
+      setPreview(null);
     } finally {
       setLoading(false);
     }

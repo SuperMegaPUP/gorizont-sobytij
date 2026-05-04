@@ -4,15 +4,46 @@ import { DEFAULT_HORIZON_CONFIG } from './default-config';
 export class UpstashConfigStore implements IConfigStore {
   private redis: any;
   private prefix = 'horizon:config';
+  private useFallback = false;
 
   constructor(redis: any) {
     this.redis = redis;
   }
 
+  private async withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Redis timeout after ${ms}ms`)), ms)
+      ),
+    ]);
+  }
+
+  private async safeGet<T>(key: string): Promise<T | null> {
+    if (this.useFallback) return null;
+    try {
+      return await this.withTimeout(this.redis.get<T>(key), 5000);
+    } catch (e) {
+      console.error('[ConfigRedis] GET failed, using memory fallback:', e);
+      this.useFallback = true;
+      return null;
+    }
+  }
+
+  private async safeSet(key: string, value: string): Promise<void> {
+    if (this.useFallback) return;
+    try {
+      await this.withTimeout(this.redis.set(key, value), 5000);
+    } catch (e) {
+      console.error('[ConfigRedis] SET failed, using memory fallback:', e);
+      this.useFallback = true;
+    }
+  }
+
   async getConfig(): Promise<HorizonDetectorConfig> {
-    const raw = await this.redis.get<string>(`${this.prefix}:current`);
+    const raw = await this.safeGet<string>(`${this.prefix}:current`);
     if (!raw) {
-      await this.redis.set(`${this.prefix}:current`, JSON.stringify(DEFAULT_HORIZON_CONFIG));
+      await this.safeSet(`${this.prefix}:current`, JSON.stringify(DEFAULT_HORIZON_CONFIG));
       return { ...DEFAULT_HORIZON_CONFIG };
     }
     return JSON.parse(raw) as HorizonDetectorConfig;
@@ -21,40 +52,40 @@ export class UpstashConfigStore implements IConfigStore {
   async updateGroup(group: ConfigGroup, values: Record<string, unknown>): Promise<HorizonDetectorConfig> {
     const current = await this.getConfig();
     const updated = { ...current, [group]: { ...current[group], ...values } };
-    await this.redis.set(`${this.prefix}:current`, JSON.stringify(updated));
+    await this.safeSet(`${this.prefix}:current`, JSON.stringify(updated));
     return updated;
   }
 
   async getHistory(limit = 100): Promise<ConfigHistoryEntry[]> {
-    const raw = await this.redis.get<string>(`${this.prefix}:history`);
+    const raw = await this.safeGet<string>(`${this.prefix}:history`);
     if (!raw) return [];
     const all = JSON.parse(raw) as ConfigHistoryEntry[];
     return all.slice(-limit);
   }
 
   async addHistory(entry: ConfigHistoryEntry): Promise<void> {
-    const raw = await this.redis.get<string>(`${this.prefix}:history`);
+    const raw = await this.safeGet<string>(`${this.prefix}:history`);
     const all = raw ? (JSON.parse(raw) as ConfigHistoryEntry[]) : [];
     all.push(entry);
     if (all.length > 500) {
-      await this.redis.set(`${this.prefix}:history`, JSON.stringify(all.slice(-500)));
+      await this.safeSet(`${this.prefix}:history`, JSON.stringify(all.slice(-500)));
     } else {
-      await this.redis.set(`${this.prefix}:history`, JSON.stringify(all));
+      await this.safeSet(`${this.prefix}:history`, JSON.stringify(all));
     }
   }
 
   async getFreezeState(): Promise<FreezeState> {
-    const raw = await this.redis.get<string>(`${this.prefix}:freeze`);
+    const raw = await this.safeGet<string>(`${this.prefix}:freeze`);
     if (!raw) return { frozen: false };
     return JSON.parse(raw) as FreezeState;
   }
 
   async setFreezeState(state: FreezeState): Promise<void> {
-    await this.redis.set(`${this.prefix}:freeze`, JSON.stringify(state));
+    await this.safeSet(`${this.prefix}:freeze`, JSON.stringify(state));
   }
 
   async getExperiments(): Promise<Experiment[]> {
-    const raw = await this.redis.get<string>(`${this.prefix}:experiments`);
+    const raw = await this.safeGet<string>(`${this.prefix}:experiments`);
     if (!raw) return [];
     return JSON.parse(raw) as Experiment[];
   }
@@ -67,49 +98,65 @@ export class UpstashConfigStore implements IConfigStore {
     } else {
       experiments.push(experiment);
     }
-    await this.redis.set(`${this.prefix}:experiments`, JSON.stringify(experiments));
+    await this.safeSet(`${this.prefix}:experiments`, JSON.stringify(experiments));
   }
 
   async getRollbackLog(): Promise<AutoRollbackEvent[]> {
-    const raw = await this.redis.get<string>(`${this.prefix}:rollback_log`);
+    const raw = await this.safeGet<string>(`${this.prefix}:rollback_log`);
     if (!raw) return [];
     return JSON.parse(raw) as AutoRollbackEvent[];
   }
 
   async addRollbackEvent(event: AutoRollbackEvent): Promise<void> {
-    const raw = await this.redis.get<string>(`${this.prefix}:rollback_log`);
+    const raw = await this.safeGet<string>(`${this.prefix}:rollback_log`);
     const all = raw ? (JSON.parse(raw) as AutoRollbackEvent[]) : [];
     all.push(event);
-    await this.redis.set(`${this.prefix}:rollback_log`, JSON.stringify(all.slice(-100)));
+    await this.safeSet(`${this.prefix}:rollback_log`, JSON.stringify(all.slice(-100)));
   }
 
   async getChangeCount(sessionId: string): Promise<number> {
-    const val = await this.redis.get<number>(`${this.prefix}:changes:${sessionId}`);
+    const val = await this.safeGet<number>(`${this.prefix}:changes:${sessionId}`);
     return val ?? 0;
   }
 
   async incrementChangeCount(sessionId: string): Promise<number> {
+    if (this.useFallback) {
+      const c = (await this.getChangeCount(sessionId)) + 1;
+      return c;
+    }
     const key = `${this.prefix}:changes:${sessionId}`;
-    const count = await this.redis.incr(key);
-    if (count === 1) await this.redis.expire(key, 28800);
-    return count;
+    try {
+      const count = await this.withTimeout(this.redis.incr(key), 5000);
+      if (count === 1) await this.redis.expire(key, 28800);
+      return count;
+    } catch (e) {
+      console.error('[ConfigRedis] INCR failed, using memory fallback:', e);
+      this.useFallback = true;
+      return (await this.getChangeCount(sessionId)) + 1;
+    }
   }
 
   async resetChangeCount(sessionId: string): Promise<void> {
-    await this.redis.del(`${this.prefix}:changes:${sessionId}`);
+    if (this.useFallback) return;
+    const key = `${this.prefix}:changes:${sessionId}`;
+    try {
+      await this.withTimeout(this.redis.del(key), 5000);
+    } catch (e) {
+      this.useFallback = true;
+    }
   }
 
   async getAlertRates(limit = 100): Promise<Array<{ timestamp: string; rate: number }>> {
-    const raw = await this.redis.get<string>(`${this.prefix}:alert_rates`);
+    const raw = await this.safeGet<string>(`${this.prefix}:alert_rates`);
     if (!raw) return [];
     return (JSON.parse(raw) as Array<{ timestamp: string; rate: number }>).slice(-limit);
   }
 
   async addAlertRate(timestamp: string, rate: number): Promise<void> {
-    const raw = await this.redis.get<string>(`${this.prefix}:alert_rates`);
+    const raw = await this.safeGet<string>(`${this.prefix}:alert_rates`);
     const all = raw ? (JSON.parse(raw) as Array<{ timestamp: string; rate: number }>) : [];
     all.push({ timestamp, rate });
-    await this.redis.set(`${this.prefix}:alert_rates`, JSON.stringify(all.slice(-200)));
+    await this.safeSet(`${this.prefix}:alert_rates`, JSON.stringify(all.slice(-200)));
   }
 }
 
